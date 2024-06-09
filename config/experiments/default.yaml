@@ -1,0 +1,30 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - override /model: transformer # the chosen model
+  - override /dataset: cell_type_classification # dataset for the relevant task
+  - override /scheduler: cosine # contains scheduler
+  - override /trainer: default # contains optimizer and trainer details
+  - override /optimizer: adamW
+  - override /f_c: identity
+  - override /f_g: identity
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+
+
+project_name: 'Cell_Type_Classification' #project name for WandB
+run_name: 'run_name'  ## what is set for WandB
+work_dir: 'work_dir'  ## set your custom working directory
+
+seed: 42
+
+trainer:
+  accumulate_grad_batches: 1
+
+optimizer:
+  learning_rate: 2e-3
