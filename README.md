@@ -18,11 +18,41 @@ pip install -r requirements.txt
 ```
 
 
-# Overall Structure
+# Model Documentation
+
+The `Heimdall_Transformer` object is a default transformer that is flexible for `learned` embeddings and `predefined` embeddings, as well as conditional tokens that can be `learned` or `predefined` as well. Here is an example:
+
+
+```
+## initialize the model
+from Heimdall.models import Heimdall_Transformer, TransformerConfig
+
+### canonical example of conditional tokens being added, learened
+config = TransformerConfig(vocab_size = 1000, max_seq_length = 1000)
+
+conditional_tokens = {
+    "conditional_tokens_1":{
+        "type": "learned", ## This can be learned or predefined
+        "vocab_size": 1000
+    }
+}
+model = Heimdall_Transformer(config=config, input_type="learned", conditional_input_types=conditional_tokens)
+
+## Demo purposes
+x = torch.tensor([X[0]])
+x_1 = torch.tensor([X[1]])
+
+out = model(inputs = x, conditional_tokens = {"conditional_tokens_1": x_1})
+out.shape
+```
+
+
+
+# Overall Structure For Cell Representation
 
 The primary object that will prepare the cell_representations is `Heimdall.cell_representations.Cell_Representation`. A minimal example is provided in both `main.py` and `demo.ipynb` that showcases how to use hydra and omegaConf and how to prepare `f_g` and `f_c` accordingly.
 
-## Quickstart
+## Quickstart For Cell Representation
 
 ```
 fg = identity_fg
