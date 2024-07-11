@@ -60,7 +60,7 @@ class GeneMappingOutput:
 
         print(
             f"Successfully mapped {len(self.mapping_full):,} out of {len(self.genes):,} "
-            f"genes ({len(self.mapping_full) / len(genes):.1%})",
+            f"genes ({len(self.mapping_full) / len(self.genes):.1%})",
         )
 
 
