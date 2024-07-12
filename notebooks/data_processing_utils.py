@@ -12,8 +12,8 @@ from tqdm.auto import tqdm
 MG = mygene.MyGeneInfo()
 
 ENSEMBL_URL_MAP = {
-    "human": "https://ftp.ensembl.org/pub/release-{}/gtf/homo_sapiens/Homo_sapiens.GRCh38.112.gtf.gz",
-    "mouse": "https://ftp.ensembl.org/pub/release-{}/gtf/mus_musculus/Mus_musculus.GRCm39.112.gtf.gz",
+    "human": "https://ftp.ensembl.org/pub/release-{}/gtf/homo_sapiens/Homo_sapiens.GRCh38.{}.gtf.gz",
+    "mouse": "https://ftp.ensembl.org/pub/release-{}/gtf/mus_musculus/Mus_musculus.GRCm39.{}.gtf.gz",
 }
 
 
@@ -115,7 +115,7 @@ def _load_ensembl_table(
     release: int,
 ) -> Dict[str, List[str]]:
     try:
-        url = ENSEMBL_URL_MAP[species].format(release)
+        url = ENSEMBL_URL_MAP[species].format(release, release)
         fname = url.split("/")[-1]
     except KeyError as e:
         raise KeyError(
