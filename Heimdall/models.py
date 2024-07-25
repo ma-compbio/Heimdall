@@ -117,7 +117,7 @@ class HeimdallTransformer(nn.Module):
                 loss is computed (Cross-Entropy).
 
         """
-        logits = self.LM_model(inputs, conditional_tokens, attention_mask)
+        logits = self.lm_model(inputs, conditional_tokens, attention_mask)
 
         loss = None
         if labels is not None:
@@ -156,7 +156,7 @@ class HeimdallTransformer(nn.Module):
 
         return payload
 
-    def LM_model(self, inputs, conditional_tokens=None, attention_mask=None):
+    def lm_model(self, inputs, conditional_tokens=None, attention_mask=None):
         """LM model.
 
         Args:
