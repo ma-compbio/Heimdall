@@ -1,32 +1,27 @@
-## loading in libraries
-import scanpy as sc
-import anndata as ad
 import numpy as np
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-from tqdm import tqdm
-import hydra
 import pandas as pd
-from omegaconf import OmegaConf
+from tqdm import tqdm
 
 
 def geneformer_fc(fg, adata):
-    """
-    geneformer_fc is a fc that will reprocess each cell by ordering them by their gene expression value,
-    and replace each gene name by their corresponding representation, either token_id or a different vector
+    """geneformer_fc is a fc that will reprocess each cell by ordering them by
+    their gene expression value, and replace each gene name by their
+    corresponding representation, either token_id or a different vector.
 
     right now this only supports token_id
 
-    args:
-        - fg: dictionary that maps gene names to token ids
-        - adata: the whole, already processed, anndata object with the CellxGene Matrix
+    Args:
+        fg: dictionary that maps gene names to token ids.
+        adata: the whole, already processed, anndata object with the CellxGene
+            matrix.
 
-    output:
-        - output: dataset, a numpy object that is dimension CellxGene where the position has the token denoting what gene it is
+    Return:
+       A numpy object that is dimension CellxGene where the position has the
+       token denoting what gene it is.
+
     """
 
-    assert all(isinstance(value, (int)) for value in fg.values()), \
-            "Current geneformer_fc only supports token ids"
+    assert all(isinstance(value, (int)) for value in fg.values()), "Current geneformer_fc only supports token ids"
 
     print("> Performing the f_c using rank-based values, as seen in geneformer")
     df = pd.DataFrame(adata.X, columns=fg.keys())
