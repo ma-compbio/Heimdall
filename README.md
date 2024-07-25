@@ -2,7 +2,7 @@
 
 # Installation
 
-```
+```bash
 git clone
 
 cd Heimdall
@@ -11,8 +11,6 @@ conda create --name heimdall_empty python=3.10
 conda activate heimdall
 pip install -r requirements.txt
 pip install torch==2.0.1+cu118 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-
 ```
 
 ## Sset up for dev
@@ -51,26 +49,26 @@ python train.py
 
 The `Heimdall_Trainer` object now will automatically consider and process the training with Huggingface Accelerate
 
-```
+```python
 #####
-    # Initialize the Trainer
-    #####
-    trainer = Heimdall_Trainer(config=config, model=model, optimizer=optimizer,
-                dataloader_train = dataloader_train,
-                dataloader_val = dataloader_val,
-                dataloader_test = dataloader_test,
-                run_wandb = True)
+# Initialize the Trainer
+#####
+trainer = Heimdall_Trainer(config=config, model=model, optimizer=optimizer,
+            dataloader_train = dataloader_train,
+            dataloader_val = dataloader_val,
+            dataloader_test = dataloader_test,
+            run_wandb = True)
 
 
-    ### Training
-    trainer.train()
+### Training
+trainer.train()
 ```
 
 # Model Documentation
 
 The `Heimdall_Transformer` object is a default transformer that is flexible for `learned` embeddings and `predefined` embeddings, as well as conditional tokens that can be `learned` or `predefined` as well. Here is an example:
 
-```
+```python
 ## initialize the model
 from Heimdall.models import Heimdall_Transformer, TransformerConfig
 
@@ -99,7 +97,7 @@ The primary object that will prepare the cell_representations is `Heimdall.cell_
 
 ## Quickstart For Cell Representation
 
-```
+```python
 fg = identity_fg
 fc = geneformer_fc
 
@@ -120,7 +118,7 @@ This is quite fluid, but in general, the `f_g` function prepared takes in an `an
 
 Here is an example that does it only for integers:
 
-```
+```python
 def identity_fg(adata_var):
     """
     identity_fg is an fg that returns a token id for each gene, effectively each gene
@@ -140,7 +138,7 @@ def identity_fg(adata_var):
 
 This is activated by passing it through the function:
 
-```
+```python
 CR.preprocess_f_g(identity_fg) ## takes in the identity f_g specified above
 ```
 
@@ -152,7 +150,7 @@ the anndata object.
 The `fc` will return a list, where each entry is a single cell example. In this example below `dataset[0]` is an `n_gene x 1`
 vector denoting one cell as each entry is a gene id.
 
-```
+```python
 def geneformer_fc(fg, adata):
     """
     geneformer_fc is a fc that will reprocess each cell by ordering them by their gene expression value,
@@ -187,6 +185,6 @@ def geneformer_fc(fg, adata):
 
 This is activated by passing it through the function:
 
-```
+```python
 CR.preprocess_f_c(geneformer_fc) ## takes in the geneformer f_c specified above
 ```
