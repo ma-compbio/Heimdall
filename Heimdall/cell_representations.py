@@ -7,7 +7,7 @@ import scanpy as sc
 from Heimdall.utils import get_value
 
 
-class Cell_Representation:
+class CellRepresentation:
     def __init__(self, config):
         """Initialize the Cell Rep object with configuration and AnnData object.
 

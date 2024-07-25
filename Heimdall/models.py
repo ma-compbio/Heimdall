@@ -29,7 +29,7 @@ class TransformerConfig:
     problem_type: str = "single_label_classification"
 
 
-class Heimdall_Transformer(nn.Module):
+class HeimdallTransformer(nn.Module):
     def __init__(self, config: TransformerConfig, input_type: str, conditional_input_types: Optional[dict] = None):
         super().__init__()
         """Heimdall transformer model.
@@ -220,9 +220,9 @@ class Heimdall_Transformer(nn.Module):
         encoder_output = self.encoder(input_embeds, src_key_padding_mask=attention_mask)
 
         # Taking just the CLS token to pass to the decoder
-        CLS_token = encoder_output[:, 0, :]
+        cls_token = encoder_output[:, 0, :]
 
         # Decoder
-        prediction_scores = self.decoder(CLS_token)
+        prediction_scores = self.decoder(cls_token)
 
         return prediction_scores

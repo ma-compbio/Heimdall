@@ -1,7 +1,5 @@
 """Heimdall trainer."""
 
-import time
-
 import psutil
 import torch
 from accelerate import Accelerator
@@ -12,7 +10,7 @@ from tqdm import tqdm
 from transformers import get_scheduler
 
 
-class Heimdall_Trainer:
+class HeimdallTrainer:
     def __init__(
         self,
         config,
@@ -118,7 +116,7 @@ class Heimdall_Trainer:
 
         if self.accelerator.is_main_process:
             print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
-            print("> run Heimdall_Trainer.train() to begin training")
+            print("> run HeimdallTrainer.train() to begin training")
 
     def train(self):
 
