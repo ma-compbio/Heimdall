@@ -17,3 +17,16 @@ def flake8(session):
         "pep8-naming",
     )
     session.run("flake8", "Heimdall/")
+
+
+@nox.session
+def lint(session):
+    targets = (flake8,)
+    for t in targets:
+        session.log(f"Runing {t.__name__}")
+        t(session)
+
+
+nox.options.sessions = [
+    "lint",
+]
