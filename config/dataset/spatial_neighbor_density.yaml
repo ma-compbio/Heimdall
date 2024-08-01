@@ -1,9 +1,7 @@
-
-
 dataset_name: "spatial_neighbor_density"
 
 preprocess_args:
-  data_path: "data/spatial_neighborhood/spatial_dataset.h5ad"
+  data_path: "/work/magroup/shared/Heimdall/data/spatial_neighborhood/spatial_dataset_minimal.h5ad"
   normalize: true
   log_1p: true
   scale_data: true

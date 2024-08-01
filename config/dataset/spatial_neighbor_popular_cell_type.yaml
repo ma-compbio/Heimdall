@@ -1,9 +1,7 @@
-
-
 dataset_name: "spatial_neighbor_popular_cell_type"
 
 preprocess_args:
-  data_path: "/work/magroup/shared/Heimdall/data/spatial_neighborhood/spatial_dataset.h5ad"
+  data_path: "/work/magroup/shared/Heimdall/data/spatial_neighborhood/spatial_dataset_minimal_intlabels.h5ad"
   normalize: true
   log_1p: true
   scale_data: true
@@ -15,4 +13,4 @@ task_args:
   shuffle: True
   batchsize: 32
   epochs: 10
-  prediction_dim: 20
+  prediction_dim: 22
