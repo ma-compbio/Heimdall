@@ -5,8 +5,8 @@
 ####
 defaults:
   - /model: transformer # the chosen model
-  - /dataset: cell_type_classification # dataset for the relevant task
-  - /tasks: cell_type_classification # dataset for the relevant task
+  - /dataset: cell_type_classification_dev # dataset for the relevant task
+  - /tasks: cell_type_classification_dev # dataset for the relevant task
   - /scheduler: cosine # contains scheduler
   - /trainer: default # contains optimizer and trainer details
   - /optimizer: AdamW
@@ -19,7 +19,7 @@ defaults:
 ####
 
 
-project_name: 'Cell_Type_Classification' #project name for WandB
+project_name: 'Cell_Type_Classification_dev' #project name for WandB
 run_name: 'run_name'  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
 entity: 'Heimdall'
