@@ -1,0 +1,11 @@
+
+
+dataset_name: "cell_cell_interaction"
+
+preprocess_args:
+  data_path: "/work/magroup/shared/Heimdall/data/cell_to_cell_interaction/processed/adata_C57BL6J-638850.01.h5ad"
+  top_n_genes: 1000
+  normalize: true
+  log_1p: true
+  scale_data: true
+  species: 'human'

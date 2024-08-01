@@ -9,6 +9,7 @@ __pycache__/
 outputs/
 data/
 *.ipynb
+wandb/
 
 # Distribution / packaging
 .Python

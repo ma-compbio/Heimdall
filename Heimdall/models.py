@@ -117,44 +117,49 @@ class HeimdallTransformer(nn.Module):
                 loss is computed (Cross-Entropy).
 
         """
+        if len(conditional_tokens) == 0:  # handling when tehre are no conditional tokens supplied
+            conditional_tokens = None
+
         logits = self.lm_model(inputs, conditional_tokens, attention_mask)
 
-        loss = None
-        if labels is not None:
-            labels = labels.to(logits.device)
+        return logits
 
-            # instantiating the problem type if it is not specified
-            if self.config.problem_type is None:
-                if self.num_labels == 1:
-                    self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
-                    self.config.problem_type = "single_label_classification"
-                else:
-                    self.config.problem_type = "multi_label_classification"
+        # loss = None
+        # if labels is not None:
+        #     labels = labels.to(logits.device)
 
-            # obtaining the loss
-            if self.config.problem_type == "regression":
-                if self.use_huberloss:
-                    loss_fct = nn.HuberLoss()
-                else:
-                    loss_fct = nn.MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(logits.squeeze(), labels.squeeze())
-                else:
-                    loss = loss_fct(logits, labels)
-            elif self.config.problem_type == "single_label_classification":
-                loss_fct = nn.CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            elif self.config.problem_type == "multi_label_classification":
-                loss_fct = nn.BCEWithLogitsLoss()
-                loss = loss_fct(logits, labels)
+        #     ## instantiating the problem type if it is not specified
+        #     if self.config.problem_type is None:
+        #         if self.num_labels == 1:
+        #             self.config.problem_type = "regression"
+        #         elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+        #             self.config.problem_type = "single_label_classification"
+        #         else:
+        #             self.config.problem_type = "multi_label_classification"
 
-        payload = {
-            "loss": loss,
-            "logits": logits,
-        }
+        #     ## obtaining the loss
+        #     if self.config.problem_type == "regression":
+        #         if self.use_huberloss:
+        #             loss_fct = HuberLoss()
+        #         else:
+        #             loss_fct = MSELoss()
+        #         if self.num_labels == 1:
+        #             loss = loss_fct(logits.squeeze(), labels.squeeze())
+        #         else:
+        #             loss = loss_fct(logits, labels)
+        #     elif self.config.problem_type == "single_label_classification":
+        #         loss_fct = CrossEntropyLoss()
+        #         loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+        #     elif self.config.problem_type == "multi_label_classification":
+        #         loss_fct = BCEWithLogitsLoss()
+        #         loss = loss_fct(logits, labels)
 
-        return payload
+        # payload = {
+        #     "loss" : loss,
+        #     "logits" : logits
+        # }
+
+        # return payload
 
     def lm_model(self, inputs, conditional_tokens=None, attention_mask=None):
         """LM model.

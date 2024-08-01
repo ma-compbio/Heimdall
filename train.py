@@ -5,9 +5,12 @@ from omegaconf import OmegaConf
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
+## Cell representation tools from heimdall
 from Heimdall.cell_representations import CellRepresentation
-from Heimdall.f_c import geneformer_fc
+from Heimdall.f_c import geneformer_fc, old_geneformer_fc
 from Heimdall.f_g import identity_fg
+
+## initialize the model
 from Heimdall.models import HeimdallTransformer, TransformerConfig
 from Heimdall.trainer import HeimdallTrainer
 from Heimdall.utils import heimdall_collate_fn
@@ -23,14 +26,17 @@ def main(config):
     # preprocess the dataset
     #####
 
-    CR = CellRepresentation(config)  # takes in the whole config from hydra
-    CR.preprocess_anndata()  # standard sc preprocessing can be done here
-    CR.preprocess_f_g(identity_fg)  # takes in the identity f_g specified above
-    CR.preprocess_f_c(geneformer_fc)  # takes in the geneformer f_c specified above
-    CR.prepare_labels()  # prepares the labels
+    CR = Cell_Representation(config)  ## takes in the whole config from hydra
+    CR.preprocess_anndata()  ## standard sc preprocessing can be done here
+    CR.preprocess_f_g(identity_fg)  ## takes in the identity f_g specified above
 
-    # we can take this out here now and pass this into a PyTorch dataloader and separately create the model
-    X = CR.cell_representation
+    CR.preprocess_f_c(old_geneformer_fc)  ## takes in the geneformer f_c specified above
+    # CR.preprocess_f_c(geneformer_fc) ## for now use the old_geneformer
+
+    CR.prepare_labels()  ## prepares the labels
+
+    ## we can take this out here now and pass this into a PyTorch dataloader and separately create the model
+    X = CR.adata.layers["cell_representation"]
     y = CR.labels
 
     print(f"Cell representation X: {X.shape}")
@@ -53,8 +59,8 @@ def main(config):
 
     # this is how you dynamically process your outputs into the right dataloader format
     # if you do not want conditional tokens, just omit those arguments
-    # what is crucial is that the dataset contains the arguments `inputs` and `labels`,
-    # anything else will be put into `conditional`
+    # what is crucial is that the dataset contains the arguments `inputs` and `labels`, anything else will be put into `conditional`
+
     ds_train = Dataset.from_dict(
         {"inputs": train_x, "labels": train_y, "conditional_tokens_1": train_x, "conditional_tokens_2": train_x},
     )
@@ -65,23 +71,28 @@ def main(config):
         {"inputs": test_x, "labels": test_y, "conditional_tokens_1": test_x, "conditional_tokens_2": test_x},
     )
 
-    # this can probably be rolled into the train functionality itself, but lets keep it outside to be eaiser to debug
+    # optionally if you do not want any conditional tokens, do the following format:
+    """
+    ds_train = Dataset.from_dict({"inputs": train_x,'labels':train_y})
+    """
+
+    ## this can probably be rolled into the train functionality itself, but lets keep it outside to be eaiser to debug
     dataloader_train = DataLoader(
         ds_train,
-        batch_size=int(config.dataset.task_args.batchsize),
-        shuffle=config.dataset.task_args.shuffle,
+        batch_size=int(config.tasks.args.batchsize),
+        shuffle=config.tasks.args.shuffle,
         collate_fn=heimdall_collate_fn,
     )
     dataloader_val = DataLoader(
         ds_valid,
-        batch_size=int(config.dataset.task_args.batchsize),
-        shuffle=config.dataset.task_args.shuffle,
+        batch_size=int(config.tasks.args.batchsize),
+        shuffle=config.tasks.args.shuffle,
         collate_fn=heimdall_collate_fn,
     )
     dataloader_test = DataLoader(
         ds_test,
-        batch_size=int(config.dataset.task_args.batchsize),
-        shuffle=config.dataset.task_args.shuffle,
+        batch_size=int(config.tasks.args.batchsize),
+        shuffle=config.tasks.args.shuffle,
         collate_fn=heimdall_collate_fn,
     )
 
@@ -110,30 +121,20 @@ def main(config):
         conditional_input_types=conditional_input_types,
     )
 
-    # optimizer
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=config.optimizer.learning_rate,
-        weight_decay=config.optimizer.weight_decay,
-        betas=(config.optimizer.beta1, config.optimizer.beta2),
-        foreach=False,
-    )  # the forearch is due to a distributed bug with cosine scheduler
-
     #####
     # Initialize the Trainer
     #####
     trainer = HeimdallTrainer(
-        config=config,
+        cfg=config,
         model=model,
-        optimizer=optimizer,
         dataloader_train=dataloader_train,
         dataloader_val=dataloader_val,
         dataloader_test=dataloader_test,
         run_wandb=True,
     )
 
-    # Training
-    trainer.train()
+    ### Training
+    trainer.fit()
 
 
 if __name__ == "__main__":
