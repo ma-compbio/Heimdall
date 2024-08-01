@@ -1,22 +1,18 @@
 """Heimdall trainer."""
 
-import time
-
 import psutil
 import torch
 import torch.nn as nn
-import wandb
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from omegaconf import OmegaConf
-from torch.optim import AdamW
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
 from transformers import get_scheduler
 
 
-class Heimdall_Trainer:
+class HeimdallTrainer:
     def __init__(
         self,
         cfg,
@@ -116,7 +112,7 @@ class Heimdall_Trainer:
                 config=OmegaConf.to_container(self.cfg, resolve=True),
                 init_kwargs=wandb_config,
             )
-            print(f"==> Initialized Run")
+            print("==> Initialized Run")
 
     def _initialize_lr_scheduler(self):
         dataset_config = self.cfg.tasks.args
@@ -207,7 +203,7 @@ class Heimdall_Trainer:
         log_every = 1
 
         with tqdm(self.dataloader_train, disable=not self.accelerator.is_main_process) as t:
-            for i, batch in enumerate(t):
+            for batch in t:
                 step += 1
                 is_logging = step % log_every == 0
 
@@ -256,7 +252,7 @@ class Heimdall_Trainer:
                 # print(metrics)
                 # print("---")
 
-                for metric_name, metric in metrics.items():
+                for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
                     # print(metric_name)

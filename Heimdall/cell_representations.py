@@ -125,9 +125,9 @@ class CellRepresentation:
         if self.task_structure == "single":
             ##
             self.prepare_labels()
-            X = cell_representation
+            x = cell_representation
             y = self.labels
-            self.df = pd.DataFrame({"inputs": X, "labels": y})
+            self.df = pd.DataFrame({"inputs": x, "labels": y})
 
         elif self.task_structure == "paired":
             ###

@@ -11,19 +11,19 @@ def load_gene_medians(pickle_file_path):
     return gene_medians
 
 
-def value_binning(expression_values, B=10):
-    """Bin the expression values into B bins.
+def value_binning(expression_values, n_bins=10):
+    """Bin the expression values into n_bins bins.
 
-    args:
-        - expression_values: array of expression values for a single cell
-        - B: number of bins
+    Args:
+        expression_values: array of expression values for a single cell.
+        n_bins: number of bins.
 
-    output:
-        - binned_values: array of binned expression values
+    Return:
+        Array of binned expression values.
 
     """
     non_zero_values = expression_values[expression_values > 0]
-    bin_edges = np.percentile(non_zero_values, np.linspace(0, 100, B + 1))
+    bin_edges = np.percentile(non_zero_values, np.linspace(0, 100, n_bins + 1))
     binned_values = np.digitize(expression_values, bin_edges, right=True)
     return binned_values
 
@@ -46,8 +46,8 @@ def old_geneformer_fc(fg, adata):
             matrix.
 
     Return:
-       A numpy object that is dimension CellxGene where the position has the
-       token denoting what gene it is.
+        A numpy object that is dimension CellxGene where the position has the
+        token denoting what gene it is.
 
     """
 
@@ -65,7 +65,7 @@ def old_geneformer_fc(fg, adata):
 
     dataset = np.array(dataset)
     adata.layers["cell_representation"] = dataset
-    print(f"> Added processed data to adata.layers['cell_representation']")
+    print("> Added processed data to adata.layers['cell_representation']")
     return adata
 
 
@@ -76,13 +76,15 @@ def geneformer_fc(fg, adata):
 
     right now this only supports token_id
 
-    args:
-        - fg: dictionary that maps gene names to token ids
-        - adata: the whole, already processed, anndata object with the CellxGene Matrix
+    Args:
+        fg: dictionary that maps gene names to token ids.
+        adata: the whole, already processed, anndata object with the CellxGene
+            Matrix.
 
-    output:
-        - updated adata objec that has the cell_representation processed as a layer
-        - specifically, a numpy object that is dimension CellxGene where the position has the token denoting what gene it is
+    Returns:
+        Updated adata objec that has the cell_representation processed as a
+        layer specifically, a numpy object that is dimension CellxGene where
+        the position has the token denoting what gene it is.
 
     """
 
@@ -121,22 +123,24 @@ def geneformer_fc(fg, adata):
 
     dataset = np.array(dataset)
     adata.layers["cell_representation"] = dataset
-    print(f"> Added processed data to adata.layers['cell_representation']")
+    print("> Added processed data to adata.layers['cell_representation']")
     return adata
 
 
-def scgpt_fc(fg, adata, B=10):
+def scgpt_fc(fg, adata, n_bins=10):
     """scgpt_fc reprocesses each cell by binning genes based on expression
     values and replacing each gene name with their corresponding token_id.
 
-    args:
-        - fg: dictionary that maps gene names to token ids
-        - adata: the whole, already processed, anndata object with the CellxGene Matrix
-        - B: number of bins for value binning
+    Args:
+        fg: dictionary that maps gene names to token ids.
+        adata: the whole, already processed, anndata object with the CellxGene
+            Matrix.
+        n_bins: number of bins for value binning.
 
-    output:
-        - dataset: a numpy object that is dimension CellxGene where the position has the token denoting what gene it is
-        - binned_values_dataset: a numpy object of binned expression values
+    Return:
+        dataset: a numpy object that is dimension CellxGene where the position
+            has the token denoting what gene it is.
+        binned_values_dataset: a numpy object of binned expression values.
 
     """
     assert all(isinstance(value, int) for value in fg.values()), "Current scgpt_fc only supports token ids"
@@ -149,17 +153,17 @@ def scgpt_fc(fg, adata, B=10):
     )
 
     dataset = []
-    binned_values_dataset = []
+    # binned_values_dataset = []
     for i in tqdm(range(len(df))):
         cell = df.iloc[i]
         sorted_cell = cell.sort_values(ascending=False).index
         cell_w_gene_ids = [fg[gene] for gene in sorted_cell]
-        binned_values = value_binning(cell.values, B=B)
+        binned_values = value_binning(cell.values, n_bins=n_bins)
 
         combined_representation = list(zip(cell_w_gene_ids, binned_values))
         dataset.append(combined_representation)
 
     dataset = np.array(dataset)
     adata.layers["cell_representation"] = dataset
-    print(f"> Added processed data to adata.layers['cell_representation']")
+    print("> Added processed data to adata.layers['cell_representation']")
     return adata
