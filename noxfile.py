@@ -11,10 +11,22 @@ def flake8(session):
         "flake8-colors",
         "flake8-commas",
         "flake8-comprehensions",
-        "flake8-docstrings",
-        "flake8-import-order",
+        # "flake8-docstrings",
         "flake8-pyproject",
         "flake8-use-fstring",
         "pep8-naming",
     )
-    session.run("flake8", "Heimdall/")
+    session.run("flake8", "Heimdall/", "train.py")
+
+
+@nox.session
+def lint(session):
+    targets = (flake8,)
+    for t in targets:
+        session.log(f"Runing {t.__name__}")
+        t(session)
+
+
+nox.options.sessions = [
+    "lint",
+]

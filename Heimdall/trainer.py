@@ -1,26 +1,29 @@
+"""Heimdall trainer."""
+
+import psutil
 import torch
 import torch.nn as nn
-from torch.optim import AdamW
-from transformers import get_scheduler
 from accelerate import Accelerator
 from accelerate.utils import set_seed
-from tqdm import tqdm
-import wandb
-import time
-import psutil
-from torchmetrics.classification import (
-    Accuracy, Precision, Recall, F1Score, 
-    ConfusionMatrix, MatthewsCorrCoef
-)
-from torchmetrics.regression import R2Score, MeanSquaredError
 from omegaconf import OmegaConf
+from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
+from torchmetrics.regression import MeanSquaredError, R2Score
+from tqdm import tqdm
+from transformers import get_scheduler
 
 
-
-
-class Heimdall_Trainer:
-    def __init__(self, cfg, model, dataloader_train, dataloader_val, dataloader_test, 
-                 run_wandb=False, custom_loss_func=None, custom_metrics=None):
+class HeimdallTrainer:
+    def __init__(
+        self,
+        cfg,
+        model,
+        dataloader_train,
+        dataloader_val,
+        dataloader_test,
+        run_wandb=False,
+        custom_loss_func=None,
+        custom_metrics=None,
+    ):
         self.cfg = cfg
         self.model = model
         self.dataloader_train = dataloader_train
@@ -34,20 +37,19 @@ class Heimdall_Trainer:
 
         accelerator_log_kwargs = {}
         if run_wandb:
-            accelerator_log_kwargs["log_with"] = 'wandb'
+            accelerator_log_kwargs["log_with"] = "wandb"
             accelerator_log_kwargs["project_dir"] = cfg.work_dir
         set_seed(cfg.seed)
 
         self.accelerator = Accelerator(
             gradient_accumulation_steps=cfg.trainer.accumulate_grad_batches,
             step_scheduler_with_optimizer=False,
-            **accelerator_log_kwargs
+            **accelerator_log_kwargs,
         )
 
         self.optimizer = self._initialize_optimizer()
         self.loss_fn = self._get_loss_function()
 
-        
         self.accelerator.wait_for_everyone()
         self.print_r0(f"> Using Device: {self.accelerator.device}")
         self.print_r0(f"> Number of Devices: {self.accelerator.num_processes}")
@@ -55,26 +57,33 @@ class Heimdall_Trainer:
         self._initialize_wandb()
         self._initialize_lr_scheduler()
 
-        self.model, self.optimizer, self.dataloader_train, self.dataloader_val, self.dataloader_test, self.lr_scheduler = self.accelerator.prepare(
-            self.model, self.optimizer, self.dataloader_train, self.dataloader_val, self.dataloader_test, self.lr_scheduler
+        (
+            self.model,
+            self.optimizer,
+            self.dataloader_train,
+            self.dataloader_val,
+            self.dataloader_test,
+            self.lr_scheduler,
+        ) = self.accelerator.prepare(
+            self.model,
+            self.optimizer,
+            self.dataloader_train,
+            self.dataloader_val,
+            self.dataloader_test,
+            self.lr_scheduler,
         )
 
         if self.accelerator.is_main_process:
             print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
-            print("> run Heimdall_Trainer.train() to begin training")
-
-
-
+            print("> run HeimdallTrainer.train() to begin training")
 
     def print_r0(self, payload):
         if self.accelerator.is_main_process:
             print(f"{payload}")
 
-
     def _initialize_optimizer(self):
         optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)
         return optimizer_class(self.model.parameters(), **OmegaConf.to_container(self.cfg.optimizer.args))
-
 
     def _get_loss_function(self):
         if self.custom_loss_func:
@@ -92,26 +101,25 @@ class Heimdall_Trainer:
             print("==> Starting a new WANDB run")
             new_tags = (self.cfg.dataset.dataset_name, self.cfg.f_g.name, self.cfg.f_c.name)
             wandb_config = {
-                'wandb': {
-                    'tags': new_tags,
-                    'name': self.cfg.run_name,
-                    'entity': self.cfg.entity
-                }
+                "wandb": {
+                    "tags": new_tags,
+                    "name": self.cfg.run_name,
+                    "entity": self.cfg.entity,
+                },
             }
             self.accelerator.init_trackers(
-                project_name=self.cfg.project_name, 
+                project_name=self.cfg.project_name,
                 config=OmegaConf.to_container(self.cfg, resolve=True),
-                init_kwargs=wandb_config
+                init_kwargs=wandb_config,
             )
-            print(f"==> Initialized Run")
-
+            print("==> Initialized Run")
 
     def _initialize_lr_scheduler(self):
         dataset_config = self.cfg.tasks.args
         global_batch_size = dataset_config.batchsize
         total_steps = len(self.dataloader_train.dataset) // global_batch_size * dataset_config.epochs
         warmup_ratio = self.cfg.scheduler.warmup_ratio
-        warmup_step = int((warmup_ratio * total_steps))
+        warmup_step = int(warmup_ratio * total_steps)
 
         self.lr_scheduler = get_scheduler(
             name=self.cfg.scheduler.name,
@@ -126,17 +134,13 @@ class Heimdall_Trainer:
         self.print_r0(f"> Total Steps: {total_steps}")
         self.print_r0(f"> per_device_batch_size: {global_batch_size // self.accelerator.num_processes}")
 
-
-
     def _initialize_metrics(self):
-        """
-        Initializing the metrics based on the hydra config
-        """
+        """Initializing the metrics based on the hydra config."""
         metrics = {}
         task_type = self.cfg.tasks.args.task_type
 
         # First, add custom metrics if provided, TODO this is not implemented yet
-        assert self.custom_metrics == {} , "Custom Metrics Not Implemented Yet"
+        assert self.custom_metrics == {}, "Custom Metrics Not Implemented Yet"
         metrics.update(self.custom_metrics)
 
         # Then, add built-in metrics if not overridden by custom metrics
@@ -147,11 +151,11 @@ class Heimdall_Trainer:
                     if metric_name == "Accuracy":
                         metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
                     elif metric_name == "Precision":
-                        metrics[metric_name] = Precision(task="multiclass", num_classes=num_classes, average='macro')
+                        metrics[metric_name] = Precision(task="multiclass", num_classes=num_classes, average="macro")
                     elif metric_name == "Recall":
-                        metrics[metric_name] = Recall(task="multiclass", num_classes=num_classes, average='macro')
+                        metrics[metric_name] = Recall(task="multiclass", num_classes=num_classes, average="macro")
                     elif metric_name == "F1Score":
-                        metrics[metric_name] = F1Score(task="multiclass", num_classes=num_classes, average='macro')
+                        metrics[metric_name] = F1Score(task="multiclass", num_classes=num_classes, average="macro")
                     elif metric_name == "MatthewsCorrCoef":
                         metrics[metric_name] = MatthewsCorrCoef(task="multiclass", num_classes=num_classes)
                     elif metric_name == "ConfusionMatrix":
@@ -164,14 +168,11 @@ class Heimdall_Trainer:
                     elif metric_name == "MSE":
                         metrics[metric_name] = MeanSquaredError()
 
-        return {k: v.to(self.accelerator.device) if hasattr(v, 'to') else v for k, v in metrics.items()}
-
-
+        return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
     def fit(self):
-        """
-        This is the main trainer.fit() function that is called for training
-        """
+        """This is the main trainer.fit() function that is called for
+        training."""
         for epoch in range(self.cfg.tasks.args.epochs):
             self.validate_model(self.dataloader_val, dataset_type="valid")
             self.validate_model(self.dataloader_test, dataset_type="test")
@@ -182,7 +183,6 @@ class Heimdall_Trainer:
 
         if self.accelerator.is_main_process:
             print("> Model has finished Training")
-
 
     def get_loss(self, logits, labels):
         if self.custom_loss_func:
@@ -197,22 +197,20 @@ class Heimdall_Trainer:
 
         return loss
 
-
-
     def train_epoch(self, epoch):
         self.model.train()
         step = len(self.dataloader_train) * epoch
         log_every = 1
 
         with tqdm(self.dataloader_train, disable=not self.accelerator.is_main_process) as t:
-            for i, batch in enumerate(t):
+            for batch in t:
                 step += 1
-                is_logging = (step % log_every == 0)
+                is_logging = step % log_every == 0
 
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
 
-                    logits = self.model(inputs = batch["inputs"], conditional_tokens = batch["conditional_tokens"])
+                    logits = self.model(inputs=batch["inputs"], conditional_tokens=batch["conditional_tokens"])
                     labels = batch["labels"].to(logits.device)
 
                     loss = self.get_loss(logits, labels)
@@ -228,9 +226,9 @@ class Heimdall_Trainer:
 
                 if is_logging:
                     log = {
-                        'train_loss': loss.item(),
-                        'step': step,
-                        'learning_rate': lr,
+                        "train_loss": loss.item(),
+                        "step": step,
+                        "learning_rate": lr,
                     }
                     if self.run_wandb and self.accelerator.is_main_process:
                         self.accelerator.log(log)
@@ -244,17 +242,17 @@ class Heimdall_Trainer:
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
 
-                logits = self.model(inputs = batch["inputs"], conditional_tokens = batch["conditional_tokens"])
+                logits = self.model(inputs=batch["inputs"], conditional_tokens=batch["conditional_tokens"])
                 labels = batch["labels"].to(logits.device)
                 loss += self.get_loss(logits, labels).item()
-                
+
                 # predictions = outputs["logits"] if isinstance(outputs, dict) else outputs
                 # labels = batch['labels']
 
                 # print(metrics)
                 # print("---")
-                
-                for metric_name, metric in metrics.items():
+
+                for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
                     # print(metric_name)
@@ -276,22 +274,22 @@ class Heimdall_Trainer:
         if self.accelerator.num_processes > 1:
             loss = self.accelerator.gather(torch.tensor(loss)).mean().item()
 
-        log = {f'{dataset_type}_loss': loss}
+        log = {f"{dataset_type}_loss": loss}
         for metric_name, metric in metrics.items():
             if metric_name != "ConfusionMatrix":
                 # Built-in metric
-                log[f'{dataset_type}_{metric_name}'] = metric.compute().item()
+                log[f"{dataset_type}_{metric_name}"] = metric.compute().item()
                 if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
-                    log[f'{dataset_type}_{metric_name}'] *= 100  # Convert to percentage for these metrics
-        
+                    log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
+
         if "ConfusionMatrix" in metrics and not callable(metrics["ConfusionMatrix"]):
             confusion_matrix = metrics["ConfusionMatrix"].compute()
             per_class_acc = confusion_matrix.diag() / confusion_matrix.sum(1)
             per_class_acc = per_class_acc.cpu().numpy() * 100
-            log[f'{dataset_type}_per_class_accuracy'] = {f'class_{i}': acc for i, acc in enumerate(per_class_acc)}
+            log[f"{dataset_type}_per_class_accuracy"] = {f"class_{i}": acc for i, acc in enumerate(per_class_acc)}
 
-        rss = self.process.memory_info().rss / (1024 ** 3)
-        log['Process_mem_rss'] = rss
+        rss = self.process.memory_info().rss / (1024**3)
+        log["Process_mem_rss"] = rss
 
         if self.run_wandb and self.accelerator.is_main_process:
             self.accelerator.log(log)
@@ -299,4 +297,4 @@ class Heimdall_Trainer:
         if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
 
-        return log.get(f'{dataset_type}_MatthewsCorrCoef', None)
+        return log.get(f"{dataset_type}_MatthewsCorrCoef", None)
