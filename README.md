@@ -39,6 +39,21 @@ commit. In that case, you can first review the changes and accept them if they
 are appropriate, or make alternative changes to suppress the error. Afterwards,
 recommit the changes.
 
+## Dev notes
+
+### Cheatsheet
+
+```bash
+# Run cell type classification dev experiment with wandb disabled
+WANDB_MODE=disabled python train.py +experiments=classification_experiment_dev
+
+# Run cell type classification dev experiment with wandb offline mode
+WANDB_MODE=offline python train.py +experiments=classification_experiment_dev
+
+# RUn cell cell interaction dev experiment with wandb disabled
+WANDB_MODE=disabled python train.py +experiments=cell_cell_interaction_dev
+```
+
 # Quickstart
 
 `train.py` provides a clear overview of the inputs needed, how to prepare the data, model, optimizer, and run the trainer.
