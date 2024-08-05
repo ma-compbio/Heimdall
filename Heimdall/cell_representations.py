@@ -1,5 +1,7 @@
 """The Cell Representation Object for Processing."""
 
+import os
+
 import anndata as ad
 import numpy as np
 import pandas as pd
@@ -61,6 +63,7 @@ class CellRepresentation:
             symbol_to_ensembl_mapping.mapping_combined.get,
         )
         self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
+        self.adata.var.index.name = "index"
 
         return self.adata, symbol_to_ensembl_mapping
 
@@ -69,48 +72,73 @@ class CellRepresentation:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
         # Load your AnnData object
-        self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
-        print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
+        splitpath = os.path.splitext(self.dataset_preproc_cfg.data_path)
+        preprocessed_data_path = splitpath[0] + "_preprocessed_" + splitpath[1]
+        if os.path.isfile(preprocessed_data_path):
+            self.adata = ad.read_h5ad(preprocessed_data_path)
+            print(f"> Finished Loading in preprossed dataset: {preprocessed_data_path}")
+        else:
+            self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
+            print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
         # convert gene names to ensembl ids
-        self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
-            data_dir="/work/magroup/shared/Heimdall/data/",
-            species=self.dataset_preproc_cfg.species,
+        if "gene_mapping:symbol_to_ensembl" not in self.adata.uns.keys():
+            self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
+                data_dir="/work/magroup/shared/Heimdall/data/",
+                species=self.dataset_preproc_cfg.species,
+            )
+
+        # check if layer already exists with your desired preprocessing
+        preprocessing_string = "_".join(
+            [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
         )
+        if preprocessing_string in self.adata.layers.keys():
+            print("> Using cached preprocessed data")
+            self.adata.X = self.adata.layers[preprocessing_string].copy()
+            return
 
-        if get_value(self.dataset_preproc_cfg, "normalize"):
-            # Normalizing based on target sum
-            print("> Normalizing anndata...")
-            sc.pp.normalize_total(self.adata, target_sum=1e4)
-            assert (
-                self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
-            ), "Normalize and Log1P both need to be TRUE"
         else:
-            print("> Skipping Normalizing anndata...")
+            if get_value(self.dataset_preproc_cfg, "normalize"):
+                # Normalizing based on target sum
+                print("> Normalizing anndata...")
+                sc.pp.normalize_total(self.adata, target_sum=1e4)
+                assert (
+                    self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
+                ), "Normalize and Log1P both need to be TRUE"
+            else:
+                print("> Skipping Normalizing anndata...")
 
-        if get_value(self.dataset_preproc_cfg, "log_1p"):
-            # log Transform step
-            print("> Log Transforming anndata...")
-            sc.pp.log1p(self.adata)
-        else:
-            print("> Skipping Log Transforming anndata..")
+            if get_value(self.dataset_preproc_cfg, "log_1p"):
+                # log Transform step
+                print("> Log Transforming anndata...")
+                sc.pp.log1p(self.adata)
+            else:
+                print("> Skipping Log Transforming anndata..")
 
-        if get_value(self.dataset_preproc_cfg, "top_n_genes"):
-            # Identify highly variable genes
-            print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
-            sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
-            self.adata = self.adata[:, self.adata.var["highly_variable"]]
-        else:
-            print("> No highly variable subset... using entire dataset")
+            if (
+                get_value(self.dataset_preproc_cfg, "top_n_genes")
+                and self.dataset_preproc_cfg["top_n_genes"] != "false"
+            ):
+                print(self.dataset_preproc_cfg)
+                # Identify highly variable genes
+                print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
+                sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
+                self.adata = self.adata[:, self.adata.var["highly_variable"]]
+            else:
+                print("> No highly variable subset... using entire dataset")
 
-        if get_value(self.dataset_preproc_cfg, "scale_data"):
-            # Scale the data
-            print("> Scaling the data...")
-            sc.pp.scale(self.adata, max_value=10)
-        else:
-            print("> Not Scaling the data...")
+            if get_value(self.dataset_preproc_cfg, "scale_data"):
+                # Scale the data
+                print("> Scaling the data...")
+                sc.pp.scale(self.adata, max_value=10)
+            else:
+                print("> Not Scaling the data...")
 
-        print("> Finished Processing Anndata Object")
+            print("> Finished Processing Anndata Object")
+            print("> Writing preprocessed Anndata Object")
+            self.adata.layers[preprocessing_string] = self.adata.X.copy()
+            self.adata.write(preprocessed_data_path)
+            print("> Finished writing preprocessed Anndata Object")
 
     def prepare_datasets(self):
         """After preprocessing, provides the dataset in dataframe format that
