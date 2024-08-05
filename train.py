@@ -1,18 +1,22 @@
 import hydra
-from datasets import Dataset
+
+# from datasets import Dataset
 from omegaconf import OmegaConf
-from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader
 
 # Cell representation tools from heimdall
 from Heimdall.cell_representations import CellRepresentation
-from Heimdall.f_c import geneformer_fc, old_geneformer_fc  # noqa: F401
-from Heimdall.f_g import identity_fg
 
 # initialize the model
 from Heimdall.models import HeimdallTransformer, TransformerConfig
 from Heimdall.trainer import HeimdallTrainer
-from Heimdall.utils import heimdall_collate_fn
+
+# from sklearn.model_selection import train_test_split
+# from torch.utils.data import DataLoader
+
+# from Heimdall.f_c import geneformer_fc, old_geneformer_fc  # noqa: F401
+# from Heimdall.f_g import identity_fg
+
+# from Heimdall.utils import heimdall_collate_fn
 
 
 # using @hydra.main so that we can take in command line arguments

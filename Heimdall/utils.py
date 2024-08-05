@@ -103,6 +103,8 @@ def deprecate(func):
     def bounded(*args, **kwargs):
         warnings.warn(
             f"{func} is deprecated, do not use",
+            DeprecationWarning,
+            stacklevel=2,
         )
         return func(*args, **kwargs)
 

@@ -94,7 +94,10 @@ class SingleInstanceDataset(Dataset):
         self._idx = np.arange(self.data.adata.shape[0])
 
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
-        return dict(inputs=self.data.cell_representations[idx], labels=self.data.labels[idx])
+        return {
+            "inputs": self.data.cell_representations[idx],
+            "labels": self.data.labels[idx],
+        }
 
 
 class PairedInstanceDataset(Dataset):
@@ -105,10 +108,10 @@ class PairedInstanceDataset(Dataset):
 
     def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
         cell1_idx, cell2_idx = self.idx[idx]
-        return dict(
-            inputs=(self.data.cell_representations[cell1_idx], self.data.cell_representations[cell2_idx]),
-            labels=self.data.labels[idx],
-        )
+        return {
+            "inputs": (self.data.cell_representations[cell1_idx], self.data.cell_representations[cell2_idx]),
+            "labels": self.data.labels[idx],
+        }
 
 
 class CellRepresentation:
@@ -277,7 +280,7 @@ class CellRepresentation:
             raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
 
         # Set up full dataset given the processed cell representation data
-        self.datasets = dict(full=full_dataset)
+        self.datasets = {"full": full_dataset}
 
         # Prepare data splits
         self._prepare_splits()
@@ -317,7 +320,7 @@ class CellRepresentation:
             train_val_idx, test_idx = train_test_split(np.arange(size), train_size=0.6, random_state=seed)
             train_idx, val_idx = train_test_split(train_val_idx, test_size=0.2, random_state=seed)
 
-        self._splits = dict(train=train_idx, val=val_idx, test=test_idx)
+        self._splits = {"train": train_idx, "val": val_idx, "test": test_idx}
 
     @deprecate
     def prepare_datasets(self):
