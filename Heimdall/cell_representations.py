@@ -243,7 +243,6 @@ class CellRepresentation:
             self.preprocess_anndata()
             self.preprocess_f_g(identity_fg)
             self.preprocess_f_c(old_geneformer_fc)
-            # self.prepare_labels()  # TODO: move to dataset object
             self.prepare_dataset_loaders()
 
     @property
@@ -368,18 +367,15 @@ class CellRepresentation:
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_dataset_loaders(self):
+        # Set up full dataset given the processed cell representation data
+        # This will prepare: labels, splits
         if self.task_structure == "single":
             full_dataset = SingleInstanceDataset(self)
         elif self.task_structure == "paired":
             full_dataset = PairedInstanceDataset(self)
         else:
             raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
-
-        # Set up full dataset given the processed cell representation data
         self.datasets = {"full": full_dataset}
-
-        # # Prepare data splits
-        # self._prepare_splits()
 
         # Set up dataset splits given the data splits
         for split, split_idx in self.splits.items():
