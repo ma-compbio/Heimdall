@@ -91,6 +91,8 @@ class HeimdallTrainer:
             return self.custom_loss_func
         elif self.cfg.loss.name == "CrossEntropyLoss":
             return nn.CrossEntropyLoss()
+        elif self.cfg.loss.name == "BCEWithLogitsLoss":
+            return torch.nn.BCEWithLogitsLoss()
         elif self.cfg.loss.name == "MSELoss":
             return nn.MSELoss()
         else:
@@ -186,6 +188,8 @@ class HeimdallTrainer:
 
     def get_loss(self, logits, labels):
         if self.custom_loss_func:
+            loss = self.loss_fn(logits, labels)
+        elif self.cfg.loss.name == "BCEWithLogitsLoss":
             loss = self.loss_fn(logits, labels)
         elif self.cfg.loss.name == "CrossEntropyLoss":
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
