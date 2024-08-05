@@ -69,8 +69,6 @@ class Dataset(PyTorchDataset, ABC):
         self._data = data
         self._setup_idx()
 
-    # TODO: make informative __repr__
-
     @property
     def idx(self) -> NDArray[np.int_]:
         return self._idx
@@ -81,6 +79,10 @@ class Dataset(PyTorchDataset, ABC):
 
     def __len__(self) -> int:
         return len(self.idx)
+
+    def __repr__(self) -> str:
+        name = self.__class__.__name__
+        return f"{name}(size={len(self):,}) wrapping: {self.data}"
 
     @abstractmethod
     def _setup_idx(self): ...
@@ -269,8 +271,6 @@ class CellRepresentation:
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_dataset_loaders(self):
-        # cell_representation = self.adata.layers["cell_representation"]
-
         # TODO: Move labels setup to dataset
         if self.task_structure == "single":
             full_dataset = SingleInstanceDataset(self)

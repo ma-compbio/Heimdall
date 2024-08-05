@@ -50,7 +50,7 @@ WANDB_MODE=disabled python train.py +experiments=classification_experiment_dev
 # Run cell type classification dev experiment with wandb offline mode
 WANDB_MODE=offline python train.py +experiments=classification_experiment_dev
 
-# RUn cell cell interaction dev experiment with wandb disabled
+# Run cell cell interaction dev experiment with wandb disabled
 WANDB_MODE=disabled python train.py +experiments=cell_cell_interaction_dev
 ```
 
