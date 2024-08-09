@@ -5,24 +5,24 @@
 ####
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: cell_type_classification_dev # dataset for the relevant task
-  - override /tasks: cell_type_classification_dev # dataset for the relevant task
+  - override /dataset: cell_cell_interaction # dataset for the relevant task
+  - override /tasks: cell_cell_interaction_all # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
   - override /f_c: identity
   - override /f_g: identity
-  - override /loss: CrossEntropyLoss
+  - override /loss: BCEWithLogitsLoss
 
 ####
 # Set the specific parameters you would like to change from the defaults
 ####
 
 
-project_name: 'Cell_Type_Classification_dev' #project name for WandB
-run_name: 'test01'  ## what is set for WandB
-work_dir: 'work_dir'  ## set your custom working directory
-entity: 'Heimdall'
+project_name: Cell_Cell_Interaction_Dev #project name for WandB
+run_name: test01  ## what is set for WandB
+work_dir: work_dir  ## set your custom working directory
+entity: Heimdall
 
 seed: 55
 
@@ -30,8 +30,7 @@ trainer:
   accumulate_grad_batches: 1
 
 optimizer:
-  args:
-    lr: 2e-3
+  learning_rate: 2e-3
 
 tasks:
   args:

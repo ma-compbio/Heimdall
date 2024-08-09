@@ -1,5 +1,6 @@
 """Heimdall model."""
 
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -117,10 +118,24 @@ class HeimdallTransformer(nn.Module):
                 loss is computed (Cross-Entropy).
 
         """
-        if len(conditional_tokens) == 0:  # handling when tehre are no conditional tokens supplied
+        # handling when tehre are no conditional tokens supplied
+        if conditional_tokens is not None and len(conditional_tokens) == 0:
             conditional_tokens = None
 
-        logits = self.lm_model(inputs, conditional_tokens, attention_mask)
+        if isinstance(inputs, list):
+            # TODO: replace with proper handling
+            warnings.warn(
+                "Paired input model not setup corectly yet, only use for dev",
+                UserWarning,
+                stacklevel=2,
+            )
+            logits = self.lm_model(inputs[0], conditional_tokens, attention_mask) + self.lm_model(
+                inputs[1],
+                conditional_tokens,
+                attention_mask,
+            )
+        else:
+            logits = self.lm_model(inputs, conditional_tokens, attention_mask)
 
         return logits
 
