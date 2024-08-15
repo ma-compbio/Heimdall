@@ -334,7 +334,8 @@ class CellRepresentation:
             print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
         # convert gene names to ensembl ids
-        if "gene_mapping:symbol_to_ensembl" not in self.adata.uns.keys():
+        if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
+        # if "gene_mapping:symbol_to_ensembl" not in self.adata.uns.keys():
             self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
                 data_dir="/work/magroup/shared/Heimdall/data/",
                 species=self.dataset_preproc_cfg.species,
