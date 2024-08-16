@@ -343,14 +343,11 @@ class CellRepresentation:
             print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
         # convert gene names to ensembl ids
-        if self.dataset_preproc_cfg.data_path.split("/")[-3] == "cell_type_annotation":
-            print("==> Found cell type annotation tasks folder, wont convert to ensembl ids")
-        else:
-            if "gene_mapping:symbol_to_ensembl" not in self.adata.uns.keys():
-                self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
-                    data_dir="/home/nzh/Desktop/Heimdall/data",
-                    species=self.dataset_preproc_cfg.species,
-                )
+        if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
+            self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
+                data_dir=self._cfg.ensemble_dir,
+                species=self.dataset_preproc_cfg.species,
+            )
 
         # check if layer already exists with your desired preprocessing
         preprocessing_string = "_".join(
@@ -391,7 +388,7 @@ class CellRepresentation:
                 self.adata = self.adata[:, self.adata.var["highly_variable"]]
             else:
                 print("> No highly variable subset... using entire dataset")
-            
+
             self.sequence_length = len(self.adata.var)
 
             if get_value(self.dataset_preproc_cfg, "scale_data"):
@@ -462,7 +459,6 @@ class CellRepresentation:
             train_idx, val_idx = train_test_split(train_val_idx, test_size=0.2, random_state=seed)
 
         self._splits = {"train": train_idx, "val": val_idx, "test": test_idx}
-
 
     @deprecate
     def prepare_datasets(self):

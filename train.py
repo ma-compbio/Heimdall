@@ -51,9 +51,9 @@ def main(config):
         prediction_dim=cr.num_tasks,
         d_model=config.model.args.hidden_size,
         nhead=config.model.args.num_attention_heads,
-        num_encoder_layers=config.model.args.num_hidden_layers
+        num_encoder_layers=config.model.args.num_hidden_layers,
     )
-    
+
     model = HeimdallTransformer(
         config=transformer_config,
         input_type="learned",

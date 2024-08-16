@@ -11,7 +11,7 @@ defaults:
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
   - override /f_c: geneformer
-  - override /f_g: gene_id
+  - override /f_g: identity
   - override /loss: CrossEntropyLoss
 
 ####
@@ -23,6 +23,7 @@ project_name: 'Zheng68K-Cell-Type-Classification' #project name for WandB
 run_name: '${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}_${model.args.pooling}'  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
 entity: 'Heimdall'
+ensemble_dir: '/home/nzh/Desktop/Heimdall/data/'
 
 seed: 55
 
