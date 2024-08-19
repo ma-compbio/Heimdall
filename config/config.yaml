@@ -5,19 +5,21 @@
 ####
 defaults:
   - /model: transformer # the chosen model
-  - /dataset: cell_type_classification # dataset for the relevant task
+  - /dataset: cell_type_classification_dev # dataset for the relevant task
+  - /tasks: cell_type_classification_dev # dataset for the relevant task
   - /scheduler: cosine # contains scheduler
   - /trainer: default # contains optimizer and trainer details
-  - /optimizer: adamW
+  - /optimizer: AdamW
   - /f_c: identity
   - /f_g: identity
+  - /loss: CrossEntropyLoss
 
 ####
 # Set the specific parameters you would like to change from the defaults
 ####
 
 
-project_name: 'Cell_Type_Classification' #project name for WandB
+project_name: 'Cell_Type_Classification_dev' #project name for WandB
 run_name: 'run_name'  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
 entity: 'Heimdall'
@@ -28,4 +30,5 @@ trainer:
   accumulate_grad_batches: 1
 
 optimizer:
-  learning_rate: 2e-3
+  args: 
+    lr: 2e-3

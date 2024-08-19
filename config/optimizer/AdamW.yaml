@@ -1,0 +1,9 @@
+
+
+name: 'AdamW'
+
+args:
+  lr: 1e-4 
+  weight_decay : 0.1
+  betas: [0.9, 0.95] ## betas 1 and betas 2
+  foreach: False

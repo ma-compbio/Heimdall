@@ -1,0 +1,37 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - override /model: transformer # the chosen model
+  - override /dataset: cell_cell_interaction # dataset for the relevant task
+  - override /tasks: cell_cell_interaction_all # dataset for the relevant task
+  - override /scheduler: cosine # contains scheduler
+  - override /trainer: default # contains optimizer and trainer details
+  - override /optimizer: AdamW
+  - override /f_c: identity
+  - override /f_g: identity
+  - override /loss: BCEWithLogitsLoss
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+
+
+project_name: Cell_Cell_Interaction_Dev #project name for WandB
+run_name: test01  ## what is set for WandB
+work_dir: work_dir  ## set your custom working directory
+entity: Heimdall
+
+seed: 55
+
+trainer:
+  accumulate_grad_batches: 1
+
+optimizer:
+  learning_rate: 2e-3
+
+tasks:
+  args:
+    epochs: 1

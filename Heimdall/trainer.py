@@ -1,281 +1,304 @@
-## loading in libraries
-import scanpy as sc
-import anndata as ad
-import numpy as np
-import torch
-from torch.utils.data import DataLoader, TensorDataset
-from tqdm import tqdm
-import hydra
-import pandas as pd
-from omegaconf import OmegaConf
+"""Heimdall trainer."""
 
-from sklearn.model_selection import train_test_split
-from datasets import Dataset
-from transformers import SchedulerType, get_scheduler
-
-## initialize the model
-from Heimdall.models import Heimdall_Transformer, TransformerConfig
-
-## Cell representation tools from heimdall
-from Heimdall.cell_representations import Cell_Representation
-from Heimdall.f_g import identity_fg
-from Heimdall.f_c import geneformer_fc
-from Heimdall.utils import heimdall_collate_fn
-
-## Trainer Loading Stuff
-from accelerate import Accelerator
-from accelerate.logging import get_logger
-from accelerate.utils import set_seed
-from transformers import SchedulerType, get_scheduler
-import wandb
-import time
-from torchmetrics.classification import Accuracy, Precision, Recall, F1Score, ConfusionMatrix, MatthewsCorrCoef
 import psutil
+import torch
+import torch.nn as nn
+from accelerate import Accelerator
+from accelerate.utils import set_seed
+from omegaconf import OmegaConf
+from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
+from torchmetrics.regression import MeanSquaredError, R2Score
+from tqdm import tqdm
+from transformers import get_scheduler
 
 
-
-class Heimdall_Trainer:
-    def __init__(self,
-                config,
-                model,
-                optimizer,
-                dataloader_train,
-                dataloader_val,
-                dataloader_test,
-                run_wandb = False):
-        """
-        Initialize the trainer
-
-        Parameters:
-        config (dict): Configuration dictionary.
-        """
-
-        self.config = config
+class HeimdallTrainer:
+    def __init__(
+        self,
+        cfg,
+        model,
+        dataloader_train,
+        dataloader_val,
+        dataloader_test,
+        run_wandb=False,
+        custom_loss_func=None,
+        custom_metrics=None,
+    ):
+        self.cfg = cfg
         self.model = model
-        self.optimizer = optimizer
         self.dataloader_train = dataloader_train
         self.dataloader_val = dataloader_val
         self.dataloader_test = dataloader_test
         self.run_wandb = run_wandb
-        self.process = psutil.Process() ## tracking the RSS metrics of this experiment
+        self.process = psutil.Process()
+        self.custom_loss_func = custom_loss_func
+        self.custom_metrics = custom_metrics or {}
+        self.num_labels = cfg.tasks.args.prediction_dim
 
-
-        ## set up accelerator DDP
         accelerator_log_kwargs = {}
         if run_wandb:
-            accelerator_log_kwargs["log_with"] = 'wandb'
-            accelerator_log_kwargs["project_dir"] = config.work_dir
+            accelerator_log_kwargs["log_with"] = "wandb"
+            accelerator_log_kwargs["project_dir"] = cfg.work_dir
+        set_seed(cfg.seed)
 
-        self.accelerator = Accelerator(gradient_accumulation_steps=config.trainer.accumulate_grad_batches,
-                                                                step_scheduler_with_optimizer=False,
-                                                                **accelerator_log_kwargs)
-        set_seed(config.seed)
+        self.accelerator = Accelerator(
+            gradient_accumulation_steps=cfg.trainer.accumulate_grad_batches,
+            step_scheduler_with_optimizer=False,
+            **accelerator_log_kwargs,
+        )
+
+        self.optimizer = self._initialize_optimizer()
+        self.loss_fn = self._get_loss_function()
+
         self.accelerator.wait_for_everyone()
-        print(f"> Using Device: {self.accelerator.device}")
+        self.print_r0(f"> Using Device: {self.accelerator.device}")
+        self.print_r0(f"> Number of Devices: {self.accelerator.num_processes}")
 
+        self._initialize_wandb()
+        self._initialize_lr_scheduler()
 
-        ### Initialize W&B
-        ## init wandb tracking
-        if run_wandb is True and self.accelerator.is_main_process:
-            print("==> Starting a new WANDB run")
-            new_tags = (config.dataset.dataset_name, config.f_g.name, config.f_c.name)
-            wandb_config = {
-                'wandb':{
-                    'tags': new_tags,
-                    'name':config.run_name,
-                    'entity': config.entity
-                }
-            }
-
-            env_config = OmegaConf.to_container(self.config, resolve=True, throw_on_missing=True)
-            self.accelerator.init_trackers(project_name=config.project_name, config=env_config, init_kwargs=wandb_config)
-            print(f"==> Initialized Run")
-
-
-        torch.cuda.empty_cache()
-
-        ## cosine LR scheduler
-        dataset_config = config.dataset.task_args
-        global_batch_size =  dataset_config["batchsize"]
-        total_steps = len(dataloader_train.dataset) // global_batch_size * dataset_config["epochs"]
-        warmup_ratio = config.scheduler.warmup_ratio
-        warmup_step = int((warmup_ratio * total_steps))
-
+        (
+            self.model,
+            self.optimizer,
+            self.dataloader_train,
+            self.dataloader_val,
+            self.dataloader_test,
+            self.lr_scheduler,
+        ) = self.accelerator.prepare(
+            self.model,
+            self.optimizer,
+            self.dataloader_train,
+            self.dataloader_val,
+            self.dataloader_test,
+            self.lr_scheduler,
+        )
 
         if self.accelerator.is_main_process:
-            print(f" !!! Remember that config batchsize here is GLOBAL Batchsize !!!")
-            print(f"> global batchsize: {dataset_config['batchsize']}")
-            print(f"> num_devices: {self.accelerator.num_processes}")
-            print(f"> total_samples: {len(dataloader_train.dataset)}")
-            print(f"> warmup_step: {warmup_step}")
-            print(f"> total_steps: {total_steps}")
-            print(f"> per_device_batch_size: {dataset_config['batchsize'] // self.accelerator.num_processes}")
+            print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
+            print("> run HeimdallTrainer.train() to begin training")
 
+    def print_r0(self, payload):
+        if self.accelerator.is_main_process:
+            print(f"{payload}")
+
+    def _initialize_optimizer(self):
+        optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)
+        return optimizer_class(self.model.parameters(), **OmegaConf.to_container(self.cfg.optimizer.args))
+
+    def _get_loss_function(self):
+        if self.custom_loss_func:
+            self.print_r0(f"> Using Custom Loss Function: {self.custom_loss_func.__name__}")
+            return self.custom_loss_func
+        elif self.cfg.loss.name == "CrossEntropyLoss":
+            return nn.CrossEntropyLoss()
+        elif self.cfg.loss.name == "BCEWithLogitsLoss":
+            return torch.nn.BCEWithLogitsLoss()
+        elif self.cfg.loss.name == "MSELoss":
+            return nn.MSELoss()
+        else:
+            raise ValueError(f"Unsupported loss function: {self.cfg.loss.name}")
+
+    def _initialize_wandb(self):
+        if self.run_wandb and self.accelerator.is_main_process:
+            print("==> Starting a new WANDB run")
+            new_tags = (self.cfg.dataset.dataset_name, self.cfg.f_g.name, self.cfg.f_c.name)
+            wandb_config = {
+                "wandb": {
+                    "tags": new_tags,
+                    "name": self.cfg.run_name,
+                    "entity": self.cfg.entity,
+                },
+            }
+            self.accelerator.init_trackers(
+                project_name=self.cfg.project_name,
+                config=OmegaConf.to_container(self.cfg, resolve=True),
+                init_kwargs=wandb_config,
+            )
+            print("==> Initialized Run")
+
+    def _initialize_lr_scheduler(self):
+        dataset_config = self.cfg.tasks.args
+        global_batch_size = dataset_config.batchsize
+        total_steps = len(self.dataloader_train.dataset) // global_batch_size * dataset_config.epochs
+        warmup_ratio = self.cfg.scheduler.warmup_ratio
+        warmup_step = int(warmup_ratio * total_steps)
 
         self.lr_scheduler = get_scheduler(
-            name=self.config.scheduler.name,
+            name=self.cfg.scheduler.name,
             optimizer=self.optimizer,
             num_warmup_steps=warmup_step,
             num_training_steps=total_steps,
         )
+        self.print_r0("!!! Remember that config batchsize here is GLOBAL Batchsize !!!")
+        self.print_r0(f"> global batchsize: {global_batch_size}")
+        self.print_r0(f"> total_samples: {len(self.dataloader_train.dataset)}")
+        self.print_r0(f"> Warm Up Steps: {warmup_step}")
+        self.print_r0(f"> Total Steps: {total_steps}")
+        self.print_r0(f"> per_device_batch_size: {global_batch_size // self.accelerator.num_processes}")
 
+    def _initialize_metrics(self):
+        """Initializing the metrics based on the hydra config."""
+        metrics = {}
+        task_type = self.cfg.tasks.args.task_type
 
-        self.model, self.optimizer, self.dataloader_train, self.dataloader_val, self.dataloader_test, self.lr_scheduler = self.accelerator.prepare(
-            self.model, self.optimizer, self.dataloader_train, self.dataloader_val, self.dataloader_test, self.lr_scheduler
-            )
+        # First, add custom metrics if provided, TODO this is not implemented yet
+        assert self.custom_metrics == {}, "Custom Metrics Not Implemented Yet"
+        metrics.update(self.custom_metrics)
 
-        if self.accelerator.is_main_process:
-            print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
-            print("> run Heimdall_Trainer.train() to begin training")
+        # Then, add built-in metrics if not overridden by custom metrics
+        if task_type == "classification":
+            num_classes = self.cfg.tasks.args.prediction_dim
+            for metric_name in self.cfg.tasks.args.metrics:
+                if metric_name not in metrics:
+                    if metric_name == "Accuracy":
+                        metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
+                    elif metric_name == "Precision":
+                        metrics[metric_name] = Precision(task="multiclass", num_classes=num_classes, average="macro")
+                    elif metric_name == "Recall":
+                        metrics[metric_name] = Recall(task="multiclass", num_classes=num_classes, average="macro")
+                    elif metric_name == "F1Score":
+                        metrics[metric_name] = F1Score(task="multiclass", num_classes=num_classes, average="macro")
+                    elif metric_name == "MatthewsCorrCoef":
+                        metrics[metric_name] = MatthewsCorrCoef(task="multiclass", num_classes=num_classes)
+                    elif metric_name == "ConfusionMatrix":
+                        metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+        elif task_type == "regression":
+            for metric_name in self.cfg.tasks.args.metrics:
+                if metric_name not in metrics:
+                    if metric_name == "R2Score":
+                        metrics[metric_name] = R2Score()
+                    elif metric_name == "MSE":
+                        metrics[metric_name] = MeanSquaredError()
 
+        return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
-    def train(self):
-
-        for epoch in range(self.config.dataset.task_args.epochs):
-            val_mcc = self.validate_model(self.dataloader_val, dataset_type="valid") # val first so we can see the randomized performance before the first epoch
-            test_mcc = self.validate_model(self.dataloader_test, dataset_type="test") # test first so we can see the randomized performance before the first epoch
+    def fit(self):
+        """This is the main trainer.fit() function that is called for
+        training."""
+        for epoch in range(self.cfg.tasks.args.epochs):
+            self.validate_model(self.dataloader_val, dataset_type="valid")
+            self.validate_model(self.dataloader_test, dataset_type="test")
             self.train_epoch(epoch)
 
-        if run_wandb and accelerator.is_main_process:
-            accelerator.end_training()
+        if self.run_wandb and self.accelerator.is_main_process:
+            self.accelerator.end_training()
 
-        if accelerator.is_main_process:
+        if self.accelerator.is_main_process:
             print("> Model has finished Training")
 
+    def get_loss(self, logits, labels):
+        if self.custom_loss_func:
+            loss = self.loss_fn(logits, labels)
+        elif self.cfg.loss.name == "BCEWithLogitsLoss":
+            loss = self.loss_fn(logits, labels)
+        elif self.cfg.loss.name == "CrossEntropyLoss":
+            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+        elif self.cfg.loss.name == "MSELoss":
+            raise NotImplementedError("Not Fully Implemented Yet, Please Check")
+            loss = self.loss_fn(logits, labels)
+        else:
+            raise NotImplementedError("Only custom, CrossEntropyLoss, and MSELoss are supported right now")
+
+        return loss
 
     def train_epoch(self, epoch):
-        accelerator = self.accelerator
-        model = self.model
-        optimizer = self.optimizer
-        config = self.config
-        dataloader_train = self.dataloader_train
-        run_wandb = self.run_wandb
-        lr_scheduler = self.lr_scheduler
+        self.model.train()
+        step = len(self.dataloader_train) * epoch
+        log_every = 1
 
-        step = len(dataloader_train) * epoch
-        log_every = 1 # this is the logging frequency, default set to 1 because wandb seems to not be the bottleneck
-        model.train()
-        # for i, batch in enumerate(tqdm(dataloader_train, disable=not accelerator.is_main_process)):
-        with tqdm(dataloader_train, disable=not accelerator.is_main_process) as t:
-            for i, batch in enumerate(t):
-                t0 = time.time()
+        with tqdm(self.dataloader_train, disable=not self.accelerator.is_main_process) as t:
+            for batch in t:
                 step += 1
-                is_logging = (step % log_every == 0)
+                is_logging = step % log_every == 0
 
-                lr = lr_scheduler.get_lr()[0]
-                with accelerator.accumulate(model):
+                lr = self.lr_scheduler.get_last_lr()[0]
+                with self.accelerator.accumulate(self.model):
 
-                    if len(batch["conditional_tokens"]) > 0:
-                        outputs = model(inputs = batch["inputs"], labels = batch["labels"], conditional_tokens=batch["conditional_tokens"])
-                    else:
-                        outputs = model(inputs = batch["inputs"], labels = batch["labels"])
-                        
-                    loss = outputs["loss"]
-                    accelerator.backward(loss)
-                    if accelerator.sync_gradients:
-                        accelerator.clip_grad_norm_(model.parameters(), config.optimizer.grad_norm_clip)
-                    optimizer.step()
-                    lr_scheduler.step()
-                    optimizer.zero_grad()
+                    logits = self.model(inputs=batch["inputs"], conditional_tokens=batch.get("conditional_tokens"))
+                    labels = batch["labels"].to(logits.device)
+
+                    loss = self.get_loss(logits, labels)
+
+                    self.accelerator.backward(loss)
+                    if self.accelerator.sync_gradients:
+                        self.accelerator.clip_grad_norm_(self.model.parameters(), self.cfg.trainer.grad_norm_clip)
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
+                    self.optimizer.zero_grad()
 
                 t.set_description(f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}")
 
                 if is_logging:
                     log = {
-                        'train_loss': loss.item(),
-                        'step': step,
-                        'learning_rate': lr,
+                        "train_loss": loss.item(),
+                        "step": step,
+                        "learning_rate": lr,
                     }
+                    if self.run_wandb and self.accelerator.is_main_process:
+                        self.accelerator.log(log)
 
-                    if run_wandb and accelerator.is_main_process:
-                        accelerator.log(log)
-
-                    # if not run_wandb and accelerator.is_main_process:
-                #     print(log)
-
-
-
-    def validate_model(self, dataloader_val, dataset_type):
-        accelerator = self.accelerator
-        model = self.model
-        optimizer = self.optimizer
-        config = self.config
-        run_wandb = self.run_wandb
-
-        num_classes = config.dataset.task_args.prediction_dim
-
-        ## Accuracy, Precision, Recall, F1, Matthew's Correlation
-        acc_metric = Accuracy(task="multiclass", num_classes=num_classes).to(accelerator.device)
-        precision_metric = Precision(task="multiclass", num_classes=num_classes, average='macro').to(accelerator.device)
-        recall_metric = Recall(task="multiclass", num_classes=num_classes, average='macro').to(accelerator.device)
-        f1_metric = F1Score(task="multiclass", num_classes=num_classes, average='macro').to(accelerator.device)
-        mcc_metric = MatthewsCorrCoef(task="multiclass", num_classes=num_classes).to(accelerator.device)
-        # For micro average, set average='micro' in Precision and Recall
-        precision_micro = Precision(task="multiclass", num_classes=num_classes, average='micro').to(accelerator.device)
-        recall_micro = Recall(task="multiclass", num_classes=num_classes, average='micro').to(accelerator.device)
-        # per class accuracy using confusion matrix
-        confusion_matrix_metric = ConfusionMatrix(task="multiclass", num_classes=num_classes).to(accelerator.device)
-
-        model.eval()
+    def validate_model(self, dataloader, dataset_type):
+        self.model.eval()
+        metrics = self._initialize_metrics()
+        # print(metrics)
         loss = 0
+
         with torch.no_grad():
-            for i, batch in enumerate(tqdm(dataloader_val, disable=not accelerator.is_main_process)):
-                if len(batch["conditional_tokens"]) > 0:
-                    outputs = model(inputs = batch["inputs"], labels = batch["labels"], conditional_tokens=batch["conditional_tokens"])
-                else:
-                    outputs = model(inputs = batch["inputs"], labels = batch["labels"])
-                        
-                logits = outputs["logits"]
-                reshaped_logits = logits.reshape((-1, logits.size(-1)))
-                reshaped_labels = batch['labels'].reshape(-1)
-                loss += outputs["loss"].item()
-                # accuracy, precision, recall, f1, precision_micro, recall_micro, class-wise accuracy
-                acc_metric.update(reshaped_logits, reshaped_labels)
-                precision_metric.update(reshaped_logits, reshaped_labels)
-                recall_metric.update(reshaped_logits, reshaped_labels)
-                f1_metric.update(reshaped_logits, reshaped_labels)
-                mcc_metric.update(reshaped_logits, reshaped_labels)
-                precision_micro.update(reshaped_logits, reshaped_labels)
-                recall_micro.update(reshaped_logits, reshaped_labels)
-                confusion_matrix_metric.update(reshaped_logits, reshaped_labels)
-        try:
-            loss = accelerator.gather(loss).sum() / (len(dataloader_val))
-        except:
-            loss = loss / (len(dataloader_val))
-        acc = acc_metric.compute() * 100
-        precision = precision_metric.compute() * 100
-        recall = recall_metric.compute() * 100
-        f1 = f1_metric.compute() * 100
-        mcc = mcc_metric.compute() * 100  # Convert to percentage
-        precision_micro_value = precision_micro.compute() * 100
-        recall_micro_value = recall_micro.compute() * 100
+            for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
 
-        # Calculating per-class accuracy
-        confusion_matrix = confusion_matrix_metric.compute()
-        per_class_acc = confusion_matrix.diag() / confusion_matrix.sum(1)
-        per_class_acc = per_class_acc.cpu().numpy() * 100  # Convert to numpy array and scale to percentage
-        rss = self.process.memory_info().rss / (1024 ** 3) ##convert to gigabytes
+                logits = self.model(inputs=batch["inputs"], conditional_tokens=batch.get("conditional_tokens"))
+                labels = batch["labels"].to(logits.device)
+                loss += self.get_loss(logits, labels).item()
 
-        class_wise_acc_dict = {f'class_{i}': acc for i, acc in enumerate(per_class_acc)}
+                # predictions = outputs["logits"] if isinstance(outputs, dict) else outputs
+                # labels = batch['labels']
 
-        log = {
-            f'{dataset_type}_loss': loss,
-            f'{dataset_type}_acc': acc,
-            f'{dataset_type}_precision': precision,
-            f'{dataset_type}_recall': recall,
-            f'{dataset_type}_f1': f1,
-            f'{dataset_type}_mcc' : mcc,
-            f'{dataset_type}_precision_micro': precision_micro_value,
-            f'{dataset_type}_recall_micro': recall_micro_value,
-            f'{dataset_type}_per_class_accuracy': class_wise_acc_dict,
-            'Process_mem_rss' : rss
-        }
+                # print(metrics)
+                # print("---")
 
-        if run_wandb and accelerator.is_main_process:
-            accelerator.log(log)
+                for metric_name, metric in metrics.items():  # noqa: B007
+                    # Built-in metric
+                    # print(metric)
+                    # print(metric_name)
+                    metric.update(logits, labels)
+                    # if callable(metric):
+                    #     # Custom metric
+                    #     print("entered custom")
+                    #     metric_value = metric(logits, labels)
+                    #     if isinstance(metric_value, torch.Tensor):
+                    #         metric_value = metric_value.item()
+                    #     metrics[metric_name] = metric_value
+                    # else:
+                    #     # Built-in metric
+                    #     print(metric)
+                    #     print(metric_name)
+                    #     metric.update(logits, labels)
 
-        if not run_wandb and accelerator.is_main_process:
+        loss = loss / len(dataloader)
+        if self.accelerator.num_processes > 1:
+            loss = self.accelerator.gather(torch.tensor(loss)).mean().item()
+
+        log = {f"{dataset_type}_loss": loss}
+        for metric_name, metric in metrics.items():
+            if metric_name != "ConfusionMatrix":
+                # Built-in metric
+                log[f"{dataset_type}_{metric_name}"] = metric.compute().item()
+                if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
+                    log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
+
+        if "ConfusionMatrix" in metrics and not callable(metrics["ConfusionMatrix"]):
+            confusion_matrix = metrics["ConfusionMatrix"].compute()
+            per_class_acc = confusion_matrix.diag() / confusion_matrix.sum(1)
+            per_class_acc = per_class_acc.cpu().numpy() * 100
+            log[f"{dataset_type}_per_class_accuracy"] = {f"class_{i}": acc for i, acc in enumerate(per_class_acc)}
+
+        rss = self.process.memory_info().rss / (1024**3)
+        log["Process_mem_rss"] = rss
+
+        if self.run_wandb and self.accelerator.is_main_process:
+            self.accelerator.log(log)
+
+        if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
-        
-        return mcc
 
+        return log.get(f"{dataset_type}_MatthewsCorrCoef", None)

@@ -1,3 +1,5 @@
+.local_nvim_session
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -9,6 +11,7 @@ __pycache__/
 outputs/
 data/
 *.ipynb
+wandb/
 
 # Distribution / packaging
 .Python

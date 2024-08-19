@@ -1,0 +1,16 @@
+dataset_name: "spatial_neighbor_density"
+
+preprocess_args:
+  data_path: "/work/magroup/shared/Heimdall/data/spatial_neighborhood/spatial_dataset_minimal.h5ad"
+  normalize: true
+  log_1p: true
+  scale_data: true
+
+task_args:
+  label_col_name: "neighbor_density"
+  metric_name: "MAE"
+  train_split: 0.8
+  shuffle: True
+  batchsize: 32
+  epochs: 10
+  prediction_dim: 1

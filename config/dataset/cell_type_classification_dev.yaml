@@ -1,0 +1,11 @@
+
+
+dataset_name: "cell_type_classification"
+
+preprocess_args:
+  data_path: "/work/magroup/scllm/datasets/sc_sub_nick.h5ad"
+  top_n_genes: 1000
+  normalize: true
+  log_1p: true
+  scale_data: true
+  species: 'mouse'
