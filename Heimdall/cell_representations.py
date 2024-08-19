@@ -323,7 +323,7 @@ class CellRepresentation:
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        os.makedirs('heimdall_preprocessed', exist_ok=True)
+        os.makedirs("heimdall_preprocessed", exist_ok=True)
 
         if cache_and_load_preproc:
             filepath = self.dataset_preproc_cfg.data_path.split("/")
@@ -345,7 +345,7 @@ class CellRepresentation:
         # convert gene names to ensembl ids
         if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
             self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
-                data_dir=self._cfg.ensemble_dir,
+                data_dir=self._cfg.ensembl_dir,
                 species=self.dataset_preproc_cfg.species,
             )
 
