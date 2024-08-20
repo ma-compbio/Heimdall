@@ -1,0 +1,10 @@
+args:
+  task_type: "classification"
+  label_col_name: "majority_neighbor_class"
+  metrics: ["Accuracy", "MatthewsCorrCoef"]
+  task_structure: "single"
+  train_split: 0.8
+  shuffle: True
+  batchsize: 32
+  epochs: 10
+  prediction_dim: 22
