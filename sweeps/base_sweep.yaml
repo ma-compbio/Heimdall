@@ -1,0 +1,24 @@
+program: train.py
+metric:
+  name: valid_MatthewsCorrCoef
+  goal: maximize
+
+method: grid # or random or bayes
+parameters:
+  optimizer.args.lr:
+    values: [1e-2, 5e-3 ,1e-3, 5e-4, 1e-4]
+  tasks.args.batchsize:
+    values: [32, 64, 128, 256]
+
+# count:20 ## if you are interested in limiting the number of runs
+
+command:
+# - ${env}
+# - ${interpreter}
+# - --num_processes=4
+# - +experiments=zheng68k
+- accelerate
+- launch
+- --mixed_precision=bf16
+- ${program}
+- ${args_no_hyphens}

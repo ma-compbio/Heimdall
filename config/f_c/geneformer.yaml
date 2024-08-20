@@ -1,0 +1,5 @@
+
+name: "geneformer"
+
+args:
+  output_type: "ids"

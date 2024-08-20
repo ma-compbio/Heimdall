@@ -1,7 +1,7 @@
 dataset_name: "spatial_neighbor_popular_cell_type"
 
 preprocess_args:
-  data_path: "/work/magroup/shared/Heimdall/data/spatial_neighborhood/spatial_dataset_minimal_intlabels.h5ad"
+  data_path: "${data_path}/spatial_neighborhood/spatial_dataset_minimal_intlabels.h5ad"
   top_n_genes: false
   normalize: true
   log_1p: true
