@@ -21,4 +21,3 @@ CMD=$(python3 scripts/create_sweep.py "$@")
 
 echo $CMD
 eval $CMD
-

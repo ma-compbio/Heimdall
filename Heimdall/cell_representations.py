@@ -192,6 +192,8 @@ class PairedInstanceDataset(Dataset):
                     f"Valid options are: {pformat(all_obsp_task_keys)}",
                 )
 
+            obsp_task_keys = candidate_obsp_task_keys
+
         # Set up task mask
         full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
         adata.obsp["full_mask"] = full_mask
@@ -333,6 +335,7 @@ class CellRepresentation:
                 self.adata = ad.read_h5ad(preprocessed_data_path)
                 print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
                 print(f"> Finished Loading in preprocessed dataset: {preprocessed_data_path}")
+                self.sequence_length = len(self.adata.var)
                 return
 
             else:
