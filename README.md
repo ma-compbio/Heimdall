@@ -9,13 +9,13 @@ git clone
 
 cd Heimdall
 
-conda create --name heimdall_empty python=3.10
+conda create --name heimdall python=3.10
 conda activate heimdall
 pip install -r requirements.txt
 pip install torch==2.0.1+cu118 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
-## Sset up for dev
+## Set up for dev
 
 ### Install dev tools
 
@@ -23,7 +23,7 @@ pip install torch==2.0.1+cu118 torchvision torchaudio --index-url https://downlo
 pip install -U nox pre-commit
 
 # Install pre-commit hooks
-pre-cmomit install
+pre-commit install
 ```
 
 When changes are made, run `nox` to perform quality checks first.
@@ -59,10 +59,20 @@ WANDB_MODE=disabled python train.py +experiments=cell_cell_interaction_dev
 `train.py` provides a clear overview of the inputs needed, how to prepare the data, model, optimizer, and run the trainer.
 
 ```
-python train.py
+python train.py +experiments=classification_experiment_dev
 ```
 
-# Heimdall Trainer Documentation
+Make sure to edit the global file `config/global_vars.yaml` based on your set up.
+
+# Sweeps
+
+`scripts/create_sweep.py`  has the arguments `--experiment-name` (the hydra experiment file name),  `--project-name` (W&B project name), `--fg` and `--fc` which are the names of the hydra configs. It is a short script that will load in `sweeps/base.yaml` and updates it appropriately, and creates a sweep argument and returns it. This can work in tandem with `deploy_sweep.sh` to submit multiple sweeps on SLURM systems.
+
+```
+python scripts/create_sweep.py --experiment-name pancreas --project-name Pancreas-Celltype-Classification
+```
+
+# Heimdall Trainer Documentation (outdated)
 
 The `Heimdall_Trainer` object now will automatically consider and process the training with Huggingface Accelerate
 

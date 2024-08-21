@@ -5,12 +5,12 @@
 ####
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: cell_cell_interaction # dataset for the relevant task
-  - override /tasks: cell_cell_interaction # dataset for the relevant task
+  - override /dataset: pancreas # dataset for the relevant task
+  - override /tasks: pancreas # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
-  - override /f_c: identity
+  - override /f_c: geneformer
   - override /f_g: identity
   - override /loss: CrossEntropyLoss
 
@@ -19,14 +19,13 @@ defaults:
 ####
 
 
-project_name: 'Cell_Cell_Interaction' #project name for WandB
-run_name: 'test01'  ## what is set for WandB
+project_name: 'Pancreas-Celltype-Classification' #project name for WandB
+run_name: '${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}_${model.args.pooling}'  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
+
 
 seed: 55
 
-trainer:
-  accumulate_grad_batches: 1
-
 optimizer:
-  learning_rate: 2e-3
+  args:
+    lr: 2e-3

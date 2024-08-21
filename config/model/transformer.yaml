@@ -1,8 +1,8 @@
 type: 'transformer'
 args:
-  hidden_size: 128
-  num_hidden_layers: 2
-  num_attention_heads: 32
+  hidden_size: 256
+  num_hidden_layers: 6
+  num_attention_heads: 8
   hidden_act: "gelu"
   hidden_dropout_prob: 0.1
   attention_probs_dropout_prob: 0.1

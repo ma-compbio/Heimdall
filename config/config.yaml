@@ -4,13 +4,14 @@
 # Set the experiment parts you would like to import
 ####
 defaults:
+  - global_vars
   - /model: transformer # the chosen model
   - /dataset: cell_type_classification_dev # dataset for the relevant task
   - /tasks: cell_type_classification_dev # dataset for the relevant task
   - /scheduler: cosine # contains scheduler
   - /trainer: default # contains optimizer and trainer details
   - /optimizer: AdamW
-  - /f_c: identity
+  - /f_c: geneformer
   - /f_g: identity
   - /loss: CrossEntropyLoss
 
@@ -18,17 +19,8 @@ defaults:
 # Set the specific parameters you would like to change from the defaults
 ####
 
-
 project_name: 'Cell_Type_Classification_dev' #project name for WandB
 run_name: 'run_name'  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
-entity: 'Heimdall'
 
 seed: 42
-
-trainer:
-  accumulate_grad_batches: 1
-
-optimizer:
-  args: 
-    lr: 2e-3

@@ -1,0 +1,10 @@
+args:
+  task_type: "regression"
+  label_col_name: "neighbor_density"
+  metrics: ["MAE", "MSE"]
+  task_structure: "single"
+  train_split: 0.8
+  shuffle: True
+  batchsize: 32
+  epochs: 10
+  prediction_dim: 1

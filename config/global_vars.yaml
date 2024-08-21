@@ -1,0 +1,5 @@
+# global_vars.yaml
+
+data_path: '/home/nzh/Desktop/Heimdall/data'
+ensembl_dir: '/home/nzh/Desktop/Heimdall/data'
+entity: 'Heimdall'

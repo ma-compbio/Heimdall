@@ -192,6 +192,8 @@ class PairedInstanceDataset(Dataset):
                     f"Valid options are: {pformat(all_obsp_task_keys)}",
                 )
 
+            obsp_task_keys = candidate_obsp_task_keys
+
         # Set up task mask
         full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
         adata.obsp["full_mask"] = full_mask
@@ -319,25 +321,34 @@ class CellRepresentation:
 
         return self.adata, symbol_to_ensembl_mapping
 
-    def preprocess_anndata(self):
+    def preprocess_anndata(self, cache_and_load_preproc=False):
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        # Load your AnnData object
-        splitpath = os.path.splitext(self.dataset_preproc_cfg.data_path)
-        preprocessed_data_path = splitpath[0] + "_preprocessed_" + splitpath[1]
-        if os.path.isfile(preprocessed_data_path):
-            self.adata = ad.read_h5ad(preprocessed_data_path)
-            print(f"> Finished Loading in preprossed dataset: {preprocessed_data_path}")
+        os.makedirs("heimdall_preprocessed", exist_ok=True)
+
+        if cache_and_load_preproc:
+            filepath = self.dataset_preproc_cfg.data_path.split("/")
+            preprocessed_data_path = "heimdall_preprocessed/preprocessed_" + filepath[-1]
+
+            if os.path.isfile(preprocessed_data_path):
+                self.adata = ad.read_h5ad(preprocessed_data_path)
+                print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
+                print(f"> Finished Loading in preprocessed dataset: {preprocessed_data_path}")
+                self.sequence_length = len(self.adata.var)
+                return
+
+            else:
+                self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
+                print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
         else:
             self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
             print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
         # convert gene names to ensembl ids
         if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
-        # if "gene_mapping:symbol_to_ensembl" not in self.adata.uns.keys():
             self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
-                data_dir="/work/magroup/shared/Heimdall/data/",
+                data_dir=self._cfg.ensembl_dir,
                 species=self.dataset_preproc_cfg.species,
             )
 
@@ -348,6 +359,7 @@ class CellRepresentation:
         if preprocessing_string in self.adata.layers.keys():
             print("> Using cached preprocessed data")
             self.adata.X = self.adata.layers[preprocessing_string].copy()
+            self.sequence_length = len(self.adata.var)
             return
 
         else:
@@ -380,6 +392,8 @@ class CellRepresentation:
             else:
                 print("> No highly variable subset... using entire dataset")
 
+            self.sequence_length = len(self.adata.var)
+
             if get_value(self.dataset_preproc_cfg, "scale_data"):
                 # Scale the data
                 print("> Scaling the data...")
@@ -390,8 +404,10 @@ class CellRepresentation:
             print("> Finished Processing Anndata Object")
             print("> Writing preprocessed Anndata Object")
             self.adata.layers[preprocessing_string] = self.adata.X.copy()
-            self.adata.write(preprocessed_data_path)
-            print("> Finished writing preprocessed Anndata Object")
+
+            if cache_and_load_preproc:
+                self.adata.write(preprocessed_data_path)
+                print("> Finished writing preprocessed Anndata Object")
 
             print("> Not Scaling the data...")
 
@@ -446,7 +462,6 @@ class CellRepresentation:
             train_idx, val_idx = train_test_split(train_val_idx, test_size=0.2, random_state=seed)
 
         self._splits = {"train": train_idx, "val": val_idx, "test": test_idx}
-
 
     @deprecate
     def prepare_datasets(self):
