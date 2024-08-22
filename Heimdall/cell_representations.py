@@ -4,6 +4,7 @@ import os
 import warnings
 from abc import ABC, abstractmethod
 from functools import partial, wraps
+from pathlib import Path
 from pprint import pformat
 from typing import Callable, Dict, Optional, Tuple, Union
 
@@ -321,17 +322,18 @@ class CellRepresentation:
 
         return self.adata, symbol_to_ensembl_mapping
 
-    def preprocess_anndata(self, cache_and_load_preproc=False):
+    def preprocess_anndata(self):
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        os.makedirs("heimdall_preprocessed", exist_ok=True)
+        preprocessed_data_path = None
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            filename = Path(self.dataset_preproc_cfg.data_path).name
+            cache_dir = Path(cache_dir).resolve()
+            cache_dir.mkdir(exist_ok=True, parents=True)
+            preprocessed_data_path = cache_dir / f"preprocessed_{filename}"
 
-        if cache_and_load_preproc:
-            filepath = self.dataset_preproc_cfg.data_path.split("/")
-            preprocessed_data_path = "heimdall_preprocessed/preprocessed_" + filepath[-1]
-
-            if os.path.isfile(preprocessed_data_path):
+            if preprocessed_data_path.is_file():
                 self.adata = ad.read_h5ad(preprocessed_data_path)
                 print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
                 print(f"> Finished Loading in preprocessed dataset: {preprocessed_data_path}")
@@ -405,9 +407,9 @@ class CellRepresentation:
             print("> Writing preprocessed Anndata Object")
             self.adata.layers[preprocessing_string] = self.adata.X.copy()
 
-            if cache_and_load_preproc:
+            if preprocessed_data_path is not None:
                 self.adata.write(preprocessed_data_path)
-                print("> Finished writing preprocessed Anndata Object")
+                print(f"> Finished writing preprocessed Anndata Object: {preprocessed_data_path!s}")
 
             print("> Not Scaling the data...")
 
