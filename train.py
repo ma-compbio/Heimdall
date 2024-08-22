@@ -7,22 +7,25 @@ from omegaconf import OmegaConf
 from Heimdall.cell_representations import CellRepresentation
 
 # initialize the model
-from Heimdall.models import HeimdallTransformer, TransformerConfig
-from Heimdall.trainer import HeimdallTrainer
-from Heimdall.utils import count_parameters
+# from Heimdall.models import HeimdallTransformer, TransformerConfig
+# from Heimdall.trainer import HeimdallTrainer
+# from Heimdall.utils import count_parameters
 
 
 # using @hydra.main so that we can take in command line arguments
 @hydra.main(config_path="config", config_name="config", version_base="1.3")
 def main(config):
-    print(OmegaConf.to_yaml(config))
+    print(OmegaConf.to_yaml(config, resolve=True))
 
     #####
     # After preparing your f_g and f_c, use the Heimdall Cell_Representation object to load in and
     # preprocess the dataset
     #####
 
-    cr = CellRepresentation(config)  # takes in the whole config from hydra
+    cr = CellRepresentation(config, auto_setup=False)  # takes in the whole config from hydra
+    cr.preprocess_anndata(cache_and_load_preproc=True)
+    cr.tokenize_cells(cache_and_load_preproc=True)
+    return
 
     ########
     # Create the model and the types of inputs that it may use
@@ -67,14 +70,7 @@ def main(config):
     #####
     # Initialize the Trainer
     #####
-    trainer = HeimdallTrainer(
-        cfg=config,
-        model=model,
-        dataloader_train=cr.dataloaders["train"],
-        dataloader_val=cr.dataloaders["val"],
-        dataloader_test=cr.dataloaders["test"],
-        run_wandb=True,
-    )
+    trainer = HeimdallTrainer(cfg=config, model=model, data=cr, run_wandb=True)
 
     # Training
     trainer.fit()

@@ -17,23 +17,19 @@ class HeimdallTrainer:
         self,
         cfg,
         model,
-        dataloader_train,
-        dataloader_val,
-        dataloader_test,
+        data,
         run_wandb=False,
         custom_loss_func=None,
         custom_metrics=None,
     ):
         self.cfg = cfg
         self.model = model
-        self.dataloader_train = dataloader_train
-        self.dataloader_val = dataloader_val
-        self.dataloader_test = dataloader_test
+        self.data = data
+
         self.run_wandb = run_wandb
         self.process = psutil.Process()
         self.custom_loss_func = custom_loss_func
         self.custom_metrics = custom_metrics or {}
-        self.num_labels = cfg.tasks.args.prediction_dim
 
         accelerator_log_kwargs = {}
         if run_wandb:
@@ -76,6 +72,17 @@ class HeimdallTrainer:
         if self.accelerator.is_main_process:
             print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
             print("> run HeimdallTrainer.train() to begin training")
+
+    @property
+    def data(self):
+        return self._data
+
+    @data.setter
+    def data(self, data):
+        self._data = data
+        for split in ["train", "val", "test"]:
+            setattr(self, f"dataloader_{split}", data.dataloaders[split])
+        self.num_labels = data.num_tasks
 
     def print_r0(self, payload):
         if self.accelerator.is_main_process:
@@ -147,7 +154,7 @@ class HeimdallTrainer:
 
         # Then, add built-in metrics if not overridden by custom metrics
         if task_type == "classification":
-            num_classes = self.cfg.tasks.args.prediction_dim
+            num_classes = self.num_labels
             for metric_name in self.cfg.tasks.args.metrics:
                 if metric_name not in metrics:
                     if metric_name == "Accuracy":

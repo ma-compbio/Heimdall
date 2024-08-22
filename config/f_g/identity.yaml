@@ -1,5 +1,4 @@
-
-name: "identity"
+name: "identity_fg"
 
 args:
   output_type: "ids" ## specify whether the output is numerical IDs like 1,2,3,4 or a vector

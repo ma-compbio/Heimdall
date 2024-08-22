@@ -5,6 +5,7 @@ import pickle as pkl
 import warnings
 from abc import ABC, abstractmethod
 from functools import partial, wraps
+from pathlib import Path
 from pprint import pformat
 from typing import Callable, Dict, Optional, Tuple, Union
 
@@ -193,18 +194,28 @@ class PairedInstanceDataset(Dataset):
                     f"Valid options are: {pformat(all_obsp_task_keys)}",
                 )
 
+            obsp_task_keys = candidate_obsp_task_keys
+
         # Set up task mask
         full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
         adata.obsp["full_mask"] = full_mask
         nz = np.nonzero(full_mask)
-        num_tasks = len(obsp_task_keys)
 
         # TODO: specify task type multiclass/multilabel/regression in config
-        (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
-        for i, task in enumerate(obsp_task_keys):
-            label_i = np.array(adata.obsp[task][nz]).ravel()
-            labels[:, i][label_i == 1] = 1
-            labels[:, i][label_i == -1] = 0
+        if len(obsp_task_keys) == 1:
+            task_mat = adata.obsp[obsp_task_keys[0]]
+            assert (task_mat.data > 0).all(), "Multiclass task id must be positive"
+
+            num_tasks = task_mat.max()  # class id starts from 1. 0's are ignoreed
+            labels = np.array(task_mat[nz]).ravel().astype(np.int64) - 1  # class 0 is not used
+        else:
+            num_tasks = len(obsp_task_keys)
+
+            (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
+            for i, task in enumerate(obsp_task_keys):
+                label_i = np.array(adata.obsp[task][nz]).ravel()
+                labels[:, i][label_i == 1] = 1
+                labels[:, i][label_i == -1] = 0
         self.labels = labels
 
     def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
@@ -260,27 +271,29 @@ class CellRepresentation:
     @property
     @check_states(labels=True)
     def num_tasks(self) -> int:
-        warnings.warn(
-            "Need to improve to explicitly handle multiclass vs. multilabel",
-            UserWarning,
-            stacklevel=2,
-        )
-        if (self.labels % 1).any():  # inferred to be regression
-            task_type = "regression"
-            out = self._labels.shape[1]
-        elif self.labels.max() == 1:  # inferred to be multilabel
-            task_type = "classification-multilabel"
-            if len(self.labels.shape) == 1:
-                out = 1
-            else:
+        if "_num_tasks" not in self.__dict__:
+            warnings.warn(
+                "Need to improve to explicitly handle multiclass vs. multilabel",
+                UserWarning,
+                stacklevel=2,
+            )
+            if (self.labels % 1).any():  # inferred to be regression
+                task_type = "regression"
                 out = self._labels.shape[1]
-        else:  # inferred to be multiclass
-            task_type = "classification-multiclass"
-            out = self._labels.max() + 1
+            elif self.labels.max() == 1:  # inferred to be multilabel
+                task_type = "classification-multilabel"
+                if len(self.labels.shape) == 1:
+                    out = 1
+                else:
+                    out = self._labels.shape[1]
+            else:  # inferred to be multiclass
+                task_type = "classification-multiclass"
+                out = self._labels.max() + 1
 
-        print(f"> Task dimension inferred: {out} (inferred task type {task_type!r}, {self.labels.shape=})")
+            self._num_tasks = out = int(out)
+            print(f"> Task dimension inferred: {out} (inferred task type {task_type!r}, {self.labels.shape=})")
 
-        return out
+        return self._num_tasks
 
     @property
     @check_states(splits=True)
@@ -320,21 +333,22 @@ class CellRepresentation:
 
         return self.adata, symbol_to_ensembl_mapping
 
-    def preprocess_anndata(self, cache_and_load_preproc=False):
+    def preprocess_anndata(self):
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        os.makedirs("heimdall_preprocessed", exist_ok=True)
-
-        if cache_and_load_preproc:
-            filepath = self.dataset_preproc_cfg.data_path.split("/")
+        preprocessed_data_path = None
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            filename = Path(self.dataset_preproc_cfg.data_path).name
+            cache_dir = Path(cache_dir).resolve()
+            cache_dir.mkdir(exist_ok=True, parents=True)
             preprocessing_string = "_".join(
                 [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
             )
-            preprocessed_data_path = "heimdall_preprocessed/preprocessed_" + preprocessing_string + filepath[-1]
+            preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}_{filename}"
             self.preprocessed_data_path = preprocessed_data_path
 
-            if os.path.isfile(preprocessed_data_path):
+            if preprocessed_data_path.is_file():
                 print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
                 self.adata = ad.read_h5ad(preprocessed_data_path)
                 self.sequence_length = len(self.adata.var)
@@ -388,7 +402,7 @@ class CellRepresentation:
 
         print("> Finished Processing Anndata Object")
 
-        if cache_and_load_preproc == True:
+        if preprocessed_data_path is not None:
             print("> Writing preprocessed Anndata Object")
             self.adata.write(preprocessed_data_path)
             print("> Finished writing preprocessed Anndata Object")
