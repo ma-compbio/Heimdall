@@ -52,6 +52,12 @@ WANDB_MODE=offline python train.py +experiments=classification_experiment_dev
 
 # Run cell cell interaction dev experiment with wandb disabled
 WANDB_MODE=disabled python train.py +experiments=cell_cell_interaction_dev
+
+# Run cell cell interaction dev experiment with wandb disabled and overwrite epochs
+WANDB_MODE=disabled python train.py +experiments=cell_cell_interaction_dev tasks.args.epochs=2
+
+# Run cell cell interaction dev experiment with user profile (dev has wandb disabled by default)
+python train.py +experiments=cell_cell_interaction_dev user=lane-remy-dev
 ```
 
 # Quickstart
