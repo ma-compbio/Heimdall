@@ -314,8 +314,6 @@ class CellRepresentation:
             - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
 
         """
-        # if species == "mouse":
-        #     self.adata.var_names = self.adata.var_names.str.upper()
         symbol_to_ensembl_mapping = data_processing_utils.symbol_to_ensembl_from_ensembl(
             data_dir=data_dir,
             genes=self.adata.var.index.tolist(),
