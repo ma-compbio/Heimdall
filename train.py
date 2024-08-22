@@ -67,14 +67,7 @@ def main(config):
     #####
     # Initialize the Trainer
     #####
-    trainer = HeimdallTrainer(
-        cfg=config,
-        model=model,
-        dataloader_train=cr.dataloaders["train"],
-        dataloader_val=cr.dataloaders["val"],
-        dataloader_test=cr.dataloaders["test"],
-        run_wandb=True,
-    )
+    trainer = HeimdallTrainer(cfg=config, model=model, data=cr, run_wandb=True)
 
     # Training
     trainer.fit()
