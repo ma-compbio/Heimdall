@@ -553,6 +553,7 @@ class CellRepresentation:
                     cell_reps = pkl.load(rep_file)
                     self.adata.layers["cell_representation"] = cell_reps
                     print("> Using cached cell representations")
+                    self.processed_fcfg = True
                     return
 
         # Below here is the de facto "else"
