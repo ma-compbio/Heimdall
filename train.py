@@ -15,7 +15,7 @@ from Heimdall.utils import count_parameters
 # using @hydra.main so that we can take in command line arguments
 @hydra.main(config_path="config", config_name="config", version_base="1.3")
 def main(config):
-    print(OmegaConf.to_yaml(config))
+    print(OmegaConf.to_yaml(config, resolve=True))
 
     #####
     # After preparing your f_g and f_c, use the Heimdall Cell_Representation object to load in and
