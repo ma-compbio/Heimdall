@@ -254,8 +254,7 @@ class CellRepresentation:
             from Heimdall.f_g import identity_fg
 
             self.preprocess_anndata()
-            self.preprocess_f_g(identity_fg)
-            self.preprocess_f_c(old_geneformer_fc)
+            self.tokenize_cells()
             self.prepare_dataset_loaders()
 
     @property
@@ -344,7 +343,6 @@ class CellRepresentation:
                 [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
             )
             preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}_{filename}"
-            self.preprocessed_data_path = preprocessed_data_path
 
             if preprocessed_data_path.is_file():
                 print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
@@ -530,7 +528,7 @@ class CellRepresentation:
         return cell_reps
 
     @check_states(adata=True)
-    def tokenize_cells(self, cache_and_load_preproc=False):
+    def tokenize_cells(self):
         """Processes the f_g and f_c from the config.
 
         This will first check to see if the cell representations are already
@@ -540,33 +538,45 @@ class CellRepresentation:
         """
         f_g_name = self.fg_cfg.name
         f_c_name = self.fc_cfg.name
-        preprocessed_reps_path = self.preprocessed_data_path + f_g_name + f_c_name + ".pkl"
-        if cache_and_load_preproc == True and os.path.isfile(preprocessed_reps_path):
-            with open(preprocessed_reps_path, "rb") as rep_file:
-                cell_reps = pkl.load(rep_file)
-                self.adata.layers["cell_representation"] = cell_reps
-                print("> Using cached cell representations")
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            filename = Path(self.dataset_preproc_cfg.data_path).name
+            cache_dir = Path(cache_dir).resolve()
+            cache_dir.mkdir(exist_ok=True, parents=True)
+            preprocessing_string = "_".join(
+                [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
+            )
+            preprocessed_reps_path = (
+                cache_dir / f"preprocessed_{preprocessing_string}_{filename}_{f_g_name}_{f_c_name}.pkl"
+            )
+            if os.path.isfile(preprocessed_reps_path):
+                with open(preprocessed_reps_path, "rb") as rep_file:
+                    cell_reps = pkl.load(rep_file)
+                    self.adata.layers["cell_representation"] = cell_reps
+                    print("> Using cached cell representations")
+                    return
+
+        # Below here is the de facto "else"
+
+        import Heimdall.f_c as f_c
+        import Heimdall.f_g as f_g
+
+        if hasattr(f_g, f_g_name):
+            real_f_g = getattr(f_g, f_g_name)
         else:
-            import Heimdall.f_c as f_c
-            import Heimdall.f_g as f_g
+            print(f"f_g {f_g_name} does not exist. Please check for the correct name")
 
-            if hasattr(f_g, f_g_name):
-                real_f_g = getattr(f_g, f_g_name)
-            else:
-                print(f"f_g {f_g_name} does not exist. Please check for the correct name")
+        if hasattr(f_c, f_c_name):
+            real_f_c = getattr(f_c, f_c_name)
+        else:
+            print(f"f_c {f_c_name} does not exist. Please check for the correct name")
 
-            if hasattr(f_c, f_c_name):
-                real_f_c = getattr(f_c, f_c_name)
-            else:
-                print(f"f_c {f_c_name} does not exist. Please check for the correct name")
-
-            self.preprocess_f_g(real_f_g)
-            cell_reps = self.preprocess_f_c(real_f_c)
-            self.adata.layers["cell_representation"] = cell_reps
-            if cache_and_load_preproc == True:
-                with open(preprocessed_reps_path, "wb") as rep_file:
-                    pkl.dump(cell_reps, rep_file)
-                    print(f"finished writing cell representations at {preprocessed_reps_path}")
+        self.preprocess_f_g(real_f_g)
+        cell_reps = self.preprocess_f_c(real_f_c)
+        self.adata.layers["cell_representation"] = cell_reps
+        if (self._cfg.cache_preprocessed_dataset_dir) is not None:
+            with open(preprocessed_reps_path, "wb") as rep_file:
+                pkl.dump(cell_reps, rep_file)
+                print(f"finished writing cell representations at {preprocessed_reps_path}")
 
     ###################################################
     ##########     Deprecated functions     ###########
