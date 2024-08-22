@@ -199,14 +199,22 @@ class PairedInstanceDataset(Dataset):
         full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
         adata.obsp["full_mask"] = full_mask
         nz = np.nonzero(full_mask)
-        num_tasks = len(obsp_task_keys)
 
         # TODO: specify task type multiclass/multilabel/regression in config
-        (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
-        for i, task in enumerate(obsp_task_keys):
-            label_i = np.array(adata.obsp[task][nz]).ravel()
-            labels[:, i][label_i == 1] = 1
-            labels[:, i][label_i == -1] = 0
+        if len(obsp_task_keys) == 1:
+            task_mat = adata.obsp[obsp_task_keys[0]]
+            assert (task_mat.data > 0).all(), "Multiclass task id must be positive"
+
+            num_tasks = task_mat.max()  # class id starts from 1. 0's are ignoreed
+            labels = np.array(task_mat[nz]).ravel().astype(np.int64) - 1  # class 0 is not used
+        else:
+            num_tasks = len(obsp_task_keys)
+
+            (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
+            for i, task in enumerate(obsp_task_keys):
+                label_i = np.array(adata.obsp[task][nz]).ravel()
+                labels[:, i][label_i == 1] = 1
+                labels[:, i][label_i == -1] = 0
         self.labels = labels
 
     def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
