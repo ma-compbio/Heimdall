@@ -1,0 +1,9 @@
+dataset_name: "reverse_perturbation"
+
+preprocess_args:
+  data_path: "${data_path}/reverse_perturbation_prediction/processed/perturb_seq_norman_diff_ko_paired.h5ad"
+  top_n_genes: 1000
+  normalize: true
+  log_1p: true
+  scale_data: true
+  species: 'mouse'
