@@ -1,5 +1,4 @@
-
-name: "geneformer"
+name: "old_geneformer_fc"
 
 args:
   output_type: "ids"

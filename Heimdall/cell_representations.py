@@ -1,5 +1,7 @@
 """The Cell Representation Object for Processing."""
 
+import os
+import pickle as pkl
 import warnings
 from abc import ABC, abstractmethod
 from functools import partial, wraps
@@ -252,8 +254,7 @@ class CellRepresentation:
             from Heimdall.f_g import identity_fg
 
             self.preprocess_anndata()
-            self.preprocess_f_g(identity_fg)
-            self.preprocess_f_c(old_geneformer_fc)
+            self.tokenize_cells()
             self.prepare_dataset_loaders()
 
     @property
@@ -312,12 +313,10 @@ class CellRepresentation:
             - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
 
         """
-        if species == "mouse":
-            self.adata.var_names = self.adata.var_names.str.upper()
         symbol_to_ensembl_mapping = data_processing_utils.symbol_to_ensembl_from_ensembl(
             data_dir=data_dir,
             genes=self.adata.var.index.tolist(),
-            species="human",
+            species=species,
         )
 
         self.adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
@@ -340,21 +339,20 @@ class CellRepresentation:
             filename = Path(self.dataset_preproc_cfg.data_path).name
             cache_dir = Path(cache_dir).resolve()
             cache_dir.mkdir(exist_ok=True, parents=True)
-            preprocessed_data_path = cache_dir / f"preprocessed_{filename}"
+            preprocessing_string = "_".join(
+                [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
+            )
+            preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}_{filename}"
 
             if preprocessed_data_path.is_file():
-                self.adata = ad.read_h5ad(preprocessed_data_path)
                 print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
-                print(f"> Finished Loading in preprocessed dataset: {preprocessed_data_path}")
+                self.adata = ad.read_h5ad(preprocessed_data_path)
                 self.sequence_length = len(self.adata.var)
+                print(f"> Finished Processing Anndata Object:\n{self.adata}")
                 return
 
-            else:
-                self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
-                print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
-        else:
-            self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
-            print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
+        self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
+        print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
         # convert gene names to ensembl ids
         if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
@@ -363,64 +361,47 @@ class CellRepresentation:
                 species=self.dataset_preproc_cfg.species,
             )
 
-        # check if layer already exists with your desired preprocessing
-        preprocessing_string = "_".join(
-            [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
-        )
-        if preprocessing_string in self.adata.layers.keys():
-            print("> Using cached preprocessed data")
-            self.adata.X = self.adata.layers[preprocessing_string].copy()
-            self.sequence_length = len(self.adata.var)
-            return
-
+        if get_value(self.dataset_preproc_cfg, "normalize"):
+            # Normalizing based on target sum
+            print("> Normalizing anndata...")
+            sc.pp.normalize_total(self.adata, target_sum=1e4)
+            assert (
+                self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
+            ), "Normalize and Log1P both need to be TRUE"
         else:
-            if get_value(self.dataset_preproc_cfg, "normalize"):
-                # Normalizing based on target sum
-                print("> Normalizing anndata...")
-                sc.pp.normalize_total(self.adata, target_sum=1e4)
-                assert (
-                    self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
-                ), "Normalize and Log1P both need to be TRUE"
-            else:
-                print("> Skipping Normalizing anndata...")
+            print("> Skipping Normalizing anndata...")
 
-            if get_value(self.dataset_preproc_cfg, "log_1p"):
-                # log Transform step
-                print("> Log Transforming anndata...")
-                sc.pp.log1p(self.adata)
-            else:
-                print("> Skipping Log Transforming anndata..")
+        if get_value(self.dataset_preproc_cfg, "log_1p"):
+            # log Transform step
+            print("> Log Transforming anndata...")
+            sc.pp.log1p(self.adata)
+        else:
+            print("> Skipping Log Transforming anndata..")
 
-            if (
-                get_value(self.dataset_preproc_cfg, "top_n_genes")
-                and self.dataset_preproc_cfg["top_n_genes"] != "false"
-            ):
-                print(self.dataset_preproc_cfg)
-                # Identify highly variable genes
-                print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
-                sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
-                self.adata = self.adata[:, self.adata.var["highly_variable"]]
-            else:
-                print("> No highly variable subset... using entire dataset")
+        if get_value(self.dataset_preproc_cfg, "top_n_genes") and self.dataset_preproc_cfg["top_n_genes"] != "false":
+            print(self.dataset_preproc_cfg)
+            # Identify highly variable genes
+            print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
+            sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
+            self.adata = self.adata[:, self.adata.var["highly_variable"]]
+        else:
+            print("> No highly variable subset... using entire dataset")
 
-            self.sequence_length = len(self.adata.var)
+        self.sequence_length = len(self.adata.var)
 
-            if get_value(self.dataset_preproc_cfg, "scale_data"):
-                # Scale the data
-                print("> Scaling the data...")
-                sc.pp.scale(self.adata, max_value=10)
-            else:
-                print("> Not Scaling the data...")
-
-            print("> Finished Processing Anndata Object")
-            print("> Writing preprocessed Anndata Object")
-            self.adata.layers[preprocessing_string] = self.adata.X.copy()
-
-            if preprocessed_data_path is not None:
-                self.adata.write(preprocessed_data_path)
-                print(f"> Finished writing preprocessed Anndata Object: {preprocessed_data_path!s}")
-
+        if get_value(self.dataset_preproc_cfg, "scale_data"):
+            # Scale the data
+            print("> Scaling the data...")
+            sc.pp.scale(self.adata, max_value=10)
+        else:
             print("> Not Scaling the data...")
+
+        print("> Finished Processing Anndata Object")
+
+        if preprocessed_data_path is not None:
+            print("> Writing preprocessed Anndata Object")
+            self.adata.write(preprocessed_data_path)
+            print("> Finished writing preprocessed Anndata Object")
 
         print(f"> Finished Processing Anndata Object:\n{self.adata}")
 
@@ -455,6 +436,152 @@ class CellRepresentation:
 
         dataset_str = pformat(self.datasets).replace("\n", "\n\t")
         print(f"> Finished setting up datasets (and loaders):\n\t{dataset_str}")
+
+    def rebalance_dataset(self, df):
+        # Step 1: Find which label has a lower number
+        label_counts = df["labels"].value_counts()
+        minority_label = label_counts.idxmin()
+        majority_label = label_counts.idxmax()
+        minority_count = label_counts[minority_label]
+
+        print(f"Minority label: {minority_label}")
+        print(f"Majority label: {majority_label}")
+        print(f"Number of samples in minority class: {minority_count}")
+
+        # Step 2: Downsample the majority class
+        df_minority = df[df["labels"] == minority_label]
+        df_majority = df[df["labels"] == majority_label]
+
+        df_majority_downsampled = resample(
+            df_majority,
+            replace=False,
+            n_samples=minority_count,
+            random_state=42,
+        )
+
+        # Combine minority class with downsampled majority class
+        df_balanced = pd.concat([df_minority, df_majority_downsampled])
+
+        print(f"Original dataset shape: {df.shape}")
+        print(f"Balanced dataset shape: {df_balanced.shape}")
+        print("New label distribution:")
+        print(df_balanced["labels"].value_counts())
+
+        return df_balanced
+
+    def preprocess_f_g(self, f_g):
+        """Process f_g.
+
+        Run the f_g, and then preprocess and store it locally the f_g must
+        return a `gene_mapping` where the keys are the gene ids and the ids are
+        the.
+
+        The f_g will take in the anndata as an object just for flexibility
+
+        For example:
+        ```
+        {'Sox17': 0,
+        'Rgs20': 1,
+        'St18': 2,
+        'Cpa6': 3,
+        'Prex2': 4,
+        ...
+        }
+
+        or even:
+        {'Sox17': [0.3, 0.1. 0.2 ...],
+        'Rgs20':  [0.3, 0.1. 0.2 ...],
+        'St18':  [0.3, 0.1. 0.2 ...],
+        'Cpa6':  [0.3, 0.1. 0.2 ...],
+        'Prex2':  [0.3, 0.1. 0.2 ...],
+        ...
+        }
+        ```
+
+        """
+        assert self.fg_cfg.args.output_type in ["ids", "vector"]
+
+        # For identity, we convert each of the vars into a unique ID
+        gene_mapping = f_g(self.adata.var)
+
+        assert all(
+            isinstance(value, (np.ndarray, list, int)) for value in gene_mapping.values()
+        ), "Make sure that all values in the gene_mapping dictionary are either int, list or np array"
+
+        self.f_g = gene_mapping
+        print(f"> Finished calculating f_g with {self.fg_cfg.name}")
+        return
+
+    def preprocess_f_c(self, f_c):
+        """Process f_c.
+
+        Preprocess the cell f_c, this will preprocess the anndata.X into the
+        actual dataset to the actual tokenizers, you can imagine this as a cell
+        tokenizer.
+
+        The f_c will take as input the f_g, then the anndata, then the
+
+        """
+        cell_reps = f_c(self.f_g, self.adata)
+        print(f"> Finished calculating f_c with {self.fc_cfg.name}")
+        self.processed_fcfg = True
+        return cell_reps
+
+    @check_states(adata=True)
+    def tokenize_cells(self):
+        """Processes the f_g and f_c from the config.
+
+        This will first check to see if the cell representations are already
+        cached, and then will either load the cached representations or compute
+        them and save them.
+
+        """
+        f_g_name = self.fg_cfg.name
+        f_c_name = self.fc_cfg.name
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            filename = Path(self.dataset_preproc_cfg.data_path).name
+            cache_dir = Path(cache_dir).resolve()
+            cache_dir.mkdir(exist_ok=True, parents=True)
+            preprocessing_string = "_".join(
+                [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
+            )
+            preprocessed_reps_path = (
+                cache_dir / f"preprocessed_{preprocessing_string}_{filename}_{f_g_name}_{f_c_name}.pkl"
+            )
+            if os.path.isfile(preprocessed_reps_path):
+                with open(preprocessed_reps_path, "rb") as rep_file:
+                    cell_reps = pkl.load(rep_file)
+                    self.adata.layers["cell_representation"] = cell_reps
+                    print("> Using cached cell representations")
+                    self.processed_fcfg = True
+                    return
+
+        # Below here is the de facto "else"
+
+        import Heimdall.f_c as f_c
+        import Heimdall.f_g as f_g
+
+        if hasattr(f_g, f_g_name):
+            real_f_g = getattr(f_g, f_g_name)
+        else:
+            print(f"f_g {f_g_name} does not exist. Please check for the correct name")
+
+        if hasattr(f_c, f_c_name):
+            real_f_c = getattr(f_c, f_c_name)
+        else:
+            print(f"f_c {f_c_name} does not exist. Please check for the correct name")
+
+        self.preprocess_f_g(real_f_g)
+        cell_reps = self.preprocess_f_c(real_f_c)
+        self.adata.layers["cell_representation"] = cell_reps
+        if (self._cfg.cache_preprocessed_dataset_dir) is not None:
+            with open(preprocessed_reps_path, "wb") as rep_file:
+                pkl.dump(cell_reps, rep_file)
+                print(f"finished writing cell representations at {preprocessed_reps_path}")
+
+    ###################################################
+    ##########     Deprecated functions     ###########
+    ###################################################
 
     @deprecate(raise_error=True)
     def _prepare_splits(self):
@@ -606,93 +733,3 @@ class CellRepresentation:
         df["labels"] = df["labels"].replace(-1, 0)
 
         return df[["CellA_Expression", "CellB_Expression", "labels"]]
-
-    def rebalance_dataset(self, df):
-        # Step 1: Find which label has a lower number
-        label_counts = df["labels"].value_counts()
-        minority_label = label_counts.idxmin()
-        majority_label = label_counts.idxmax()
-        minority_count = label_counts[minority_label]
-
-        print(f"Minority label: {minority_label}")
-        print(f"Majority label: {majority_label}")
-        print(f"Number of samples in minority class: {minority_count}")
-
-        # Step 2: Downsample the majority class
-        df_minority = df[df["labels"] == minority_label]
-        df_majority = df[df["labels"] == majority_label]
-
-        df_majority_downsampled = resample(
-            df_majority,
-            replace=False,
-            n_samples=minority_count,
-            random_state=42,
-        )
-
-        # Combine minority class with downsampled majority class
-        df_balanced = pd.concat([df_minority, df_majority_downsampled])
-
-        print(f"Original dataset shape: {df.shape}")
-        print(f"Balanced dataset shape: {df_balanced.shape}")
-        print("New label distribution:")
-        print(df_balanced["labels"].value_counts())
-
-        return df_balanced
-
-    def preprocess_f_g(self, f_g):
-        """Process f_g.
-
-        Run the f_g, and then preprocess and store it locally the f_g must
-        return a `gene_mapping` where the keys are the gene ids and the ids are
-        the.
-
-        The f_g will take in the anndata as an object just for flexibility
-
-        For example:
-        ```
-        {'Sox17': 0,
-        'Rgs20': 1,
-        'St18': 2,
-        'Cpa6': 3,
-        'Prex2': 4,
-        ...
-        }
-
-        or even:
-        {'Sox17': [0.3, 0.1. 0.2 ...],
-        'Rgs20':  [0.3, 0.1. 0.2 ...],
-        'St18':  [0.3, 0.1. 0.2 ...],
-        'Cpa6':  [0.3, 0.1. 0.2 ...],
-        'Prex2':  [0.3, 0.1. 0.2 ...],
-        ...
-        }
-        ```
-
-        """
-        assert self.fg_cfg.args.output_type in ["ids", "vector"]
-
-        # For identity, we convert each of the vars into a unique ID
-        gene_mapping = f_g(self.adata.var)
-
-        assert all(
-            isinstance(value, (np.ndarray, list, int)) for value in gene_mapping.values()
-        ), "Make sure that all values in the gene_mapping dictionary are either int, list or np array"
-
-        self.f_g = gene_mapping
-        print(f"> Finished calculating f_g with {self.fg_cfg.name}")
-        return
-
-    def preprocess_f_c(self, f_c):
-        """Process f_c.
-
-        Preprocess the cell f_c, this will preprocess the anndata.X into the
-        actual dataset to the actual tokenizers, you can imagine this as a cell
-        tokenizer.
-
-        The f_c will take as input the f_g, then the anndata, then the
-
-        """
-        self.adata = f_c(self.f_g, self.adata)
-        print(f"> Finished calculating f_c with {self.fc_cfg.name}")
-        self.processed_fcfg = True
-        return

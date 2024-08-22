@@ -64,9 +64,7 @@ def old_geneformer_fc(fg, adata):
         dataset.append(cell_w_gene_ids)
 
     dataset = np.array(dataset)
-    adata.layers["cell_representation"] = dataset
-    print("> Added processed data to adata.layers['cell_representation']")
-    return adata
+    return dataset
 
 
 def geneformer_fc(fg, adata):
@@ -122,9 +120,7 @@ def geneformer_fc(fg, adata):
         dataset.append(cell_w_gene_ids)
 
     dataset = np.array(dataset)
-    adata.layers["cell_representation"] = dataset
-    print("> Added processed data to adata.layers['cell_representation']")
-    return adata
+    return dataset
 
 
 def scgpt_fc(fg, adata, n_bins=10):
@@ -164,6 +160,4 @@ def scgpt_fc(fg, adata, n_bins=10):
         dataset.append(combined_representation)
 
     dataset = np.array(dataset)
-    adata.layers["cell_representation"] = dataset
-    print("> Added processed data to adata.layers['cell_representation']")
-    return adata
+    return dataset
