@@ -7,9 +7,9 @@ from omegaconf import OmegaConf
 from Heimdall.cell_representations import CellRepresentation
 
 # initialize the model
-# from Heimdall.models import HeimdallTransformer, TransformerConfig
-# from Heimdall.trainer import HeimdallTrainer
-# from Heimdall.utils import count_parameters
+from Heimdall.models import HeimdallTransformer, TransformerConfig
+from Heimdall.trainer import HeimdallTrainer
+from Heimdall.utils import count_parameters
 
 
 # using @hydra.main so that we can take in command line arguments
@@ -22,10 +22,7 @@ def main(config):
     # preprocess the dataset
     #####
 
-    cr = CellRepresentation(config, auto_setup=False)  # takes in the whole config from hydra
-    cr.preprocess_anndata(cache_and_load_preproc=True)
-    cr.tokenize_cells(cache_and_load_preproc=True)
-    return
+    cr = CellRepresentation(config)  # takes in the whole config from hydra
 
     ########
     # Create the model and the types of inputs that it may use
