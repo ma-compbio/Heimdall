@@ -644,7 +644,7 @@ class CellRepresentation:
                 print(f"finished writing cell representations at {preprocessed_reps_path}")
 
     ###################################################
-    ##########     Deprecated functions     ###########
+    # Deprecated functions
     ###################################################
 
     @deprecate(raise_error=True)
