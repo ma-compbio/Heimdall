@@ -1,9 +1,10 @@
 """The Cell Representation Object for Processing."""
 
+import importlib
 import os
 import pickle as pkl
 import warnings
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from functools import partial, wraps
 from pathlib import Path
 from pprint import pformat
@@ -14,6 +15,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from numpy.typing import NDArray
+from omegaconf.errors import ConfigAttributeError
 from scipy.sparse import csr_matrix, issparse
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
@@ -228,6 +230,62 @@ class PairedInstanceDataset(Dataset):
         }
 
 
+class SpecialTokenMixin:
+    _SPECIAL_TOKENS = ["pad", "mask"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.special_tokens = {token: self.data.sequence_length + i for i, token in enumerate(self._SPECIAL_TOKENS)}
+
+
+class PretrainDataset(SpecialTokenMixin, SingleInstanceDataset, ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _setup_labels(self):
+        # FIX: not necessarily the case,e.g., UCE.....
+        self.labels = self.data.cell_representations.copy()
+
+    def __getitem__(self, idx):
+        data = super().__getitem__(idx)
+        return self._transform(data)
+
+    @abstractmethod
+    def _transform(self, data): ...
+
+
+class MaskedPretrainDataset(PretrainDataset, ABC):
+    def __init__(self, *args, mask_ratio: float = 0.15, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mask_ratio = mask_ratio
+
+    @abstractproperty
+    def mask_token(self): ...
+
+
+class SeqMaskedPretrainDataset(MaskedPretrainDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._num_tasks = self.data.sequence_length  # number of genes
+
+    @property
+    def mask_token(self):
+        return self.special_tokens["mask"]
+
+    def _transform(self, data):
+        size = data["labels"].size
+        mask = np.random.random(size) < self.mask_ratio
+
+        # Ignore padding tokens
+        is_padding = data["labels"] == self.special_tokens["pad"]
+        mask[is_padding] = False
+
+        data["inputs"][mask] = self.mask_token
+        data["masks"] = mask
+
+        return data
+
+
 class CellRepresentation:
     def __init__(self, config, auto_setup: bool = True):
         """Initialize the Cell Rep object with configuration and AnnData object.
@@ -407,12 +465,28 @@ class CellRepresentation:
     def prepare_dataset_loaders(self):
         # Set up full dataset given the processed cell representation data
         # This will prepare: labels, splits
-        if self.task_structure == "single":
-            full_dataset = SingleInstanceDataset(self)
-        elif self.task_structure == "paired":
-            full_dataset = PairedInstanceDataset(self)
-        else:
-            raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
+        try:
+            # TODO: refactor dataset objects to datasets module
+            dataset_cls = getattr(
+                importlib.import_module("Heimdall.cell_representations"),
+                self._cfg.tasks.args.dataset_type,
+            )
+        except ConfigAttributeError:  # XXX: to be deprecated
+            warnings.warn(
+                f"Failed to instantiate data class {self.task_structure}, rolling back to previous handling",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if self.task_structure == "single":
+                dataset_cls = SingleInstanceDataset(self)
+            elif self.task_structure == "paired":
+                dataset_cls = PairedInstanceDataset(self)
+            else:
+                raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
+
+        # Instantiate dataset object
+        dataset_kwargs = self._cfg.tasks.args.get("dataset_args", {})
+        full_dataset = dataset_cls(self, **dataset_kwargs)
         self.datasets = {"full": full_dataset}
 
         # Set up dataset splits given the data splits

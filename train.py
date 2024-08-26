@@ -45,7 +45,8 @@ def main(config):
 
     # model config based on your specifications
     transformer_config = TransformerConfig(
-        vocab_size=cr.sequence_length,
+        # vocab_size=cr.sequence_length,
+        vocab_size=cr.sequence_length + 2,  # <PAD> and <MASK>
         max_seq_length=cr.sequence_length,
         prediction_dim=cr.num_tasks,
         d_model=config.model.args.hidden_size,
