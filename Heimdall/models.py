@@ -6,6 +6,9 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
+
+from Heimdall.cell_representations import CellRepresentation
 
 # try:
 #     from flash_attn.models.bert import BertEncoder
@@ -13,21 +16,6 @@ import torch.nn as nn
 #     print("FlashAttention Library Successfully Loaded")
 # except ImportError:
 #     print("Warning: FlashAttention Not Installed, when initializing model make sure to use default Transformers")
-
-
-@dataclass
-class TransformerConfig:
-    vocab_size: int = 1000
-    prediction_dim: int = 2
-    d_model: int = 128
-    nhead: int = 2
-    num_encoder_layers: int = 2
-    max_seq_length: int = 1000
-    pos_enc: str = "BERT"
-    hidden_dropout_prob: float = 0.1
-    attention_probs_dropout_prob: float = 0.1
-    layer_norm_eps: float = 1e-12
-    problem_type: str = "single_label_classification"
 
 
 @dataclass
@@ -48,11 +36,18 @@ class TransformerOutput:
 
 
 class HeimdallTransformer(nn.Module):
-    def __init__(self, config: TransformerConfig, input_type: str, conditional_input_types: Optional[dict] = None):
+    def __init__(
+        self,
+        data: CellRepresentation,
+        config: DictConfig,
+        input_type: str,
+        conditional_input_types: Optional[dict] = None,
+    ):
         super().__init__()
         """Heimdall transformer model.
 
         Args:
+            data: Cell representation data object.
             config: The transformer config.
             input_type: "learned" or "predefined"
             conditional_input_types: Conditional input types specification.
@@ -77,11 +72,14 @@ class HeimdallTransformer(nn.Module):
         self.config = config
         self.conditional_input_types = conditional_input_types
         self.input_type = input_type
-        self.num_labels = config.prediction_dim
+
+        self.num_labels = data.num_tasks
+        self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
+        self.max_seq_length = data.sequence_length
 
         # Set up the Input Embedding layers
         if input_type == "learned":
-            self.input_embeddings = nn.Embedding(config.vocab_size, config.d_model)
+            self.input_embeddings = nn.Embedding(self.vocab_size, config.d_model)
         elif input_type == "predefined":
             pass
         else:
@@ -89,7 +87,7 @@ class HeimdallTransformer(nn.Module):
 
         # Setting up explicit Positional Encodings
         if config.pos_enc == "BERT":
-            self.position_embeddings = nn.Embedding(config.max_seq_length + 1, config.d_model)  # +1 cuz of CLS
+            self.position_embeddings = nn.Embedding(self.max_seq_length + 1, config.d_model)  # +1 cuz of CLS
         elif config.pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
         else:
@@ -112,13 +110,13 @@ class HeimdallTransformer(nn.Module):
             nhead=config.nhead,
             dim_feedforward=config.d_model * 4,
             dropout=config.hidden_dropout_prob,
-            activation="gelu",
+            activation=config.hidden_act,
             batch_first=True,
             norm_first=True,  # BERT uses LayerNorm before self-attention and feedforward networks
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_encoder_layers)
         # self.decoder = nn.Linear(config.d_model, config.prediction_dim, bias=True)
-        self.head = LinearSeqPredHead(config.d_model, config.prediction_dim)  # FIX: instantiate from config
+        self.head = LinearSeqPredHead(config.d_model, self.num_labels)  # FIX: instantiate from config
 
         # Initialize the [CLS] token as a learnable parameter
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.d_model))

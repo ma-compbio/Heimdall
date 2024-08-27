@@ -99,6 +99,8 @@ trainer.train()
 
 # Model Documentation
 
+\[Deprecated\] `TransformerConfig` is deprecated and has been integrated into the hydra config.
+
 The `Heimdall_Transformer` object is a default transformer that is flexible for `learned` embeddings and `predefined` embeddings, as well as conditional tokens that can be `learned` or `predefined` as well. Here is an example:
 
 ```python
