@@ -1,8 +1,6 @@
 args:
   task_type: classification
-  task_structure: single
   label_col_name: celltype
-  
   metrics:
     - Accuracy
     - MatthewsCorrCoef
@@ -11,3 +9,5 @@ args:
   batchsize: 32
   epochs: 20
   prediction_dim: 11
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset

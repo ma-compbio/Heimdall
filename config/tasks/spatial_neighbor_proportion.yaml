@@ -1,9 +1,10 @@
 args:
   obsm_name: "neighborhood_class_proportions"
   metrics: ["MSE"]
-  task_structure: "single"
   train_split: 0.8
   shuffle: True
   batchsize: 32
   epochs: 10
   prediction_dim: 22
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset

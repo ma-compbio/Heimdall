@@ -1,6 +1,5 @@
 args:
   task_type: "classification"
-  task_structure: "paired"
   interaction_type: 'Agt -> Agtr1a'
   # label_col_name: "class"
   metrics: ["Accuracy", "MatthewsCorrCoef"]
@@ -10,4 +9,5 @@ args:
   epochs: 10
   prediction_dim: 20
   rebalance: True
-
+  dataset_config:
+    type: Heimdall.datasets.PairedInstanceDataset
