@@ -146,7 +146,9 @@ class HeimdallTransformer(nn.Module):
                 stacklevel=2,
             )
             outputs1, outputs2 = (self.lm_model(inputs[i], conditional_tokens, attention_mask) for i in range(2))
-            outputs = TransformerOutput(**{key: outputs1[key] + outputs2[key] for key in outputs1})
+            outputs = TransformerOutput(
+                **{key: getattr(outputs1, key) + getattr(outputs2, key) for key in outputs1.__dict__},
+            )
         else:
             outputs = self.lm_model(inputs, conditional_tokens, attention_mask)
 

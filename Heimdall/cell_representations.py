@@ -478,9 +478,9 @@ class CellRepresentation:
                 stacklevel=2,
             )
             if self.task_structure == "single":
-                dataset_cls = SingleInstanceDataset(self)
+                dataset_cls = SingleInstanceDataset
             elif self.task_structure == "paired":
-                dataset_cls = PairedInstanceDataset(self)
+                dataset_cls = PairedInstanceDataset
             else:
                 raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
 
