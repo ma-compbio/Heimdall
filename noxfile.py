@@ -27,6 +27,26 @@ def lint(session):
         t(session)
 
 
+@nox.session
+def test_experiments(session):
+    session.install("-r", "requirements.txt")
+    session.install(
+        "torch==2.0.1",
+        "--index-url",
+        "https://download.pytorch.org/whl/cu118",
+        # "https://download.pytorch.org/whl/cpu",
+    )
+
+    experiments = [
+        "cell_cell_interaction_dev",
+        "pancreas",
+        "pretrain_geneformer_dev",
+    ]
+    for exp in experiments:
+        session.log(f"Runing {exp}")
+        session.run("python", "train.py", f"+experiments={exp}", "user=lane-shared-dev")
+
+
 nox.options.sessions = [
     "lint",
 ]
