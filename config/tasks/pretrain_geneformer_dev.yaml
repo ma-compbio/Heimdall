@@ -1,13 +1,12 @@
 args:
   task_type: classification
-  label_col_name: task_celltype
   metrics:
     - Accuracy
-    - MatthewsCorrCoef
   train_split: 0.8
   shuffle: true
   batchsize: 32
   epochs: 20
-  prediction_dim: 14
   dataset_config:
-    type: Heimdall.datasets.SingleInstanceDataset
+    type: Heimdall.datasets.SeqMaskedPretrainDataset
+    args:
+      mask_ratio: 0.15

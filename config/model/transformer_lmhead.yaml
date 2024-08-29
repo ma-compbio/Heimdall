@@ -1,0 +1,6 @@
+defaults:
+  - transformer
+
+args:
+  head_config:
+    type: Heimdall.models.LinearSeqPredHead
