@@ -1,6 +1,5 @@
 args:
   task_type: classification
-  task_structure: paired
   interaction_type: _all_
   metrics:
     - Accuracy
@@ -10,3 +9,5 @@ args:
   epochs: 10
   prediction_dim: 20
   rebalance: true
+  dataset_config:
+    type: Heimdall.datasets.PairedInstanceDataset

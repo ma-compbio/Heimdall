@@ -24,7 +24,16 @@ pip install -U nox pre-commit
 pre-commit install
 ```
 
-When changes are made, run `nox` to perform quality checks first.
+Once the `pre-commit` command line tool is installed, every time you commit
+some changes, it will perform several code-style checks and automatically
+apply some fixes for you (if there is any issue). When auto-fixes
+are applied, you need to recommit those changes. Note that this process can
+take more than one round.
+
+After you are done committing changes and are ready to push the commits to the
+remote branch, run `nox` to perform a final quality check. Note that `nox` is
+linting only and does not fix the issues for you. You need to address
+the issues manually based on the instructions provided.
 
 ```bash
 nox
@@ -75,6 +84,8 @@ trainer.train()
 ```
 
 # Model Documentation
+
+\[Deprecated\] `TransformerConfig` is deprecated and has been integrated into the hydra config.
 
 The `Heimdall_Transformer` object is a default transformer that is flexible for `learned` embeddings and `predefined` embeddings, as well as conditional tokens that can be `learned` or `predefined` as well. Here is an example:
 
@@ -200,6 +211,12 @@ CR.preprocess_f_c(geneformer_fc) ## takes in the geneformer f_c specified above
 ```
 
 # Dev Notes
+
+## Dev installation
+
+```bash
+pip install -r requirements.txt
+```
 
 ## Cheatsheet
 

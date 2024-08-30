@@ -1,6 +1,5 @@
 args:
   task_type: classification
-  task_structure: paired
   interaction_type: task_ko
   metrics:
     - Accuracy
@@ -8,3 +7,5 @@ args:
   shuffle: true
   batchsize: 32
   epochs: 10
+  dataset_config:
+    type: Heimdall.datasets.PairedInstanceDataset

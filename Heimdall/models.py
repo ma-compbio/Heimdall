@@ -6,6 +6,10 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
+
+from Heimdall.cell_representations import CellRepresentation
+from Heimdall.utils import instantiate_from_config
 
 # try:
 #     from flash_attn.models.bert import BertEncoder
@@ -16,26 +20,35 @@ import torch.nn as nn
 
 
 @dataclass
-class TransformerConfig:
-    vocab_size: int = 1000
-    prediction_dim: int = 2
-    d_model: int = 128
-    nhead: int = 2
-    num_encoder_layers: int = 2
-    max_seq_length: int = 1000
-    pos_enc: str = "BERT"
-    hidden_dropout_prob: float = 0.1
-    attention_probs_dropout_prob: float = 0.1
-    layer_norm_eps: float = 1e-12
-    problem_type: str = "single_label_classification"
+class TransformerOutput:
+    logits: torch.Tensor
+    # predictions: torch.Tensor
+    sequence_embeddings: torch.Tensor
+    # pooled_embeddings: torch.Tensor
+    cls_embeddings: torch.Tensor
+
+    @property
+    def device(self):
+        return self.logits.device
+
+    def to(self, device):
+        for key, val in self.__dict__.items():
+            self.__dict__[key] = val.to(device)
 
 
 class HeimdallTransformer(nn.Module):
-    def __init__(self, config: TransformerConfig, input_type: str, conditional_input_types: Optional[dict] = None):
+    def __init__(
+        self,
+        data: CellRepresentation,
+        config: DictConfig,
+        input_type: str,
+        conditional_input_types: Optional[dict] = None,
+    ):
         super().__init__()
         """Heimdall transformer model.
 
         Args:
+            data: Cell representation data object.
             config: The transformer config.
             input_type: "learned" or "predefined"
             conditional_input_types: Conditional input types specification.
@@ -60,11 +73,14 @@ class HeimdallTransformer(nn.Module):
         self.config = config
         self.conditional_input_types = conditional_input_types
         self.input_type = input_type
-        self.num_labels = config.prediction_dim
+
+        self.num_labels = data.num_tasks
+        self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
+        self.max_seq_length = data.sequence_length
 
         # Set up the Input Embedding layers
         if input_type == "learned":
-            self.input_embeddings = nn.Embedding(config.vocab_size, config.d_model)
+            self.input_embeddings = nn.Embedding(self.vocab_size, config.d_model)
         elif input_type == "predefined":
             pass
         else:
@@ -72,7 +88,7 @@ class HeimdallTransformer(nn.Module):
 
         # Setting up explicit Positional Encodings
         if config.pos_enc == "BERT":
-            self.position_embeddings = nn.Embedding(config.max_seq_length + 1, config.d_model)  # +1 cuz of CLS
+            self.position_embeddings = nn.Embedding(self.max_seq_length + 1, config.d_model)  # +1 cuz of CLS
         elif config.pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
         else:
@@ -95,12 +111,12 @@ class HeimdallTransformer(nn.Module):
             nhead=config.nhead,
             dim_feedforward=config.d_model * 4,
             dropout=config.hidden_dropout_prob,
-            activation="gelu",
+            activation=config.hidden_act,
             batch_first=True,
             norm_first=True,  # BERT uses LayerNorm before self-attention and feedforward networks
         )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_encoder_layers)
-        self.decoder = nn.Linear(config.d_model, config.prediction_dim, bias=True)
+        self.head = instantiate_from_config(config.head_config, dim_in=config.d_model, dim_out=self.num_labels)
 
         # Initialize the [CLS] token as a learnable parameter
         self.cls_token = nn.Parameter(torch.zeros(1, 1, config.d_model))
@@ -129,15 +145,14 @@ class HeimdallTransformer(nn.Module):
                 UserWarning,
                 stacklevel=2,
             )
-            logits = self.lm_model(inputs[0], conditional_tokens, attention_mask) + self.lm_model(
-                inputs[1],
-                conditional_tokens,
-                attention_mask,
+            outputs1, outputs2 = (self.lm_model(inputs[i], conditional_tokens, attention_mask) for i in range(2))
+            outputs = TransformerOutput(
+                **{key: getattr(outputs1, key) + getattr(outputs2, key) for key in outputs1.__dict__},
             )
         else:
-            logits = self.lm_model(inputs, conditional_tokens, attention_mask)
+            outputs = self.lm_model(inputs, conditional_tokens, attention_mask)
 
-        return logits
+        return outputs
 
         # loss = None
         # if labels is not None:
@@ -239,10 +254,75 @@ class HeimdallTransformer(nn.Module):
         # Encoder
         encoder_output = self.encoder(input_embeds, src_key_padding_mask=attention_mask)
 
-        # Taking just the CLS token to pass to the decoder
-        cls_token = encoder_output[:, 0, :]
+        return self.head(encoder_output)
 
-        # Decoder
-        prediction_scores = self.decoder(cls_token)
 
-        return prediction_scores
+class CellPredHeadMixin:
+    def forward(self, encoder_output) -> TransformerOutput:
+        cls_emb = encoder_output[:, 0, :]
+        logits = self.decoder(cls_emb.unsqueeze(1)).squeeze(1)
+        return TransformerOutput(
+            logits=logits,
+            sequence_embeddings=encoder_output,
+            cls_embeddings=cls_emb,
+        )
+
+
+class SeqPredHeadMixin:
+    def forward(self, encoder_output) -> TransformerOutput:
+        logits = self.decoder(encoder_output[:, 1:, :])
+        return TransformerOutput(
+            logits=logits,
+            sequence_embeddings=encoder_output,
+            cls_embeddings=encoder_output[:, 0, :],
+        )
+
+
+class LinearDecoderMixin(nn.Module):
+    def __init__(self, dim_in: int, dim_out: Optional[int] = None, dropout: float = 0.0, **kwargs):
+        super().__init__()
+        if dim_out is None:
+            dim_out = dim_in
+        self.decoder = nn.Sequential(
+            nn.Linear(dim_in, dim_out, **kwargs),
+            nn.Dropout(dropout),
+        )
+
+
+class FFN(nn.Module):
+    def __init__(self, dim_in: int, dim_out: Optional[int] = None, mult: int = 4, dropout: float = 0.0):
+        super().__init__()
+
+        dim_inner = int(dim_in * mult)
+        if dim_out is None:
+            dim_out = dim_in
+
+        self.net = nn.Sequential(
+            nn.Linear(dim_in, dim_inner),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_inner, dim_out),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class PreNormResidual(nn.Module):
+    def __init__(self, module: nn.Module, dim: int):
+        super().__init__()
+        self.mod = module
+        self.norm = nn.LayerNorm(dim)
+
+    def forward(self, x):
+        res = self.mod(self.norm(x))
+        assert res.shape == x.shape, "Input and output size must be the same for residual operations"
+        return res + x
+
+
+class LinearCellPredHead(CellPredHeadMixin, LinearDecoderMixin):
+    """Linear cell prediction head."""
+
+
+class LinearSeqPredHead(SeqPredHeadMixin, LinearDecoderMixin):
+    """Linear sequence prediction head."""

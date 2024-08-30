@@ -1,13 +1,46 @@
+import importlib
 import math
 import warnings
 from functools import partial, wraps
-from typing import Callable, Optional
+from pprint import pformat
+from typing import Any, Callable, Optional, Tuple
 
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
 from torch.utils.data import default_collate
 
-MAIN_KEYS = {"inputs", "labels"}
+MAIN_KEYS = {"inputs", "labels", "masks"}
+
+
+def instantiate_from_config(
+    config: DictConfig,
+    *args: Tuple[Any],
+    _target_key: str = "type",
+    _params_key: str = "args",
+    _disable_key: str = "disable",
+    _catch_conflict: bool = True,
+    **extra_kwargs: Any,
+):
+    if config.get(_disable_key, False):
+        return
+
+    # Obtain target object and kwargs
+    module, obj = config[_target_key].rsplit(".", 1)
+    cls = getattr(importlib.import_module(module, package=None), obj)
+    kwargs = config.get(_params_key, None) or {}
+
+    if _catch_conflict:
+        assert not (set(kwargs) & set(extra_kwargs)), f"kwargs and extra_kwargs conflicted:\n{kwargs=}\n{extra_kwargs=}"
+    full_kwargs = {**kwargs, **extra_kwargs}
+
+    # Instantiate object and handel exception during instantiation
+    try:
+        return cls(*args, **full_kwargs)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to instantiate {cls!r} with\nargs:\n{pformat(args)}\nkwargs:\n{pformat(full_kwargs)}",
+        ) from e
 
 
 def get_value(dictionary, key, default=False):

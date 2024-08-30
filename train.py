@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 from Heimdall.cell_representations import CellRepresentation
 
 # initialize the model
-from Heimdall.models import HeimdallTransformer, TransformerConfig
+from Heimdall.models import HeimdallTransformer
 from Heimdall.trainer import HeimdallTrainer
 from Heimdall.utils import count_parameters
 
@@ -43,26 +43,16 @@ def main(config):
     # }
     conditional_input_types = None
 
-    # model config based on your specifications
-    transformer_config = TransformerConfig(
-        vocab_size=cr.sequence_length,
-        max_seq_length=cr.sequence_length,
-        prediction_dim=cr.num_tasks,
-        d_model=config.model.args.hidden_size,
-        nhead=config.model.args.num_attention_heads,
-        num_encoder_layers=config.model.args.num_hidden_layers,
-    )
-
     model = HeimdallTransformer(
-        config=transformer_config,
+        data=cr,
+        config=config.model.args,
         input_type="learned",
         conditional_input_types=conditional_input_types,
     )
 
     num_params = count_parameters(model)
 
-    print(f"{model}")
-    print(f"Number of Parameters {num_params}")
+    print(f"\nModel constructed:\n{model}\nNumber of trainable parameters {num_params:,}\n")
 
     #####
     # Initialize the Trainer
