@@ -24,7 +24,7 @@ class Dataset(PyTorchDataset, ABC):
         self._data = data
         self.predefined_split = None
 
-        ## we can set up the specific splits here
+        # we can set up the specific splits here
         if self.labels is None:
             self._setup_labels()
 
@@ -86,7 +86,7 @@ class Dataset(PyTorchDataset, ABC):
                 stacklevel=2,
             )
 
-            ### must be train test val, in that order
+            # must be train test val, in that order
             all_idx = np.arange(size)
             train_len = len(self.labels["train"])
             val_len = len(self.labels["val"])
@@ -105,6 +105,7 @@ class Dataset(PyTorchDataset, ABC):
 
     @abstractmethod
     def __getitem__(self, idx) -> Tuple[FeatType, LabelType]: ...
+
 
 def filter_list(input_list):
     keywords = ["train", "test", "val"]
@@ -141,13 +142,13 @@ class PairedInstanceDataset(Dataset):
     def _setup_idx(self):
         # NOTE: full mask is set up during runtime given split masks or the data
 
-        if self.predefined_split == None:
+        if self.predefined_split is None:
 
             mask = self.data.adata.obsp["full_mask"]
             self._idx = np.vstack(np.nonzero(mask)).T  # pairs x 2
         else:
-            ## we already have the masks defined
-            ## we can and will just vstack and concatenate the three together into one big set
+            # we already have the masks defined
+            # we can and will just vstack and concatenate the three together into one big set
             train_mask = self.data.adata.obsp["train"]
             test_mask = self.data.adata.obsp["test"]
             val_mask = self.data.adata.obsp["val"]
@@ -156,9 +157,8 @@ class PairedInstanceDataset(Dataset):
             test_idx = np.vstack(np.nonzero(test_mask)).T  # pairs x 2
             val_idx = np.vstack(np.nonzero(val_mask)).T  # pairs x 2
 
-            #### adding it together into one large dataset, but the order of train/test/val is preserved
+            # adding it together into one large dataset, but the order of train/test/val is preserved
             self._idx = np.concatenate([train_idx, test_idx, val_idx], axis=0)
-
 
     def _setup_labels(self):
         adata = self.data.adata
@@ -171,7 +171,7 @@ class PairedInstanceDataset(Dataset):
         all_obsp_task_keys = sorted(all_obsp_task_keys)
         obsp_mask_keys = sorted(obsp_mask_keys)
 
-        ### in hydra, this can be either a list or a string
+        # in hydra, this can be either a list or a string
         candidate_obsp_task_keys = dataset_task_cfg.interaction_type
         if isinstance(candidate_obsp_task_keys, str):
             candidate_obsp_task_keys = [candidate_obsp_task_keys]
@@ -187,9 +187,9 @@ class PairedInstanceDataset(Dataset):
         task_type = dataset_task_cfg.task_type
         if task_type == "multiclass":
 
-            ## this should only be the single interaction obsp of interest
+            # this should only be the single interaction obsp of interest
             assert len(obsp_task_keys) == 1
-            ## not using a predefined split
+            # not using a predefined split
             if dataset_task_cfg.splits == "all":
                 full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
                 adata.obsp["full_mask"] = full_mask
@@ -204,7 +204,7 @@ class PairedInstanceDataset(Dataset):
 
             elif dataset_task_cfg.splits == "predefined":
                 self.predefined_split = True
-                task_mat = adata.obsp[obsp_task_keys[0]]  ## same taskmat for everything
+                task_mat = adata.obsp[obsp_task_keys[0]]  # same taskmat for everything
                 assert (task_mat.data > 0).all(), "Multiclass task id must be positive"
 
                 labels = {}
@@ -218,14 +218,14 @@ class PairedInstanceDataset(Dataset):
                     split_labels = np.array(task_mat[split_nz]).ravel().astype(np.int64) - 1  # class 0 is not used
                     labels[split] = split_labels
 
-                    ### renaming the masks for conveniences here
+                    # renaming the masks for conveniences here
                     if split != split_mask_name:
                         adata.obsp[split] = adata.obsp.pop(split_mask_name)
 
                 self.labels = labels
 
             else:
-                raise ValueError(f"dataset_task_cfg.splits needs to be `all` or `predefined`")
+                raise ValueError("dataset_task_cfg.splits needs to be `all` or `predefined`")
 
         elif task_type == "binary":
             full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
