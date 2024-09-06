@@ -1,4 +1,5 @@
 import hydra
+import torch
 
 # from datasets import Dataset
 from omegaconf import OmegaConf
@@ -49,6 +50,8 @@ def main(config):
         input_type="learned",
         conditional_input_types=conditional_input_types,
     )
+
+    model = model.to(torch.bfloat16)
 
     num_params = count_parameters(model)
 

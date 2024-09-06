@@ -11,12 +11,14 @@ from omegaconf import DictConfig
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.utils import instantiate_from_config
 
-# try:
-#     from flash_attn.models.bert import BertEncoder
-#
-#     print("FlashAttention Library Successfully Loaded")
-# except ImportError:
-#     print("Warning: FlashAttention Not Installed, when initializing model make sure to use default Transformers")
+try:
+    from flash_attn.models.bert import BertEncoder as FlashBertEncoder
+    from transformers import BertConfig
+
+    print("FlashAttention Library Successfully Loaded")
+except ImportError:
+    FlashBertEncoder = None
+    print("Warning: FlashAttention Not Installed, when initializing model make sure to use default Transformers")
 
 
 @dataclass
@@ -105,17 +107,36 @@ class HeimdallTransformer(nn.Module):
                 else:
                     raise ValueError(f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'")
 
-        # Encoder layers
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=config.d_model,
-            nhead=config.nhead,
-            dim_feedforward=config.d_model * 4,
-            dropout=config.hidden_dropout_prob,
-            activation=config.hidden_act,
-            batch_first=True,
-            norm_first=True,  # BERT uses LayerNorm before self-attention and feedforward networks
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_encoder_layers)
+        if FlashBertEncoder is None:
+
+            # Encoder layers
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=config.d_model,
+                nhead=config.nhead,
+                dim_feedforward=config.d_model * 4,
+                dropout=config.hidden_dropout_prob,
+                activation=config.hidden_act,
+                batch_first=True,
+                norm_first=True,  # BERT uses LayerNorm before self-attention and feedforward networks
+            )
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=config.num_encoder_layers)
+
+        else:
+            transformer_config = BertConfig(
+                hidden_size=config.d_model,
+                num_hidden_layers=config.num_encoder_layers,
+                num_attention_heads=config.nhead,
+                intermediate_size=config.d_model * 4,
+                hidden_act="gelu",
+                hidden_dropout_prob=config.hidden_dropout_prob,
+                attention_probs_dropout_prob=config.hidden_dropout_prob,
+                max_position_embeddings=self.vocab_size,
+                use_flash_attn=True,  ### use this to toggle between flash attention and not
+                position_embedding_type="rotary",  ## if use_flash_attn true, then 'rotary' is needed for Positional Encoding
+                rotary_emb_dim=int(config.d_model / config.nhead),
+            )
+            self.encoder = FlashBertEncoder(transformer_config)  # Assuming BertEncoder accepts a config
+
         self.head = instantiate_from_config(config.head_config, dim_in=config.d_model, dim_out=self.num_labels)
 
         # Initialize the [CLS] token as a learnable parameter
@@ -252,7 +273,9 @@ class HeimdallTransformer(nn.Module):
         input_embeds = torch.cat([cls_tokens, input_embeds], dim=1)
 
         # Encoder
-        encoder_output = self.encoder(input_embeds, src_key_padding_mask=attention_mask)
+
+        # encoder_output = self.encoder(input_embeds, src_key_padding_mask=attention_mask)
+        encoder_output = self.encoder(input_embeds)
 
         return self.head(encoder_output)
 
