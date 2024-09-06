@@ -333,25 +333,25 @@ class CellRepresentation:
         return self.adata, symbol_to_ensembl_mapping
 
     def preprocess_anndata(self):
-        # if self.adata is not None:
-        #     raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
+        if self.adata is not None:
+            raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
         preprocessed_data_path = None
-        # if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-        #     filename = Path(self.dataset_preproc_cfg.data_path).name
-        #     cache_dir = Path(cache_dir).resolve()
-        #     cache_dir.mkdir(exist_ok=True, parents=True)
-        #     preprocessing_string = "_".join(
-        #         [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
-        #     )
-        #     preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}_{filename}"
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            filename = Path(self.dataset_preproc_cfg.data_path).name
+            cache_dir = Path(cache_dir).resolve()
+            cache_dir.mkdir(exist_ok=True, parents=True)
+            preprocessing_string = "_".join(
+                [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
+            )
+            preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}_{filename}"
 
-        #     if preprocessed_data_path.is_file():
-        #         print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
-        #         self.adata = ad.read_h5ad(preprocessed_data_path)
-        #         self.sequence_length = len(self.adata.var)
-        #         print(f"> Finished Processing Anndata Object:\n{self.adata}")
-        #         return
+            if preprocessed_data_path.is_file():
+                print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
+                self.adata = ad.read_h5ad(preprocessed_data_path)
+                self.sequence_length = len(self.adata.var)
+                print(f"> Finished Processing Anndata Object:\n{self.adata}")
+                return
 
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
         print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
