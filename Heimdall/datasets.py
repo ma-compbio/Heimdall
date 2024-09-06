@@ -113,6 +113,26 @@ class SingleInstanceDataset(Dataset):
         df["class_id"] = df[dataset_task_cfg.label_col_name].map(class_mapping)
         self.labels = np.array(df["class_id"])
 
+        # Set up splits and task mask
+        if "splits" not in dataset_task_cfg:  # no predefined splits specified
+            pass
+
+        elif (split_type := dataset_task_cfg.splits.type) == "predefined":
+            self.splits = {}
+            split_col = adata.obs["split"]
+            for split in self.SPLITS:
+                if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+                    warnings.warn(
+                        f"Skipping {split!r} split as the corresponding key is not found",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    continue
+                self.splits[split] = np.where(split_col == split_key)[0]
+
+        else:
+            raise ValueError(f"Unknown split type {split_type!r}")
+
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
         return {
             "inputs": self.data.cell_representations[idx],
