@@ -1,5 +1,5 @@
 args:
-  task_type: classification
+  task_type: multiclass
   metrics:
     - Accuracy
   train_split: 0.8
