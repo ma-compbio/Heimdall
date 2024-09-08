@@ -1,7 +1,7 @@
 args:
   task_type: classification
   task_structure: single
-  label_col_name: class
+  label_col_name: task_celltype
   metrics:
     - Accuracy
     - MatthewsCorrCoef
@@ -9,4 +9,4 @@ args:
   shuffle: true
   batchsize: 32
   epochs: 10
-  prediction_dim: 20
+  prediction_dim: 14
