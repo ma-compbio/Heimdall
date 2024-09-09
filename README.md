@@ -238,3 +238,8 @@ Run a particular test suite with:
 ```bash
 python -m pytest tests/test_{suite_name}.py
 ```
+
+## Turning off caching
+
+To turn off dataset caching for dev purposes,
+set `cache_preprocessed_dataset_dir: null` in `config/global_vars.yaml`.
