@@ -1,11 +1,6 @@
 args:
   task_type: classification
-<<<<<<< HEAD
-  task_structure: single
-  label_col_name: task_celltype
-=======
   label_col_name: class
->>>>>>> origin/main
   metrics:
     - Accuracy
     - MatthewsCorrCoef
@@ -13,10 +8,6 @@ args:
   shuffle: true
   batchsize: 32
   epochs: 10
-<<<<<<< HEAD
-  prediction_dim: 14
-=======
   prediction_dim: 20
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
->>>>>>> origin/main

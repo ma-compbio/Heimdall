@@ -11,11 +11,7 @@ defaults:
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
   - override /f_c: geneformer
-<<<<<<< HEAD
-  - override /f_g: gene2vec
-=======
   - override /f_g: identity
->>>>>>> origin/main
   - override /loss: CrossEntropyLoss
 
 ####

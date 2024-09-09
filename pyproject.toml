@@ -1,3 +1,10 @@
+[project]
+name = "Heimdall"
+version = "0.0.1"
+
+[tool.setuptools.packages.find]
+where = ["Heimdall"]
+
 [tool.flake8]
 max-line-length = 120
 count = true

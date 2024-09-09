@@ -209,6 +209,15 @@ commit. In that case, you can first review the changes and accept them if they
 are appropriate, or make alternative changes to suppress the error. Afterwards,
 recommit the changes.
 
+### Installing `Heimdall` locally as a pip package
+
+In order to run `Heimdall` outside of the home directory (e.g. in the `notebooks/` directory),
+you can install a local pip package version with
+
+```bash
+pip install ./
+```
+
 ## Cheatsheet
 
 ```bash
