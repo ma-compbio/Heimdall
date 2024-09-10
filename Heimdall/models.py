@@ -43,7 +43,7 @@ class HeimdallTransformer(nn.Module):
         config: DictConfig,
         input_type: str,
         conditional_input_types: Optional[dict] = None,
-        embedding_layer=None
+        embedding_layer=None,
     ):
         super().__init__()
         """Heimdall transformer model.
@@ -74,7 +74,7 @@ class HeimdallTransformer(nn.Module):
         self.config = config
         self.conditional_input_types = conditional_input_types
         self.input_type = input_type
-        
+
         self.embedding_layer = embedding_layer
         # Set up the Input Embedding layers
         if self.embedding_layer is not None:
