@@ -12,18 +12,25 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import torch
 from numpy.typing import NDArray
 from scipy.sparse import csr_matrix, issparse
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
+from torch.utils.data import Subset
 from tqdm import tqdm
 
 import Heimdall.f_c
 import Heimdall.f_g
 from Heimdall.datasets import Dataset
-from Heimdall.utils import deprecate, get_value, heimdall_collate_fn, instantiate_from_config
-from notebooks import data_processing_utils
+from Heimdall.utils import (
+    deprecate,
+    get_value,
+    heimdall_collate_fn,
+    instantiate_from_config,
+    symbol_to_ensembl_from_ensembl,
+)
 
 
 def check_states(
@@ -152,7 +159,7 @@ class CellRepresentation(SpecialTokenMixin):
             - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
 
         """
-        symbol_to_ensembl_mapping = data_processing_utils.symbol_to_ensembl_from_ensembl(
+        symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
             data_dir=data_dir,
             genes=self.adata.var.index.tolist(),
             species=species,
@@ -199,6 +206,53 @@ class CellRepresentation(SpecialTokenMixin):
                 data_dir=self._cfg.ensembl_dir,
                 species=self.dataset_preproc_cfg.species,
             )
+        print(self.adata.var.index)
+
+        # remove genes missing from esm2 embedding mapping
+        if get_value(self.dataset_preproc_cfg, "filter_genes_esm2"):
+            print("> Checking for missing genes")
+            # check for species
+            if self.dataset_preproc_cfg.species == "human":
+                protein_gene_map = torch.load(
+                    "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt",
+                )
+                gene_list = list(protein_gene_map.keys())
+            elif self.dataset_prepoc_cfg.species == "mouse":
+                protein_gene_map = torch.load(
+                    "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_mouse_ensembl.pt",
+                )
+                gene_list = list(protein_gene_map.keys())
+
+            # Filter gene_list to only include genes that start with "ENS"
+            filtered_gene_list = [gene for gene in gene_list if gene.startswith("ENS")]
+            genes_to_keep = self.adata.var.index.isin(filtered_gene_list)
+
+            self.adata = self.adata[:, genes_to_keep]
+        else:
+            print("> Skipping check for missing genes")
+
+        # remove genes missing from gene2vec embedding mapping
+        if get_value(self.dataset_preproc_cfg, "filter_genes_gene2vec"):
+            print("> Checking for missing genes")
+            # check for species
+            if self.dataset_preproc_cfg.species == "human":
+                with open(
+                    "/work/magroup/shared/Heimdall/data/pretrained_embeddings/gene2vec/gene2vec_genes.pkl",
+                    "rb",
+                ) as pickle_file:
+                    gene2vec_map = pkl.load(pickle_file)
+                gene_list = list(gene2vec_map.keys())
+            else:
+                raise ValueError("gene2vec is only available for human datasets")
+
+            # Filter gene_list to only include genes that start with "ENS"
+            filtered_gene_list = [gene for gene in gene_list if gene.startswith("ENS")]
+            genes_to_keep = self.adata.var.index.isin(filtered_gene_list)
+
+            self.adata = self.adata[:, genes_to_keep]
+
+        else:
+            print("> Skipping check for missing genes")
 
         if get_value(self.dataset_preproc_cfg, "normalize"):
             # Normalizing based on target sum
@@ -218,7 +272,6 @@ class CellRepresentation(SpecialTokenMixin):
             print("> Skipping Log Transforming anndata..")
 
         if get_value(self.dataset_preproc_cfg, "top_n_genes") and self.dataset_preproc_cfg["top_n_genes"] != "false":
-            print(self.dataset_preproc_cfg)
             # Identify highly variable genes
             print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
             sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
@@ -334,9 +387,17 @@ class CellRepresentation(SpecialTokenMixin):
 
         """
         assert self.fg_cfg.args.output_type in ["ids", "vector"]
+        output = f_g(self.adata.var, self.dataset_preproc_cfg.species)
 
-        # For identity, we convert each of the vars into a unique ID
-        gene_mapping = f_g(self.adata.var)
+        if isinstance(output, tuple) and isinstance(output[0], torch.nn.Embedding):
+            # if the output is a tuple with an embedding layer and gene mapping
+            embedding_layer, gene_mapping = output
+            self.embedding_layer = embedding_layer
+            print("> f_g returned an nn.Embedding layer. Storing the layer for later use.")
+
+        else:
+            # if no embedding layer is provided, treat the output as the gene mapping
+            gene_mapping = output
 
         assert all(
             isinstance(value, (np.ndarray, list, int)) for value in gene_mapping.values()
@@ -356,9 +417,16 @@ class CellRepresentation(SpecialTokenMixin):
         The f_c will take as input the f_g, then the anndata, then the
 
         """
-        cell_reps = f_c(self.f_g, self.adata)
+        if hasattr(self, "embedding_layer"):
+            # if an embedding layer exists, pass it along with the gene mapping and anndata
+            cell_reps = f_c(self.f_g, self.adata, self.embedding_layer)
+
+        else:
+            cell_reps = f_c(self.f_g, self.adata)
+
         print(f"> Finished calculating f_c with {self.fc_cfg.name}")
         self.processed_fcfg = True
+        self.adata.layers["cell_representation"] = cell_reps
         return cell_reps
 
     @check_states(adata=True)

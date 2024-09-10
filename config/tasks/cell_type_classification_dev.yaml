@@ -1,5 +1,6 @@
 args:
   task_type: classification
+
   label_col_name: class
   metrics:
     - Accuracy
@@ -8,6 +9,6 @@ args:
   shuffle: true
   batchsize: 32
   epochs: 10
-  prediction_dim: 20
+  prediction_dim: 14
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset

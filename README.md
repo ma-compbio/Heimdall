@@ -198,6 +198,15 @@ remote branch, run `nox` to perform a final quality check. Note that `nox` is
 linting only and does not fix the issues for you. You need to address
 the issues manually based on the instructions provided.
 
+### Installing `Heimdall` locally as a pip package
+
+In order to run `Heimdall` outside of the home directory (e.g. in the `notebooks/` directory),
+you can install a local pip package version with
+
+```bash
+pip install ./
+```
+
 ## Cheatsheet
 
 ```bash
