@@ -198,17 +198,6 @@ remote branch, run `nox` to perform a final quality check. Note that `nox` is
 linting only and does not fix the issues for you. You need to address
 the issues manually based on the instructions provided.
 
-```bash
-nox
-```
-
-Commit changes once the quality checks are passed, which triggers the pre-commit
-hook to run some final formatting checks and catch any remaining issues. Note
-that the pre-commit hooks could automatically apply fixes to the current
-commit. In that case, you can first review the changes and accept them if they
-are appropriate, or make alternative changes to suppress the error. Afterwards,
-recommit the changes.
-
 ## Cheatsheet
 
 ```bash
