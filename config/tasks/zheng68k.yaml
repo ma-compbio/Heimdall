@@ -1,5 +1,5 @@
 args:
-  task_type: classification
+  task_type: multiclass
   label_col_name: celltype
   metrics:
     - Accuracy

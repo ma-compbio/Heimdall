@@ -19,18 +19,25 @@ LabelType = Union[NDArray[np.int_], NDArray[np.float32]]
 
 
 class Dataset(PyTorchDataset, ABC):
+    SPLITS = ["train", "val", "test"]
+
     def __init__(self, data: "CellRepresentation"):
         super().__init__()
         self._data = data
 
         if self.labels is None:
-            self._setup_labels()
+            self._setup_labels_and_pre_splits()  # predefined splits may be set up here
 
         # NOTE: need to setup labels first, index sizes might depend on it
         self._setup_idx()
 
+        # Set up random splits if predefined splits are unavailable
+        split_type = "predefined"
         if self.splits is None:
-            self._setup_splits()
+            self._setup_random_splits()
+            split_type = "random"
+        split_size_str = "\n  ".join(f"{i}: {len(j):,}" for i, j in self.splits.items())
+        print(f"> Dataset splits sizes ({split_type}):\n  {split_size_str}")
 
     @property
     def idx(self) -> NDArray[np.int_]:
@@ -63,20 +70,14 @@ class Dataset(PyTorchDataset, ABC):
         name = self.__class__.__name__
         return f"{name}(size={len(self):,}) wrapping: {self.data}"
 
-    def _setup_splits(self):
-        # TODO: use predefined splits if available
-        predefined_splits = None
+    def _setup_random_splits(self):
+        warnings.warn("Pre-defined split unavailable, using random 6/2/2 split", UserWarning, stacklevel=2)
+
         size = len(self)
         seed = self.data._cfg.seed
 
-        if predefined_splits is None:
-            warnings.warn(
-                "Pre-defined split unavailable, using random 6/2/2 split",
-                UserWarning,
-                stacklevel=2,
-            )
-            train_val_idx, test_idx = train_test_split(np.arange(size), train_size=0.6, random_state=seed)
-            train_idx, val_idx = train_test_split(train_val_idx, test_size=0.2, random_state=seed)
+        train_val_idx, test_idx = train_test_split(np.arange(size), train_size=0.6, random_state=seed)
+        train_idx, val_idx = train_test_split(train_val_idx, test_size=0.2, random_state=seed)
 
         self.splits = {"train": train_idx, "val": val_idx, "test": test_idx}
 
@@ -84,17 +85,22 @@ class Dataset(PyTorchDataset, ABC):
     def _setup_idx(self): ...
 
     @abstractmethod
-    def _setup_labels(self): ...
+    def _setup_labels_and_pre_splits(self): ...
 
     @abstractmethod
     def __getitem__(self, idx) -> Tuple[FeatType, LabelType]: ...
+
+
+def filter_list(input_list):
+    keywords = ["train", "test", "val"]
+    return [item for item in input_list if any(keyword in item.lower() for keyword in keywords)]
 
 
 class SingleInstanceDataset(Dataset):
     def _setup_idx(self):
         self._idx = np.arange(self.data.adata.shape[0])
 
-    def _setup_labels(self):
+    def _setup_labels_and_pre_splits(self):
         adata = self.data.adata
         dataset_task_cfg = self.data.dataset_task_cfg
 
@@ -109,6 +115,26 @@ class SingleInstanceDataset(Dataset):
         df["class_id"] = df[dataset_task_cfg.label_col_name].map(class_mapping)
         self.labels = np.array(df["class_id"])
 
+        # Set up splits and task mask
+        if "splits" not in dataset_task_cfg:  # no predefined splits specified
+            pass
+
+        elif (split_type := dataset_task_cfg.splits.type) == "predefined":
+            self.splits = {}
+            split_col = adata.obs["split"]
+            for split in self.SPLITS:
+                if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+                    warnings.warn(
+                        f"Skipping {split!r} split as the corresponding key is not found",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    continue
+                self.splits[split] = np.where(split_col == split_key)[0]
+
+        else:
+            raise ValueError(f"Unknown split type {split_type!r}")
+
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
         return {
             "inputs": self.data.cell_representations[idx],
@@ -122,20 +148,23 @@ class PairedInstanceDataset(Dataset):
         mask = self.data.adata.obsp["full_mask"]
         self._idx = np.vstack(np.nonzero(mask)).T  # pairs x 2
 
-    def _setup_labels(self):
+    def _setup_labels_and_pre_splits(self):
         adata = self.data.adata
         dataset_task_cfg = self.data.dataset_task_cfg
 
         all_obsp_task_keys, obsp_mask_keys = [], []
         for key in adata.obsp:
             (obsp_mask_keys if key in SPLIT_MASK_KEYS else all_obsp_task_keys).append(key)
+
         all_obsp_task_keys = sorted(all_obsp_task_keys)
+        obsp_mask_keys = sorted(obsp_mask_keys)
 
         # Select task keys
         candidate_obsp_task_keys = dataset_task_cfg.interaction_type
         if candidate_obsp_task_keys == "_all_":
             obsp_task_keys = all_obsp_task_keys
         else:
+            # NOTE: in hydra, this can be either a list or a string
             if isinstance(candidate_obsp_task_keys, str):
                 candidate_obsp_task_keys = [candidate_obsp_task_keys]
 
@@ -145,22 +174,46 @@ class PairedInstanceDataset(Dataset):
                     f"specified interaction types are invalid: {invalid_obsp_task_keys}\n"
                     f"Valid options are: {pformat(all_obsp_task_keys)}",
                 )
-
             obsp_task_keys = candidate_obsp_task_keys
 
-        # Set up task mask
-        full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
+        # Set up splits and task mask
+        if "splits" not in dataset_task_cfg:  # no predefined splits specified
+            full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
+            nz = np.nonzero(full_mask)
+
+        elif (split_type := dataset_task_cfg.splits.type) == "predefined":
+            masks = {}
+            for split in self.SPLITS:
+                if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+                    warnings.warn(
+                        f"Skipping {split!r} split as the corresponding key is not found",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    continue
+                masks[split] = adata.obsp[split_key]
+            full_mask = np.sum(list(masks.values())).astype(bool)
+            nz = np.nonzero(full_mask)
+
+            # Set up predefined splits
+            self.splits = {split: np.where(mask[nz])[1] for split, mask in masks.items()}
+
+        else:
+            raise ValueError(f"Unknown split type {split_type!r}")
+
         adata.obsp["full_mask"] = full_mask
-        nz = np.nonzero(full_mask)
 
-        # TODO: specify task type multiclass/multilabel/regression in config
-        if len(obsp_task_keys) == 1:
+        # Task type specific handling
+        task_type = dataset_task_cfg.task_type
+        if task_type == "multiclass":
+            if len(obsp_task_keys) > 1:
+                raise ValueError(f"{task_type!r} only supports a single task key, provided task keys: {obsp_task_keys}")
+
             task_mat = adata.obsp[obsp_task_keys[0]]
-            assert (task_mat.data > 0).all(), "Multiclass task id must be positive"
-
             num_tasks = task_mat.max()  # class id starts from 1. 0's are ignoreed
             labels = np.array(task_mat[nz]).ravel().astype(np.int64) - 1  # class 0 is not used
-        else:
+
+        elif task_type == "binary":
             num_tasks = len(obsp_task_keys)
 
             (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
@@ -168,6 +221,17 @@ class PairedInstanceDataset(Dataset):
                 label_i = np.array(adata.obsp[task][nz]).ravel()
                 labels[:, i][label_i == 1] = 1
                 labels[:, i][label_i == -1] = 0
+
+        elif task_type == "regression":
+            num_tasks = len(obsp_task_keys)
+
+            labels = np.zeros((len(nz[0]), num_tasks), dtype=np.float32)
+            for i, task in enumerate(obsp_task_keys):
+                labels[:, i] = np.array(adata.obsp[task][nz]).ravel()
+
+        else:
+            raise ValueError(f"task_type must be one of: 'multiclass', 'binary', 'regression'. Got: {task_type!r}")
+
         self.labels = labels
 
     def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
@@ -182,7 +246,7 @@ class PretrainDataset(SingleInstanceDataset, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def _setup_labels(self):
+    def _setup_labels_and_pre_splits(self):
         # FIX: not necessarily the case,e.g., UCE.....
         self.labels = self.data.cell_representations.copy()
 

@@ -4,7 +4,8 @@
 # Set the experiment parts you would like to import
 ####
 defaults:
-  - global_vars
+  - _self_  # NOTE: init self first
+  - global_vars  # TODO: move to this file (_self_)?
   - /model: transformer # the chosen model
   - /dataset: cell_type_classification_dev # dataset for the relevant task
   - /tasks: cell_type_classification_dev # dataset for the relevant task

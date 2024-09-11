@@ -1,5 +1,5 @@
 args:
-  task_type: classification
+  task_type: binary
   interaction_type: _all_
   metrics:
     - Accuracy

@@ -1,6 +1,12 @@
 args:
-  task_type: classification
+  task_type: multiclass
   interaction_type: task_ko
+  splits:
+    type: predefined
+    keys_:
+      train: train
+      val: val
+      test: test
   metrics:
     - Accuracy
   train_split: 0.8
