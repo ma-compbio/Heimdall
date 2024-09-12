@@ -1,18 +1,18 @@
 import pickle
+from abc import ABC, abstractmethod
+from typing import Sequence
 
+import anndata as ad
 import numpy as np
 import pandas as pd
+from pandas.api.typing import NAType
 from tqdm import tqdm
 
-
-def load_gene_medians(pickle_file_path):
-    with open(pickle_file_path, "rb") as f:
-        gene_medians = pickle.load(f)
-    return gene_medians
+from Heimdall.f_g import Fg
 
 
 def value_binning(expression_values, n_bins=10):
-    """Bin the expression values into n_bins bins.
+    """Bin the expression values into `n_bins` bins.
 
     Args:
         expression_values: array of expression values for a single cell.
@@ -29,7 +29,55 @@ def value_binning(expression_values, n_bins=10):
     bin_edges = np.quantile(non_zero_values, np.linspace(0, 1, n_bins - 1))
 
     binned_values = np.digitize(expression_values, bin_edges, right=True)
+
     return binned_values
+
+
+class Fe(ABC):
+    """Abstraction for expression-based embedding."""
+
+    def __init__(self, adata: ad.AnnData, fg: Fg, config: dict):
+        self.fg = fg
+        self.adata = adata
+        self.config = config
+
+    @abstractmethod
+    def preprocess_embeddings(self):
+        """Preprocess expression embeddings and store them for use during model
+        inference.
+
+        Preprocessing may include anything from downloading gene embeddings from
+        a URL to generating embeddings from scratch.
+
+        """
+
+    def __getitem__(self, gene_names: Sequence[str]) -> int | NAType:
+        """Get the indices of genes in the expression embedding array.
+
+        Args:
+            gene_names: name of the gene as stored in `self.adata`.
+
+        Returns:
+            Index of gene in the embedding, or `pd.NA` if the gene has no mapping.
+
+        """
+        embedding_indices = self.adata.var.loc[gene_names, "expression_embedding_index"]
+        if np.any(embedding_indices.isna()):
+            raise KeyError(
+                "At least one gene is not mapped in this Fe. Please remove such genes from consideration in the Fc.",
+            )
+
+        return embedding_indices
+
+
+class Fc(ABC):
+    """Abstraction for cell embedding."""
+
+    def __init__(self, fg: Fg, fe: Fe, adata: ad.AnnData, config: dict):
+        self.fg = fg
+        self.fe = fe
+        self.adata = adata
+        self.config = config
 
 
 def old_geneformer_fc(fg, adata):
@@ -55,8 +103,7 @@ def old_geneformer_fc(fg, adata):
 
     """
 
-    # assert all(isinstance(value, (int)) for value in fg.values()), "Current geneformer_fc only supports token ids"
-    valid_mask = adata.var["valid_mask"]
+    valid_mask = adata.var["identity_valid_mask"]
     valid_genes = adata.var_names[valid_mask].values
 
     expression = adata.X[:, valid_mask]
@@ -65,21 +112,9 @@ def old_geneformer_fc(fg, adata):
 
     argsorted_expression = np.argsort(normalized_expression, axis=1)[:, ::-1]
 
-    # print("> Performing the f_c using rank-based values, as seen in geneformer")
-    # df = pd.DataFrame(adata.X, columns=fg.keys())
-    # gene_medians = df.median()
-    # normalized_df = df.apply(lambda x: x / gene_medians[x.name])
-
     gene_lists = valid_genes[argsorted_expression]
     dataset = np.array([fg[gene_list] for gene_list in gene_lists])
-    # dataset = []
-    # for cell_index, gene_indices in tqdm(enumerate(argsorted_expression)):
-    #     # cell = normalized_df.iloc[i]
-    #     # sorted_cell = cell.sort_values(ascending=False).index
-    #     cell_w_gene_ids = [fg[gene] for gene in sorted_cell]
-    #     dataset.append(cell_w_gene_ids)
 
-    # dataset = np.array(dataset)
     return dataset
 
 

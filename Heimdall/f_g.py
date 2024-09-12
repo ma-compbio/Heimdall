@@ -42,17 +42,22 @@ class Fg(ABC):
             Index of gene in the embedding, or `pd.NA` if the gene has no mapping.
 
         """
-        embedding_indices = self.adata.var.loc[gene_names, "embedding_index"]
+        embedding_indices = self.adata.var.loc[gene_names, "identity_embedding_index"]
         if np.any(embedding_indices.isna()):
             raise KeyError(
-                "At least one gene is not mapped in this Fg. Please remove such genes from " "consideration in the Fc.",
+                "At least one gene is not mapped in this Fg. Please remove such genes from consideration in the Fc.",
             )
 
         return embedding_indices
 
 
 class PretrainedFg(Fg, ABC):
-    """Abstraction for pretrained `Fg`s that can be loaded from disk."""
+    """Abstraction for pretrained `Fg`s that can be loaded from disk.
+
+    Raises:
+        ValueError: if `config.d_embedding` is larger than embedding dimensionality given in filepath.
+
+    """
 
     @abstractmethod
     def load_embeddings(self) -> Dict[str, NDArray]:
@@ -65,26 +70,30 @@ class PretrainedFg(Fg, ABC):
 
     def preprocess_embeddings(self):
         embedding_map = self.load_embeddings()
+
+        first_embedding = next(iter(embedding_map.values()))
+        if len(first_embedding) < self.config.d_embedding:
+            raise ValueError(
+                f"Dimensionality of pretrained embeddings ({len(first_embedding)} is less than the embedding dimensionality specified in the config ({self.config.d_embedding}). Please decrease the embedding dimensionality to be compatible with the pretrained embeddings.",
+            )
+
         valid_gene_names = list(embedding_map.keys())
 
-        print(self.adata.var_names[:10])
-        print(valid_gene_names[:10])
         valid_mask = pd.array(np.isin(self.adata.var_names.values, valid_gene_names))
         num_mapped_genes = valid_mask.sum()
-        print(num_mapped_genes)
         (valid_indices,) = np.nonzero(valid_mask)
 
         index_map = valid_mask.astype(pd.Int64Dtype())
         index_map[~valid_mask] = None
         index_map[valid_indices] = np.arange(num_mapped_genes)
 
-        self.adata.var["embedding_index"] = index_map
-        self.adata.var["valid_mask"] = valid_mask
+        self.adata.var["identity_embedding_index"] = index_map
+        self.adata.var["identity_valid_mask"] = valid_mask
 
         self.gene_embeddings = np.zeros((num_mapped_genes, self.config.d_embedding), dtype=np.float64)
 
         for gene_name in self.adata.var_names:
-            embedding_index = self.adata.var.loc[gene_name, "embedding_index"]
+            embedding_index = self.adata.var.loc[gene_name, "identity_embedding_index"]
             if not pd.isna(embedding_index):
                 self.gene_embeddings[embedding_index] = embedding_map[gene_name][: self.config.d_embedding]
 
@@ -103,7 +112,7 @@ class IdentityFg(Fg):
     def preprocess_embeddings(self):
         self.gene_embeddings = None
         self.adata.var["embedding_index"] = np.arange(self.num_genes)
-        self.adata.var["valid_mask"] = np.full(self.num_genes, True)
+        self.adata.var["identity_valid_mask"] = np.full(self.num_genes, True)
 
 
 class ESM2Fg(PretrainedFg):

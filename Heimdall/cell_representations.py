@@ -105,7 +105,7 @@ class CellRepresentation(SpecialTokenMixin):
     @property
     @check_states(adata=True, processed_fcfg=True)
     def cell_representations(self) -> NDArray[np.float32]:
-        return self.adata.layers["cell_representation"]
+        return self.adata.obsm["cell_representation"]
 
     @property
     @check_states(labels=True)
@@ -426,7 +426,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         print(f"> Finished calculating f_c with {self.fc_cfg.name}")
         self.processed_fcfg = True
-        self.adata.layers["cell_representation"] = cell_reps
+        self.adata.obsm["cell_representation"] = cell_reps
         return cell_reps
 
     @check_states(adata=True)
@@ -453,7 +453,7 @@ class CellRepresentation(SpecialTokenMixin):
             if os.path.isfile(preprocessed_reps_path):
                 with open(preprocessed_reps_path, "rb") as rep_file:
                     cell_reps = pkl.load(rep_file)
-                    self.adata.layers["cell_representation"] = cell_reps
+                    self.adata.obsm["cell_representation"] = cell_reps
                     print("> Using cached cell representations")
                     self.processed_fcfg = True
                     return
@@ -467,7 +467,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.preprocess_f_g(f_g)
         cell_reps = self.preprocess_f_c(f_c)
-        self.adata.layers["cell_representation"] = cell_reps
+        self.adata.obsm["cell_representation"] = cell_reps
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             with open(preprocessed_reps_path, "wb") as rep_file:
                 pkl.dump(cell_reps, rep_file)
@@ -504,7 +504,7 @@ class CellRepresentation(SpecialTokenMixin):
             self.processed_fcfg is not False
         ), "Please make sure to preprocess the cell representation at least once first"
 
-        cell_representation = self.adata.layers["cell_representation"]
+        cell_representation = self.adata.obsm["cell_representation"]
 
         if self.task_structure == "single":
             self.prepare_labels()
@@ -589,7 +589,7 @@ class CellRepresentation(SpecialTokenMixin):
         assert self.adata is not None, "no adata found, Make sure to run preprocess_anndata() first"
 
         interaction_matrix = self.adata.obsp[interaction_type]
-        cell_expression = self.adata.layers["cell_representation"]
+        cell_expression = self.adata.obsm["cell_representation"]
 
         # Ensure interaction_matrix is in CSR format for efficient row slicing
         if not isinstance(interaction_matrix, csr_matrix):

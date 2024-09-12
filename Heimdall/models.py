@@ -87,7 +87,7 @@ class HeimdallTransformer(nn.Module):
 
         # Set up the Input Embedding layers
         if input_type == "learned":
-            self.input_embeddings = nn.Embedding(self.vocab_size, config.d_model)
+            self.input_embeddings = nn.Embedding(self.vocab_size, data.fg.config.d_embedding)
         elif input_type == "predefined":
             pass
         else:
