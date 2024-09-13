@@ -249,6 +249,9 @@ class HeimdallTrainer:
                     if self.run_wandb and self.accelerator.is_main_process:
                         self.accelerator.log(log)
 
+                if self.cfg.trainer.fastdev:
+                    break
+
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
@@ -292,6 +295,9 @@ class HeimdallTrainer:
                     #     print(metric)
                     #     print(metric_name)
                     #     metric.update(logits, labels)
+
+                if self.cfg.trainer.fastdev:
+                    break
 
         loss = loss / len(dataloader)
         if self.accelerator.num_processes > 1:

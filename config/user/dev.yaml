@@ -4,6 +4,9 @@ tasks:
   args:
     epochs: 1
 
+trainer:
+  fastdev: true
+
 hydra:
   job:
     env_set:

@@ -49,7 +49,7 @@ def test_experiments(session):
         "cell_cell_interaction_dev",
         "pancreas",
         "pretrain_geneformer_dev",
-        # "reverse_perturbation",  # long run
+        "reverse_perturbation",
     ]
     for exp in experiments:
         session.log(f"Runing {exp}")
