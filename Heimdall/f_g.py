@@ -32,7 +32,7 @@ class Fg(ABC):
 
         """
 
-    def __getitem__(self, gene_names: Sequence[str]) -> int | NAType:
+    def __getitem__(self, gene_names: Sequence[str]) -> Sequence[int | NAType]:
         """Get the indices of genes in the embedding array.
 
         Args:

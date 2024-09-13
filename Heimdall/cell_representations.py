@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 import Heimdall.f_c
 import Heimdall.f_g
+import Heimdall.fe
 from Heimdall.datasets import Dataset
 from Heimdall.utils import (
     deprecate,
@@ -88,6 +89,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.dataset_task_cfg = config.tasks.args
         self.fg_cfg = config.f_g
         self.fc_cfg = config.f_c
+        self.fe_cfg = config.fe
         self.model_cfg = config.model
         self.optimizer_cfg = config.optimizer
         self.trainer_cfg = config.trainer
@@ -105,7 +107,7 @@ class CellRepresentation(SpecialTokenMixin):
     @property
     @check_states(adata=True, processed_fcfg=True)
     def cell_representations(self) -> NDArray[np.float32]:
-        return self.adata.obsm["cell_representation"]
+        return self.fc[:]
 
     @property
     @check_states(labels=True)
@@ -384,30 +386,25 @@ class CellRepresentation(SpecialTokenMixin):
         ```
 
         """
-        assert self.fg_cfg.args.output_type in ["ids", "vector"]
-
         self.fg = fg_constructor(self.adata, self.fg_cfg.args)
         self.fg.preprocess_embeddings()
-        # output = f_g(self.adata.var, self.dataset_preproc_cfg.species)
-
-        # if isinstance(output, tuple) and isinstance(output[0], torch.nn.Embedding):
-        #     # if the output is a tuple with an embedding layer and gene mapping
-        #     embedding_layer, gene_mapping = output
-        #     self.embedding_layer = embedding_layer
-        #     print("> f_g returned an nn.Embedding layer. Storing the layer for later use.")
-
-        # else:
-        #     # if no embedding layer is provided, treat the output as the gene mapping
-        #     gene_mapping = output
-
-        # assert all(
-        #     isinstance(value, (np.ndarray, list, int)) for value in gene_mapping.values()
-        # ), "Make sure that all values in the gene_mapping dictionary are either int, list or np array"
-
-        # self.f_g = gene_mapping
         print(f"> Finished calculating f_g with {self.fg_cfg.name}")
 
-    def preprocess_f_c(self, f_c):
+    def preprocess_fe(self, fe_constructor):
+        """Process fe.
+
+        Run the fe, and then preprocess and store it locally the fe must
+        return a `gene_mapping` where the keys are the gene ids and the ids are
+        the.
+
+        The `fe` will take in the anndata as an object just for flexibility
+
+        """
+        self.fe = fe_constructor(self.adata, self.fe_cfg.args)
+        self.fe.preprocess_embeddings()
+        print(f"> Finished calculating fe with {self.fe_cfg.name}")
+
+    def preprocess_f_c(self, fc_constructor):
         """Process f_c.
 
         Preprocess the cell f_c, this will preprocess the anndata.X into the
@@ -417,17 +414,20 @@ class CellRepresentation(SpecialTokenMixin):
         The f_c will take as input the f_g, then the anndata, then the
 
         """
-        if hasattr(self, "embedding_layer"):
-            # if an embedding layer exists, pass it along with the gene mapping and anndata
-            cell_reps = f_c(self.fg, self.adata, self.embedding_layer)
 
-        else:
-            cell_reps = f_c(self.fg, self.adata)
+        self.fc = fc_constructor(self.fg, self.fe, self.adata, self.fc_cfg.args)
+        self.fc.preprocess_cells()
+        # if hasattr(self, "embedding_layer"):
+        #     # if an embedding layer exists, pass it along with the gene mapping and anndata
+        #     cell_reps = f_c(self.fg, self.adata, self.embedding_layer)
+
+        # else:
+        #     cell_reps = f_c(self.fg, self.adata)
 
         print(f"> Finished calculating f_c with {self.fc_cfg.name}")
         self.processed_fcfg = True
-        self.adata.obsm["cell_representation"] = cell_reps
-        return cell_reps
+        # self.adata.obsm["cell_representation"] = cell_reps
+        # return cell_reps
 
     @check_states(adata=True)
     def tokenize_cells(self):
@@ -438,8 +438,10 @@ class CellRepresentation(SpecialTokenMixin):
         them and save them.
 
         """
-        f_g_name = self.fg_cfg.name
-        f_c_name = self.fc_cfg.name
+        fg_name = self.fg_cfg.name
+        fc_name = self.fc_cfg.name
+        fe_name = self.fe_cfg.name
+
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             filename = Path(self.dataset_preproc_cfg.data_path).name
             cache_dir = Path(cache_dir).resolve()
@@ -448,26 +450,35 @@ class CellRepresentation(SpecialTokenMixin):
                 [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
             )
             preprocessed_reps_path = (
-                cache_dir / f"preprocessed_{preprocessing_string}_{filename}_{f_g_name}_{f_c_name}.pkl"
+                cache_dir / f"preprocessed_{preprocessing_string}_{filename}_{fg_name}_{fe_name}_{fc_name}.pkl"
             )
             if os.path.isfile(preprocessed_reps_path):
                 with open(preprocessed_reps_path, "rb") as rep_file:
-                    cell_reps = pkl.load(rep_file)
-                    self.adata.obsm["cell_representation"] = cell_reps
+                    identity_reps, expression_reps = pkl.load(rep_file)
+                    self.adata.obsm["cell_identity_embedding_indices"] = identity_reps
+                    self.adata.obsm["cell_expression_embedding_indices"] = expression_reps
                     print("> Using cached cell representations")
                     self.processed_fcfg = True
                     return
 
         # Below here is the de facto "else"
-        if (f_g := getattr(Heimdall.f_g, f_g_name, None)) is None:
-            raise ValueError(f"f_g {f_g_name} does not exist. Please check for the correct name in config")
+        if (f_g := getattr(Heimdall.f_g, self.fg_cfg.name, None)) is None:
+            raise ValueError(f"f_g {self.fg_cfg.name} does not exist. Please check for the correct name in config")
 
-        if (f_c := getattr(Heimdall.f_c, f_c_name, None)) is None:
-            raise ValueError(f"f_c {f_c_name} does not exist. Please check for the correct name in config")
+        if (f_c := getattr(Heimdall.f_c, self.fc_cfg.name, None)) is None:
+            raise ValueError(f"f_c {self.fc_cfg.name} does not exist. Please check for the correct name in config")
+
+        if (fe := getattr(Heimdall.fe, self.fe_cfg.name, None)) is None:
+            raise ValueError(f"fe {self.fe_cfg.name} does not exist. Please check for the correct name in config")
 
         self.preprocess_f_g(f_g)
-        cell_reps = self.preprocess_f_c(f_c)
-        self.adata.obsm["cell_representation"] = cell_reps
+        self.preprocess_fe(fe)
+        self.preprocess_f_c(f_c)
+
+        # TODO: figure out what exactly to cache (not self.adata.obsm["cell_representation"] anymore)
+        # self.adata.obsm["cell_representation"] = cell_reps
+        cell_reps = self.fc[:]
+        print(f"{self._cfg.cache_preprocessed_dataset_dir=}")
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             with open(preprocessed_reps_path, "wb") as rep_file:
                 pkl.dump(cell_reps, rep_file)

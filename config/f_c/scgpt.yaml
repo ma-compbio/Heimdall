@@ -1,0 +1,5 @@
+name: "ScGPTFc"
+
+args:
+  output_type: "ids"
+  max_input_length: 128

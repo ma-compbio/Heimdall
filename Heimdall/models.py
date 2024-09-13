@@ -75,23 +75,47 @@ class HeimdallTransformer(nn.Module):
         self.conditional_input_types = conditional_input_types
         self.input_type = input_type
 
-        self.embedding_layer = embedding_layer
-        # Set up the Input Embedding layers
-        if self.embedding_layer is not None:
-            self.input_embeddings = self.embedding_layer
-            print(f"Using provided pretrained embedding layer with shape: {embedding_layer.weight.shape}")
+        self.fc = data.fc
+
+        # self.embedding_layer = embedding_layer
+        # # Set up the Input Embedding layers
+        # if self.embedding_layer is not None:
+        #     self.input_embeddings = self.embedding_layer
+        #     print(f"Using provided pretrained embedding layer with shape: {embedding_layer.weight.shape}")
 
         self.num_labels = data.num_tasks
         self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
         self.max_seq_length = data.sequence_length
 
-        # Set up the Input Embedding layers
-        if input_type == "learned":
-            self.input_embeddings = nn.Embedding(self.vocab_size, data.fg.config.d_embedding)
-        elif input_type == "predefined":
-            pass
+        # TODO: modify so that embedding layers can be MLPs (as in scGPT, etc.), etc.
+        gene_embedding_layer = data.fg.gene_embeddings
+        if gene_embedding_layer is not None:
+            self.gene_embeddings = nn.Embedding.from_pretrained(torch.tensor(gene_embedding_layer, dtype=torch.float32))
+        elif data.fg.config.d_embedding is not None:
+            self.gene_embeddings = nn.Embedding(self.vocab_size, data.fg.config.d_embedding)
         else:
-            raise ValueError("input_type must be either 'learned' or 'predefined'")
+            self.gene_embeddings = None
+
+        expression_embedding_layer = data.fe.expression_embeddings
+        if expression_embedding_layer is not None:
+            self.expression_embeddings = nn.Embedding.from_pretrained(
+                torch.tensor(expression_embedding_layer, dtype=torch.float32),
+            )
+        elif data.fe.config.d_embedding is not None:
+            self.expression_embeddings = nn.Embedding(
+                data.fe.config.num_embeddings or self.vocab_size,
+                data.fe.config.d_embedding,
+            )
+        else:
+            self.expression_embeddings = None
+
+        # # Set up the Input Embedding layers
+        # if input_type == "learned":
+        #     self.input_embeddings = nn.Embedding(self.vocab_size, data.fg.config.d_embedding)
+        # elif input_type == "predefined":
+        #     pass
+        # else:
+        #     raise ValueError("input_type must be either 'learned' or 'predefined'")
 
         # Setting up explicit Positional Encodings
         if config.pos_enc == "BERT":
@@ -101,7 +125,7 @@ class HeimdallTransformer(nn.Module):
         else:
             raise ValueError("config.pos_enc canonly be: BERT")
 
-        # Setting up the conditional embeddings
+        # Setting up the conditional embeddings; TODO: can this fit into the fg/fe framework instead?
         self.conditional_embeddings = nn.ModuleDict()
         if conditional_input_types is not None:
             for name, spec in conditional_input_types.items():
@@ -145,13 +169,15 @@ class HeimdallTransformer(nn.Module):
         if conditional_tokens is not None and len(conditional_tokens) == 0:
             conditional_tokens = None
 
-        if isinstance(inputs, list):
+        identity_inputs, expression_inputs = inputs
+        if isinstance(identity_inputs, list):
             # TODO: replace with proper handling
             warnings.warn(
                 "Paired input model not setup corectly yet, only use for dev",
                 UserWarning,
                 stacklevel=2,
             )
+            inputs = list(zip(identity_inputs, expression_inputs))
             outputs1, outputs2 = (self.lm_model(inputs[i], conditional_tokens, attention_mask) for i in range(2))
             outputs = TransformerOutput(
                 **{key: getattr(outputs1, key) + getattr(outputs2, key) for key in outputs1.__dict__},
@@ -214,16 +240,25 @@ class HeimdallTransformer(nn.Module):
 
         """
 
-        # Embedding layer
-        if self.input_type == "learned":
-            input_embeds = self.input_embeddings(inputs)
-        elif self.input_type == "predefined":
-            input_embeds = inputs
-        else:
-            raise ValueError("input_type must be either 'learned' or 'predefined'")
+        # # Embedding layer
+        # if self.input_type == "learned":
+        #     input_embeds = self.input_embeddings(inputs)
+        # elif self.input_type == "predefined":
+        #     input_embeds = inputs
+        # else:
+        #     raise ValueError("input_type must be either 'learned' or 'predefined'")
+
+        identity_inputs, expression_inputs = inputs
+        input_embeds = self.fc.embed_cells(
+            identity_inputs,
+            self.gene_embeddings,
+            expression_inputs,
+            self.expression_embeddings,
+        )
 
         # Concatenate [CLS] token to the beginning of every sequence in the batch
-        cls_tokens = self.cls_token.expand(inputs.size(0), -1, -1)  # Expand to match batch size
+        batch_size = identity_inputs.size(0)
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # Expand to match batch size
 
         # Positional Encoding
         seq_length = input_embeds.size(1)
@@ -231,7 +266,7 @@ class HeimdallTransformer(nn.Module):
             seq_length,
             dtype=torch.long,
             device=input_embeds.device,
-        ).expand((inputs.size(0), -1))
+        ).expand((batch_size, -1))
         input_embeds += self.position_embeddings(position_ids)
 
         # Dynamically adding the conditional tokens, if there are any

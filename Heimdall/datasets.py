@@ -1,5 +1,6 @@
 import warnings
 from abc import ABC, abstractmethod, abstractproperty
+from dataclasses import dataclass
 from pprint import pformat
 from typing import TYPE_CHECKING, Tuple, Union
 
@@ -110,8 +111,11 @@ class SingleInstanceDataset(Dataset):
         self.labels = np.array(df["class_id"])
 
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
+        identity_inputs, expression_inputs = self.data.fc[idx]
+
         return {
-            "inputs": self.data.cell_representations[idx],
+            "identity_inputs": identity_inputs,
+            "expression_inputs": expression_inputs,
             "labels": self.data.labels[idx],
         }
 
@@ -171,9 +175,11 @@ class PairedInstanceDataset(Dataset):
         self.labels = labels
 
     def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
-        cell1_idx, cell2_idx = self.idx[idx]
+        identity_inputs, expression_inputs = zip(*[self.data.fc[cell_idx] for cell_idx in self.idx[idx]])
+
         return {
-            "inputs": (self.data.cell_representations[cell1_idx], self.data.cell_representations[cell2_idx]),
+            "identity_inputs": identity_inputs,
+            "expression_inputs": expression_inputs,
             "labels": self.data.labels[idx],
         }
 
@@ -184,7 +190,10 @@ class PretrainDataset(SingleInstanceDataset, ABC):
 
     def _setup_labels(self):
         # FIX: not necessarily the case,e.g., UCE.....
-        self.labels = self.data.cell_representations.copy()
+        # FIX: probably doesn't work after we changed fg/fe/fc implementation...
+        identity_inputs, expression_inputs = self.data.fc[idx]
+        self.labels = identity_inputs.copy()
+        # self.labels = self.data.fc.copy()
 
     def __getitem__(self, idx):
         data = super().__getitem__(idx)

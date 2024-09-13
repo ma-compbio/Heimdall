@@ -1,0 +1,6 @@
+name: "BinningFe"
+
+args:
+  embedding_filepath: null
+  num_embeddings: 10 # Number of bins
+  d_embedding: 128 #

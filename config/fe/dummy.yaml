@@ -1,0 +1,6 @@
+name: "DummyFe"
+
+args:
+  embedding_filepath: null
+  num_embeddings: null
+  d_embedding: null # `null` indicates that this config doesn't use expression embeddings

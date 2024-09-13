@@ -9,7 +9,7 @@ from pytest import approx, fixture
 from Heimdall.f_g import ESM2Fg, Gene2VecFg, IdentityFg
 
 
-@fixture(scope="module")
+@fixture
 def mock_dataset():
     gene_names = ["ENSG00000121410", "ENSG00000148584", "fake_gene", "ENSG00000175899"]
 

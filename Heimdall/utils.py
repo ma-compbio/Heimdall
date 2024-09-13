@@ -10,15 +10,45 @@ from pprint import pformat
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import mygene
+import numpy as np
 import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+from numpy.typing import NDArray
 from omegaconf import DictConfig
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
-MAIN_KEYS = {"inputs", "labels", "masks"}
+MAIN_KEYS = {"identity_inputs", "expression_inputs", "labels", "masks"}
+
+
+def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
+    """Vectorization of `np.searchsorted` for 2D `bin_edges` array.
+
+    Adds offset to each row of `bin_edges` and `expression` to make sure that rows of the two inputs correspond uniquely to each other. This trades off algorithmic efficiency for vectorization.
+
+    See https://stackoverflow.com/a/40588862/13952002
+
+    Args:
+        bin_edges: per-cell bin_edges
+        expression: raw expression as integer count
+
+    """
+
+    num_cells, num_bin_edges = bin_edges.shape
+    max_value = np.maximum(bin_edges.ptp(), expression.ptp()) + 1
+    cell_indices = np.arange(num_cells)[:, np.newaxis]
+
+    offsets = max_value * cell_indices
+
+    binned_values = np.searchsorted((bin_edges + offsets).ravel(), (expression + offsets).ravel(), side=side).reshape(
+        num_cells,
+        -1,
+    )
+    binned_values -= num_bin_edges * cell_indices
+
+    return binned_values
 
 
 def instantiate_from_config(
