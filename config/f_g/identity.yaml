@@ -3,4 +3,4 @@ name: "IdentityFg"
 args:
   output_type: "ids" ## specify whether the output is numerical IDs like 1,2,3,4 or a vector
   embedding_filepath: null
-  d_embedding: 512 # TODO: get right embedding dimensionality
+  d_embedding: ${model.args.d_model}
