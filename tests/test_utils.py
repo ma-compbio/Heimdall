@@ -3,7 +3,7 @@ from pathlib import Path
 from Heimdall.utils import symbol_to_ensembl, symbol_to_ensembl_from_ensembl
 
 
-def test_symbol_to_ensembl():
+def test_symbol_to_ensembl(request):
     species = "human"
     gene_table_symbol_to_ensembl = {
         "PPIEL": ["ENSG00000243970", "ENSG00000291129"],
@@ -13,6 +13,7 @@ def test_symbol_to_ensembl():
         "DOESNOTEXIST": None,
     }
     genes = list(gene_table_symbol_to_ensembl)
+    cache_data_dir = Path(request.config.cache.makedir("data"))
 
     def check_result(res):
         print(res.mapping_full)
@@ -29,4 +30,4 @@ def test_symbol_to_ensembl():
         print("Success!\n")
 
     check_result(symbol_to_ensembl(genes, species=species))
-    check_result(symbol_to_ensembl_from_ensembl(data_dir=Path("tests") / "scratch", genes=genes, species=species))
+    check_result(symbol_to_ensembl_from_ensembl(data_dir=cache_data_dir, genes=genes, species=species))
