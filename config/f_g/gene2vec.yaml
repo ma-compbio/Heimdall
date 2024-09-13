@@ -2,5 +2,5 @@ name: "Gene2VecFg"
 
 args:
   output_type: "ids" ## specify whether the output is numerical IDs like 1,2,3,4 or a vector
-  embedding_filepath: "/work/magroup/shared/Heimdall/data/pretrained_embeddings/gene2vec/gene2vec_genes.txt"
+  embedding_filepath: ${data_path}/pretrained_embeddings/gene2vec/gene2vec_genes.txt
   d_embedding: 128 # TODO: get right embedding dimensionality

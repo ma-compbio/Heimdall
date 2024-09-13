@@ -214,12 +214,12 @@ class CellRepresentation(SpecialTokenMixin):
             # check for species
             if self.dataset_preproc_cfg.species == "human":
                 protein_gene_map = torch.load(
-                    "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt",
+                    f"{self._cfg.data_path}/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt",
                 )
                 gene_list = list(protein_gene_map.keys())
             elif self.dataset_prepoc_cfg.species == "mouse":
                 protein_gene_map = torch.load(
-                    "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_mouse_ensembl.pt",
+                    f"{self._cfg.data_path}/pretrained_embeddings/ESM2/protein_map_mouse_ensembl.pt",
                 )
                 gene_list = list(protein_gene_map.keys())
 
@@ -237,7 +237,7 @@ class CellRepresentation(SpecialTokenMixin):
             # check for species
             if self.dataset_preproc_cfg.species == "human":
                 with open(
-                    "/work/magroup/shared/Heimdall/data/pretrained_embeddings/gene2vec/gene2vec_genes.pkl",
+                    f"{self._cfg.data_path}/pretrained_embeddings/gene2vec/gene2vec_genes.pkl",
                     "rb",
                 ) as pickle_file:
                     gene2vec_map = pkl.load(pickle_file)
