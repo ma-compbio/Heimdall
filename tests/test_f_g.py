@@ -2,9 +2,9 @@ from pathlib import Path
 
 import anndata as ad
 import numpy as np
-import yaml
+import pytest
 from omegaconf import OmegaConf
-from pytest import approx, fixture
+from pytest import fixture
 
 from Heimdall.f_g import ESM2Fg, Gene2VecFg, IdentityFg
 
@@ -54,6 +54,8 @@ def test_esm2_fg(mock_dataset):
             "d_embedding": 128,
         },
     )
+    if not config.embedding_filepath.is_file():
+        pytest.skip(f"Skipping due to missing file {config.embedding_filepath}")
 
     gene_names = mock_dataset.var_names
     valid_gene_mask = [gene_name != "fake_gene" for gene_name in gene_names]
@@ -82,6 +84,8 @@ def test_gene2vec_fg(mock_dataset):
             "d_embedding": 128,
         },
     )
+    if not config.embedding_filepath.is_file():
+        pytest.skip(f"Skipping due to missing file {config.embedding_filepath}")
 
     gene_names = mock_dataset.var_names
     valid_gene_mask = [gene_name != "fake_gene" for gene_name in gene_names]
