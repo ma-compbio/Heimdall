@@ -26,7 +26,8 @@ MAIN_KEYS = {"identity_inputs", "expression_inputs", "labels", "masks"}
 def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
     """Vectorization of `np.searchsorted` for 2D `bin_edges` array.
 
-    Adds offset to each row of `bin_edges` and `expression` to make sure that rows of the two inputs correspond uniquely to each other. This trades off algorithmic efficiency for vectorization.
+    Adds offset to each row of `bin_edges` and `expression` to make sure that rows of the two inputs correspond
+    uniquely to each other. This trades off algorithmic efficiency for vectorization.
 
     See https://stackoverflow.com/a/40588862/13952002
 

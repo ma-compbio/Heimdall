@@ -1,6 +1,5 @@
 import warnings
 from abc import ABC, abstractmethod, abstractproperty
-from dataclasses import dataclass
 from pprint import pformat
 from typing import TYPE_CHECKING, Tuple, Union
 
@@ -191,7 +190,7 @@ class PretrainDataset(SingleInstanceDataset, ABC):
     def _setup_labels(self):
         # FIX: not necessarily the case,e.g., UCE.....
         # FIX: probably doesn't work after we changed fg/fe/fc implementation...
-        identity_inputs, expression_inputs = self.data.fc[idx]
+        identity_inputs, expression_inputs = self.data.fc[:]
         self.labels = identity_inputs.copy()
         # self.labels = self.data.fc.copy()
 
