@@ -400,7 +400,8 @@ class CellRepresentation(SpecialTokenMixin):
                     self.adata.obsm["cell_expression_embedding_indices"] = expression_reps
                     print("> Using cached cell representations")
                     self.processed_fcfg = True
-                    # TODO: caching should also load other things, such as var["identity_valid_mask"], fg.gene_embedings, etc.
+                    # TODO: caching should also load other things, such as var["identity_valid_mask"],
+                    # fg.gene_embedings, etc.
                     return
 
         self.fg.preprocess_embeddings()
