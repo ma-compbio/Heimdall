@@ -1,0 +1,8 @@
+Dataset: Polygenic disease risk prediciton
+
+Type: multi-task (26) regression
+
+Path: /work/magroup/shared/Heimdall/data/polygenic_disease_risk/processed/scdrs.h5ad
+
+Diseases: 'Rheumatoid Arthritis', 'Hyperthension', 'Respiratory and Ear-nose-throat Diseases', 'Schizophrenia', "Crohn's Disease", 'Atrial Fibrillation', 'Inflammatory Bowel Disease', "Alzheimer's Disease", 'Ulcerative Colitis', 'Celiac Disease', 'Coronary Artery Disease', 'Asthma', 'Hypothyroidism', 'Eczema', 'Auto Immune Traits', 'Type 1 Diabetes', 'Cardiovascular Diseases', 'Primary Biliary Cirrhosis', 'Multiple Sclerosis', 'Systemic Lupus Erythematosus', 'Type 2 Diabetes', 'Attention Deficit Hyperactivity Disorder', 'Bipolar Disorder', 'Insomnia', 'Breast Cancer', 'Major Depressive Disorder'
+
