@@ -11,5 +11,3 @@ hydra:
   job:
     env_set:
       WANDB_MODE: disabled
-
-cache_preprocessed_dataset_dir: null

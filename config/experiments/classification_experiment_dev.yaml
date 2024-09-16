@@ -5,8 +5,8 @@
 ####
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: cell_type_classification_dev # dataset for the relevant task
-  - override /tasks: cell_type_classification_dev # dataset for the relevant task
+  - override /dataset: pancreas # dataset for the relevant task
+  - override /tasks: pancreas # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
