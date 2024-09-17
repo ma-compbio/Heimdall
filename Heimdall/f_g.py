@@ -44,7 +44,7 @@ class Fg(ABC):
 
         """
 
-    def __getitem__(self, gene_names: Sequence[str]) -> Sequence[int | NAType]:
+    def __getitem__(self, gene_names: Sequence[str], return_mask: bool = False) -> Sequence[int | NAType]:
         """Get the indices of genes in the embedding array.
 
         Must run `self.preprocess_embeddings()` before using this function.
@@ -58,12 +58,28 @@ class Fg(ABC):
         """
         embedding_indices = self.adata.var.loc[gene_names, "identity_embedding_index"]
         valid_mask = self.adata.var.loc[gene_names, "identity_valid_mask"]
-        if valid_mask.sum() != len(gene_names):
+        if (valid_mask.sum() != len(gene_names)) and not return_mask:
             raise KeyError(
                 "At least one gene is not mapped in this Fg. Please remove such genes from consideration in the Fc.",
             )
 
-        return embedding_indices
+        if return_mask:
+            return embedding_indices, valid_mask
+        else:
+            return embedding_indices
+
+    def load_from_cache(
+        self,
+        identity_embedding_index: NDArray,
+        identity_valid_mask: NDArray,
+        gene_embeddings: NDArray | None,
+    ):
+        """Load processed values from cache."""
+        # TODO: add tests
+
+        self.adata.var["identity_embedding_index"] = identity_embedding_index
+        self.adata.var["identity_valid_mask"] = identity_valid_mask
+        self.gene_embeddings = gene_embeddings
 
 
 class PretrainedFg(Fg, ABC):

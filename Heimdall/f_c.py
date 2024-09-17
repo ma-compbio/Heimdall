@@ -84,6 +84,17 @@ class Fc(ABC):
 
         """
 
+    def load_from_cache(
+        self,
+        cell_identity_embedding_indices: NDArray,
+        cell_expression_embedding_indices: NDArray | None,
+    ):
+        """Load processed values from cache."""
+        # TODO: add tests
+
+        self.adata.obsm["cell_identity_embedding_indices"] = cell_identity_embedding_indices
+        self.adata.obsm["cell_expression_embedding_indices"] = cell_expression_embedding_indices
+
 
 class GeneformerFc(Fc):
     """Implementation of Geneformer cell embedding."""

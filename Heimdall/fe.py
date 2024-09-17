@@ -65,6 +65,12 @@ class Fe(ABC):
 
         return embedding_indices
 
+    def load_from_cache(self, processed_expression_values: NDArray, expression_embeddings: NDArray | None):
+        """Load processed values from cache."""
+        # TODO: add tests
+        self.adata.obsm["processed_expression_values"] = processed_expression_values
+        self.expression_embeddings = expression_embeddings
+
 
 class DummyFe(Fe):
     """Dummy Fe for `fc`s that don't use expresssion-based embeddings."""

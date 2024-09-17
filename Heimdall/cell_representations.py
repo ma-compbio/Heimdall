@@ -26,6 +26,7 @@ from Heimdall.f_g import Fg
 from Heimdall.fe import Fe
 from Heimdall.utils import (
     deprecate,
+    get_class,
     get_value,
     heimdall_collate_fn,
     instantiate_from_config,
@@ -186,10 +187,8 @@ class CellRepresentation(SpecialTokenMixin):
             filename = Path(self.dataset_preproc_cfg.data_path).name
             cache_dir = Path(cache_dir).resolve()
             cache_dir.mkdir(exist_ok=True, parents=True)
-            preprocessing_string = "_".join(
-                [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
-            )
-            preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}_{filename}"
+            preprocessing_string = self._cfg.dataset.dataset_name
+            preprocessed_data_path = cache_dir / f"preprocessed_{preprocessing_string}.h5ad"
 
             if preprocessed_data_path.is_file():
                 print(f"> Found already preprocessed dataset, loading in {preprocessed_data_path}")
@@ -377,18 +376,29 @@ class CellRepresentation(SpecialTokenMixin):
             filename = Path(self.dataset_preproc_cfg.data_path).name
             cache_dir = Path(cache_dir).resolve()
             cache_dir.mkdir(exist_ok=True, parents=True)
-            preprocessing_string = "_".join(
-                [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
-            )
-            preprocessed_reps_path = (
-                cache_dir / f"preprocessed_{preprocessing_string}_{filename}_{fg_name}_{fe_name}_{fc_name}.pkl"
-            )
+            # preprocessing_string = "_".join(
+            #     [g for g in self.dataset_preproc_cfg.keys() if get_value(self.dataset_preproc_cfg, g)],
+            # )
+            preprocessing_string = f"experiment_{self._cfg.project_name}"
+
+            preprocessed_reps_path = cache_dir / f"preprocessed_{preprocessing_string}.pkl"
             if os.path.isfile(preprocessed_reps_path):
                 with open(preprocessed_reps_path, "rb") as rep_file:
-                    identity_reps, expression_reps = pkl.load(rep_file)
-                    self.adata.obsm["cell_identity_embedding_indices"] = identity_reps
-                    self.adata.obsm["cell_expression_embedding_indices"] = expression_reps
-                    print("> Using cached cell representations")
+                    (
+                        identity_embedding_index,
+                        identity_valid_mask,
+                        processed_expression_values,
+                        gene_embeddings,
+                        expression_embeddings,
+                        identity_reps,
+                        expression_reps,
+                    ) = pkl.load(rep_file)
+
+                    self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
+                    self.fe.load_from_cache(processed_expression_values, expression_embeddings)
+                    self.fc.load_from_cache(identity_reps, expression_reps)
+
+                    print(f"> Using cached cell representations at {preprocessed_reps_path}")
                     self.processed_fcfg = True
                     # TODO: caching should also load other things, such as var["identity_valid_mask"],
                     # fg.gene_embedings, etc.
@@ -404,11 +414,27 @@ class CellRepresentation(SpecialTokenMixin):
         print(f"> Finished calculating f_c with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
-        cell_reps = self.fc[:]
         print(f"{self._cfg.cache_preprocessed_dataset_dir=}")
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
+            # Gather things for caching
+            identity_reps, expression_reps = self.fc[:]
+            processed_expression_values = self.fe[:]
+            identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
+
+            gene_embeddings = self.fg.gene_embeddings
+            expression_embeddings = self.fe.expression_embeddings
+
             with open(preprocessed_reps_path, "wb") as rep_file:
-                pkl.dump(cell_reps, rep_file)
+                cache_representation = (
+                    identity_embedding_index,
+                    identity_valid_mask,
+                    processed_expression_values,
+                    gene_embeddings,
+                    expression_embeddings,
+                    identity_reps,
+                    expression_reps,
+                )
+                pkl.dump(cache_representation, rep_file)
                 print(f"finished writing cell representations at {preprocessed_reps_path}")
 
     ###################################################

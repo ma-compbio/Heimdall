@@ -20,7 +20,7 @@ defaults:
 ####
 
 
-project_name: Reverse_Perturbation #project name for WandB
+project_name: "reverse_perturbation" #project name for WandB
 run_name: test01  ## what is set for WandB
 work_dir: work_dir  ## set your custom working directory
 

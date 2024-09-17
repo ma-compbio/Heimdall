@@ -1,6 +1,4 @@
-
-
-dataset_name: "cell_type_classification"
+dataset_name: "zheng68k"
 
 preprocess_args:
   data_path: "${data_path}/cell_type_annotation/processed/zheng68k.h5ad"

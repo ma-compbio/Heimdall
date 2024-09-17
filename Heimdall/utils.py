@@ -52,6 +52,13 @@ def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
     return binned_values
 
 
+def get_class(target: str):
+    module, obj = target.rsplit(".", 1)
+    cls = getattr(importlib.import_module(module, package=None), obj)
+
+    return cls, module, obj
+
+
 def instantiate_from_config(
     config: DictConfig,
     *args: Tuple[Any],
@@ -66,8 +73,7 @@ def instantiate_from_config(
         return
 
     # Obtain target object and kwargs
-    module, obj = config[_target_key].rsplit(".", 1)
-    cls = getattr(importlib.import_module(module, package=None), obj)
+    cls, module, obj = get_class(config[_target_key])
     kwargs = config.get(_params_key, None) or {}
 
     if _catch_conflict:

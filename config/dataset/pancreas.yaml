@@ -1,4 +1,4 @@
-dataset_name: "cell_type_classification"
+dataset_name: "pancreas"
 
 preprocess_args:
   data_path: "${data_path}/cell_type_annotation/processed/pancreas.h5ad"
