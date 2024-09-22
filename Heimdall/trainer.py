@@ -11,6 +11,8 @@ from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
 from transformers import get_scheduler
 
+import Heimdall.losses
+
 
 class HeimdallTrainer:
     def __init__(
@@ -100,6 +102,8 @@ class HeimdallTrainer:
             return nn.CrossEntropyLoss()
         elif self.cfg.loss.name == "BCEWithLogitsLoss":
             return torch.nn.BCEWithLogitsLoss()
+        elif self.cfg.loss.name == "MaskedBCEWithLogitsLoss":
+            return Heimdall.losses.MaskedBCEWithLogitsLoss()
         elif self.cfg.loss.name == "MSELoss":
             return nn.MSELoss()
         else:
@@ -199,7 +203,7 @@ class HeimdallTrainer:
 
         if self.custom_loss_func:
             loss = self.loss_fn(logits, labels)
-        elif self.cfg.loss.name == "BCEWithLogitsLoss":
+        elif self.cfg.loss.name.endswith("BCEWithLogitsLoss"):
             loss = self.loss_fn(logits, labels)
         elif self.cfg.loss.name == "CrossEntropyLoss":
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
