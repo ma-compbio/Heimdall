@@ -1,7 +1,7 @@
 ## trainer details
-accelerator: 'cuda'
-precision: '32-true'
-random_seed: 11111
+accelerator: cuda
+precision: 32-true
+random_seed: ${seed}
 
 per_device_batch_size: 64
 accumulate_grad_batches: 1
