@@ -12,7 +12,7 @@ defaults:
   - override /optimizer: AdamW
   - override /f_c: geneformer
   - override /f_g: identity
-  - override /loss: CrossEntropyLoss
+  - override /loss: BCEWithLogitsLoss
 
 ####
 # Set the specific parameters you would like to change from the defaults
