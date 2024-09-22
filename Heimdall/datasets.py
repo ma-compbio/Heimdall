@@ -104,16 +104,29 @@ class SingleInstanceDataset(Dataset):
         adata = self.data.adata
         dataset_task_cfg = self.data.dataset_task_cfg
 
-        df = adata.obs
-        class_mapping = {
-            label: idx
-            for idx, label in enumerate(
-                df[dataset_task_cfg.label_col_name].unique(),
-                start=0,
-            )
-        }
-        df["class_id"] = df[dataset_task_cfg.label_col_name].map(class_mapping)
-        self.labels = np.array(df["class_id"])
+        if "label_col_name" in dataset_task_cfg:
+            assert "label_obsm_name" not in dataset_task_cfg
+            df = adata.obs
+            class_mapping = {
+                label: idx
+                for idx, label in enumerate(
+                    df[dataset_task_cfg.label_col_name].unique(),
+                    start=0,
+                )
+            }
+            df["class_id"] = df[dataset_task_cfg.label_col_name].map(class_mapping)
+            labels = np.array(df["class_id"])
+
+        elif "label_obsm_name" in dataset_task_cfg:
+            assert "label_col_name" not in dataset_task_cfg
+            df = adata.obsm[dataset_task_cfg.label_obsm_name]
+            (labels := np.empty(df.shape, dtype=np.float32)).fill(np.nan)
+            labels[np.where(df == 1)] = 1
+            labels[np.where(df == -1)] = 0
+
+        else:
+            raise ValueError("Either 'label_col_name' or 'label_obsm_name' needs to be set.")
+        self.labels = labels
 
         # Set up splits and task mask
         if "splits" not in dataset_task_cfg:  # no predefined splits specified
