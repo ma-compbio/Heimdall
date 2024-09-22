@@ -1,0 +1,18 @@
+args:
+  task_type: binary
+  label_obsm_name: disease_classification
+  splits:
+    type: predefined
+    keys_:
+      train: train
+      val: valid
+      test: test
+  metrics:
+    - Accuracy
+  # train_split: 0.8
+  # prediction_dim: 14
+  shuffle: true
+  batchsize: 32
+  epochs: 10
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset

@@ -1,0 +1,38 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+
+defaults:
+  - override /model: transformer # the chosen model
+  - override /dataset: scdrs # dataset for the relevant task
+  - override /tasks: polygenic_disease_risk # dataset for the relevant task
+  - override /scheduler: cosine # contains scheduler
+  - override /trainer: default # contains optimizer and trainer details
+  - override /optimizer: AdamW
+  - override /f_c: geneformer
+  - override /f_g: identity
+  - override /loss: MaskedBCEWithLogitsLoss
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+
+
+project_name: polygenic_disease_risk  # project name for WandB
+run_name: test01  # what is set for WandB
+work_dir: work_dir  # set your custom working directory
+
+
+seed: 55
+
+trainer:
+  accumulate_grad_batches: 1
+
+optimizer:
+  learning_rate: 2e-3
+
+tasks:
+  args:
+    epochs: 1

@@ -1,0 +1,9 @@
+dataset_name: scdrs
+
+preprocess_args:
+  data_path: ${data_path}/polygenic_disease_risk/processed/scdrs.h5ad
+  top_n_genes: 1000
+  normalize: true
+  log_1p: true
+  scale_data: true
+  species: human
