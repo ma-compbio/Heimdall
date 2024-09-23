@@ -361,7 +361,6 @@ class CellRepresentation(SpecialTokenMixin):
         print(f"> Finished calculating f_c with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
-        print(f"{self._cfg.cache_preprocessed_dataset_dir=}")
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             # Gather things for caching
             identity_reps, expression_reps = self.fc[:]
@@ -382,7 +381,7 @@ class CellRepresentation(SpecialTokenMixin):
                     expression_reps,
                 )
                 pkl.dump(cache_representation, rep_file)
-                print(f"finished writing cell representations at {preprocessed_reps_path}")
+                print(f"Finished writing cell representations at {preprocessed_reps_path}")
 
     ###################################################
     # Deprecated functions
