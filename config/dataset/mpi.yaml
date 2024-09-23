@@ -1,0 +1,9 @@
+dataset_name: mpi
+
+preprocess_args:
+  data_path: ${data_path}/cell_type_annotation/processed/mpi.h5ad
+  top_n_genes: 1000
+  normalize: false
+  log_1p: false
+  scale_data: true
+  species: mouse

@@ -5,8 +5,8 @@
 ####
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: zheng68k # dataset for the relevant task
-  - override /tasks: zheng68k # dataset for the relevant task
+  - override /dataset: mpi # dataset for the relevant task
+  - override /tasks: cell_type_annotation # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
@@ -18,11 +18,9 @@ defaults:
 # Set the specific parameters you would like to change from the defaults
 ####
 
-
-project_name: 'zheng68K_cell_type_classification' #project name for WandB
-run_name: '${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}_${model.args.pooling}'  ## what is set for WandB
-work_dir: 'work_dir'  ## set your custom working directory
-entity: 'Heimdall'
+project_name: cta_mpi # project name for WandB
+run_name: ${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}_${model.args.pooling} # what is set for WandB
+work_dir: work_dir # set your custom working directory
 
 seed: 55
 
