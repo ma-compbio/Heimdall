@@ -1,0 +1,9 @@
+dataset_name: zeng_merfish_ccn_subset
+
+preprocess_args:
+  data_path: ${data_path}/cell_to_cell_neighbor/adata_MERFISH_Zeng_Slices1to10.h5ad
+  top_n_genes: 1000
+  normalize: true
+  log_1p: true
+  scale_data: true
+  species: mouse

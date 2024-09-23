@@ -1,0 +1,17 @@
+args:
+  task_type: binary
+  interaction_type: Spatial_neigh
+  splits:
+    type: predefined
+    keys_:
+      train: Spatial_neigh_train_mask
+      val: Spatial_neigh_val_mask
+      test: Spatial_neigh_test_mask
+  metrics:
+    - Accuracy
+  shuffle: true
+  batchsize: 32
+  epochs: 10
+  rebalance: true
+  dataset_config:
+    type: Heimdall.datasets.PairedInstanceDataset
