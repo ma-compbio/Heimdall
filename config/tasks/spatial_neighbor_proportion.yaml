@@ -1,5 +1,5 @@
 args:
-  task_type: binary
+  task_type: regression
   label_obsm_name: neighborhood_class_proportions
   metrics:
     - MSE
@@ -7,6 +7,5 @@ args:
   shuffle: true
   batchsize: 32
   epochs: 10
-  #prediction_dim: 22
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
