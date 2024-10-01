@@ -186,7 +186,7 @@ class CellRepresentation(SpecialTokenMixin):
             cfg = DictConfig(OmegaConf.to_container(self._cfg.dataset, resolve=True))
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
                 cfg,
-                Path(cache_dir).resolve() / "preprocessed_anndata",
+                Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
                 "data.h5ad",
             )
             if preprocessed_data_path.is_file():
@@ -338,7 +338,7 @@ class CellRepresentation(SpecialTokenMixin):
             )
             processed_data_path, processed_cfg_path = get_cached_paths(
                 cfg,
-                Path(cache_dir).resolve() / "processed_data",
+                Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
                 "data.pkl",
             )
             if processed_data_path.is_file():
