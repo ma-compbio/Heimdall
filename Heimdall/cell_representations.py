@@ -1,6 +1,5 @@
 """The Cell Representation Object for Processing."""
 
-import os
 import pickle as pkl
 import warnings
 from functools import partial, wraps
@@ -26,8 +25,8 @@ from Heimdall.f_g import Fg
 from Heimdall.fe import Fe
 from Heimdall.utils import (
     deprecate,
+    get_cached_paths,
     get_value,
-    hash_config,
     heimdall_collate_fn,
     instantiate_from_config,
     symbol_to_ensembl_from_ensembl,
@@ -185,14 +184,11 @@ class CellRepresentation(SpecialTokenMixin):
         preprocessed_data_path = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = self._cfg.dataset
-            hash_str = hash_config(cfg)
-
-            cache_dir = Path(cache_dir).resolve() / "preprocessed_anndata" / hash_str
-            cache_dir.mkdir(exist_ok=True, parents=True)
-
-            preprocessed_data_path = cache_dir / "data.h5ad"
-            preprocessed_cfg_path = cache_dir / "config.yaml"
-
+            preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
+                cfg,
+                Path(cache_dir).resolve() / "preprocessed_anndata",
+                "data.h5ad",
+            )
             if preprocessed_data_path.is_file():
                 loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(preprocessed_cfg_path)).replace("\n", "\n    ")
                 print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
@@ -340,15 +336,12 @@ class CellRepresentation(SpecialTokenMixin):
                     for key in ("fg_cfg", "fe_cfg", "fc_cfg")
                 },
             )
-            hash_str = hash_config(cfg)
-
-            cache_dir = Path(cache_dir).resolve() / "processed_data" / hash_str
-            cache_dir.mkdir(exist_ok=True, parents=True)
-
-            processed_data_path = cache_dir / "data.pkl"
-            processed_cfg_path = cache_dir / "config.yaml"
-
-            if os.path.isfile(processed_data_path):
+            processed_data_path, processed_cfg_path = get_cached_paths(
+                cfg,
+                Path(cache_dir).resolve() / "processed_data",
+                "data.pkl",
+            )
+            if processed_data_path.is_file():
                 loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(processed_cfg_path)).replace("\n", "\n    ")
                 print(f"> Using processed cell representations: {processed_data_path}")
                 print(f"  Processing config:\n    {loaded_cfg_str}")

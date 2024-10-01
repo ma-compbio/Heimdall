@@ -32,6 +32,19 @@ def hash_config(cfg: DictConfig) -> str:
     return str(uuid.UUID(hex_str))
 
 
+def get_cached_paths(cfg: DictConfig, cache_dir: Path, file_name: str) -> Tuple[Path, Path]:
+    """Get cached data and config path given config."""
+    hash_str = hash_config(cfg)
+
+    cache_dir = cache_dir / hash_str
+    cache_dir.mkdir(exist_ok=True, parents=True)
+
+    cached_file_path = cache_dir / file_name
+    cached_cfg_path = cache_dir / "config.yaml"
+
+    return cached_file_path, cached_cfg_path
+
+
 def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
     """Vectorization of `np.searchsorted` for 2D `bin_edges` array.
 
