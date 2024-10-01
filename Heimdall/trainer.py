@@ -109,10 +109,14 @@ class HeimdallTrainer:
         if self.run_wandb and self.accelerator.is_main_process:
             print("==> Starting a new WANDB run")
             new_tags = (self.cfg.dataset.dataset_name, self.cfg.f_g.type, self.cfg.fe.type, self.cfg.f_c.type)
+            lr = self.cfg.optimizer.args.lr
+            batch_size = self.cfg.tasks.args.batchsize
+            
+            run_name = f"lr_{lr}_bs_{batch_size}"
             wandb_config = {
                 "wandb": {
                     "tags": new_tags,
-                    "name": self.cfg.run_name,
+                    "name": run_name,   #set run name dynamically here
                     "entity": self.cfg.entity,
                 },
             }
@@ -121,7 +125,7 @@ class HeimdallTrainer:
                 config=OmegaConf.to_container(self.cfg, resolve=True),
                 init_kwargs=wandb_config,
             )
-            print("==> Initialized Run")
+            print(f"==> Initialized Run with name: {run_name}")
 
     def _initialize_lr_scheduler(self):
         dataset_config = self.cfg.tasks.args
@@ -153,7 +157,7 @@ class HeimdallTrainer:
         metrics.update(self.custom_metrics)
 
         # Then, add built-in metrics if not overridden by custom metrics
-        if task_type == "classification":
+        if task_type == "multiclass":
             num_classes = self.num_labels
             for metric_name in self.cfg.tasks.args.metrics:
                 if metric_name not in metrics:
@@ -256,6 +260,8 @@ class HeimdallTrainer:
         self.model.eval()
         metrics = self._initialize_metrics()
         # print(metrics)
+
+        print("VALIDATE \n\n\n")
         loss = 0
 
         with torch.no_grad():
@@ -277,7 +283,6 @@ class HeimdallTrainer:
 
                 # print(metrics)
                 # print("---")
-
                 for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
@@ -308,8 +313,8 @@ class HeimdallTrainer:
             if metric_name != "ConfusionMatrix":
                 # Built-in metric
                 log[f"{dataset_type}_{metric_name}"] = metric.compute().item()
-                if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
-                    log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
+                #if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MatthewsCorrCoef"]:
+                    #log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
 
         if "ConfusionMatrix" in metrics and not callable(metrics["ConfusionMatrix"]):
             confusion_matrix = metrics["ConfusionMatrix"].compute()

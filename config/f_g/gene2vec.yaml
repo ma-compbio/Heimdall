@@ -2,6 +2,6 @@ name: "Gene2VecFg"
 type: Heimdall.f_g.Gene2VecFg
 
 args:
-  output_type: "ids" ## specify whether the output is numerical IDs like 1,2,3,4 or a vector
+  #output_type: "ids" ## specify whether the output is numerical IDs like 1,2,3,4 or a vector
   embedding_filepath: ${data_path}/pretrained_embeddings/gene2vec/gene2vec_genes.txt
   d_embedding: ${model.args.d_model}
