@@ -25,7 +25,7 @@ def flake8(session):
 def lint(session):
     targets = (flake8,)
     for t in targets:
-        session.log(f"Runing {t.__name__}")
+        session.log(f"Running {t.__name__}")
         t(session)
 
 
@@ -88,7 +88,7 @@ def test_experiments(session):
             session.log(f"Skipping large experiment {exp!r}")
             continue
 
-        session.log(f"Runing experiment {exp!r}")
+        session.log(f"Running experiment {exp!r}")
         session.run(
             "python",
             "train.py",
