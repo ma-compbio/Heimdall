@@ -208,7 +208,6 @@ class HeimdallTrainer:
         elif self.cfg.loss.name == "CrossEntropyLoss":
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "MSELoss":
-            raise NotImplementedError("Not Fully Implemented Yet, Please Check")
             loss = self.loss_fn(logits, labels)
         else:
             raise NotImplementedError("Only custom, CrossEntropyLoss, and MSELoss are supported right now")

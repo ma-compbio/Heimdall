@@ -123,21 +123,34 @@ class CellRepresentation(SpecialTokenMixin):
                 UserWarning,
                 stacklevel=2,
             )
-            if (self.labels % 1).any():  # inferred to be regression
-                task_type = "regression"
-                out = self._labels.shape[1]
-            elif self.labels.max() == 1:  # inferred to be multilabel
-                task_type = "classification-multilabel"
+            assert self.dataset_task_cfg.task_type in [
+                "regression",
+                "binary",
+                "multiclass",
+            ], "task type must be regression, binary, or multiclass. Check the task config file."
+
+            task_type = self.dataset_task_cfg.task_type
+            if task_type == "regression":
                 if len(self.labels.shape) == 1:
                     out = 1
                 else:
                     out = self._labels.shape[1]
-            else:  # inferred to be multiclass
-                task_type = "classification-multiclass"
+            elif task_type == "binary":
+                if len(self.labels.shape) == 1:
+                    out = 1
+                else:
+                    out = self._labels.shape[1]
+            elif task_type == "multiclass":
                 out = self._labels.max() + 1
+            else:
+                raise ValueError(
+                    f"Unknown task type {task_type!r}. Valid options are: 'multiclass', 'binary', 'regression'.",
+                )
 
             self._num_tasks = out = int(out)
-            print(f"> Task dimension inferred: {out} (inferred task type {task_type!r}, {self.labels.shape=})")
+            print(
+                f"> Task dimension: {out} " f"(task type {self.dataset_task_cfg.task_type!r}, {self.labels.shape=})",
+            )
 
         return self._num_tasks
 
