@@ -122,14 +122,15 @@ class SingleInstanceDataset(Dataset):
         elif "label_obsm_name" in dataset_task_cfg:
             assert "label_col_name" not in dataset_task_cfg
             df = adata.obsm[dataset_task_cfg.label_obsm_name]
+
             if dataset_task_cfg.task_type == "binary":
                 (labels := np.empty(df.shape, dtype=np.float32)).fill(np.nan)
-                print(f"labels shape {labels.shape}")
                 labels[np.where(df == 1)] = 1
                 labels[np.where(df == -1)] = 0
             elif dataset_task_cfg.task_type == "regression":
                 labels = np.array(df).astype(np.float32)
-                print(f"labels shape {labels.shape}")
+
+            print(f"labels shape {labels.shape}")
 
         else:
             raise ValueError("Either 'label_col_name' or 'label_obsm_name' needs to be set.")
