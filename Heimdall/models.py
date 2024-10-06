@@ -37,17 +37,16 @@ class TransformerOutput:
 
     @classmethod
     def reduce(cls, outputs: Sequence["TransformerOutput"], reduction: Callable = torch.sum):
-        first_output = outputs[0]
+        keys = cls.__dict__["__annotations__"].keys()
         reduced_output = TransformerOutput(
             **{
                 key: reduction(
                     torch.stack([getattr(output, key) for output in outputs], axis=0),
                     axis=0,
                 )
-                for key in first_output.__dict__
+                for key in keys
             },
         )
-
         return reduced_output
 
 
