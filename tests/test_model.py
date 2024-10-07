@@ -1,3 +1,8 @@
+import anndata as ad
+import numpy as np
+import pandas as pd
+import pytest
+import scipy.sparse as sp
 from omegaconf import OmegaConf
 from pytest import fixture
 
@@ -6,15 +11,55 @@ from Heimdall.models import HeimdallModel
 
 
 @fixture(scope="module")
-def paired_task_config():
-    config_string = """
+def plain_toy_data():
+    return ad.AnnData(
+        X=np.arange(15).reshape(5, 3),
+        obs=pd.DataFrame(index=range(5)),
+        var=pd.DataFrame(index=["ENSG00000142611", "ENSG00000157911", "ENSG00000274917"]),
+    )
+
+
+@fixture(scope="module")
+def toy_paried_data_path(pytestconfig, plain_toy_data):
+    data_path = pytestconfig.cache.mkdir("toy_data")
+
+    adata = plain_toy_data.copy()
+    zeros = sp.csr_matrix((adata.shape[0], adata.shape[0]))
+    for i, key in enumerate(("train", "val", "test", "task")):
+        adata.obsp[key] = zeros.copy()
+        if key != "task":
+            adata.obsp[key][i, i] = 1
+
+    path = data_path / "toy_single_adata.h5ad"
+    adata.write_h5ad(path)
+
+    return path
+
+
+@fixture(scope="module")
+def toy_single_data_path(pytestconfig, plain_toy_data):
+    data_path = pytestconfig.cache.mkdir("toy_data")
+
+    adata = plain_toy_data.copy()
+    adata.obs["split"] = "train"
+    adata.obs["class"] = 0
+
+    path = data_path / "toy_single_adata.h5ad"
+    adata.write_h5ad(path)
+
+    return path
+
+
+@fixture(scope="module")
+def paired_task_config(toy_paried_data_path):
+    config_string = f"""
     project_name: Cell_Cell_interaction
     run_name: run_name
     work_dir: work_dir
     seed: 42
-    data_path: /work/magroup/scllm/datasets
-    ensembl_dir: /work/magroup/shared/Heimdall/data/gene_mapping
-    cache_preprocessed_dataset_dir: /work/magroup/shared/Heimdall/preprocessed_data
+    data_path: null
+    ensembl_dir: null
+    cache_preprocessed_dataset_dir: null
     entity: Heimdall
     model:
       type: transformer
@@ -31,7 +76,7 @@ def paired_task_config():
     dataset:
       dataset_name: zeng_merfish_ccc_subset
       preprocess_args:
-        data_path: /work/magroup/shared/Heimdall/data/cell_to_cell_interaction/adata_MERFISH_Zeng_Slices1to10.h5ad
+        data_path: {toy_paried_data_path}
         top_n_genes: 1000
         normalize: true
         log_1p: true
@@ -106,15 +151,15 @@ def paired_task_config():
 
 
 @fixture(scope="module")
-def single_task_config():
-    config_string = """
+def single_task_config(toy_single_data_path):
+    config_string = f"""
     project_name: Cell_Type_Classification_dev
     run_name: run_name
     work_dir: work_dir
     seed: 42
-    data_path: /work/magroup/scllm/datasets
-    ensembl_dir: /work/magroup/shared/Heimdall/data/gene_mapping
-    cache_preprocessed_dataset_dir: /work/magroup/shared/Heimdall/preprocessed_data
+    data_path: null
+    ensembl_dir: null
+    cache_preprocessed_dataset_dir: null
     entity: Heimdall
     model:
       type: transformer
@@ -131,7 +176,7 @@ def single_task_config():
     dataset:
       dataset_name: cell_type_classification
       preprocess_args:
-        data_path: /work/magroup/scllm/datasets/sc_sub_nick.h5ad
+        data_path: {toy_single_data_path}
         top_n_genes: 1000
         normalize: true
         log_1p: true
@@ -200,21 +245,17 @@ def single_task_config():
     return conf
 
 
-def test_single_transformer_instantiation(single_task_config):
-    cr = CellRepresentation(single_task_config)  # takes in the whole config from hydra
+@pytest.mark.parametrize("config_fixture", ["single_task_config", "paired_task_config"])
+def test_model_instantiation(request, config_fixture):
+    config = request.getfixturevalue(config_fixture)
+    cr = CellRepresentation(config)  # takes in the whole config from hydra
 
     model = HeimdallModel(
         data=cr,
-        model_config=single_task_config.model.args,
-        task_config=single_task_config.tasks.args,
+        model_config=config.model.args,
+        task_config=config.tasks.args,
     )
 
-
-def test_paired_transformer_instantiation(paired_task_config):
-    cr = CellRepresentation(paired_task_config)  # takes in the whole config from hydra
-
-    model = HeimdallModel(
-        data=cr,
-        model_config=paired_task_config.model.args,
-        task_config=paired_task_config.tasks.args,
-    )
+    # Test execution
+    batch = next(iter(cr.dataloaders["train"]))
+    model(inputs=(batch["identity_inputs"], batch["expression_inputs"]), conditional_tokens=None)
