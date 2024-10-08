@@ -1,5 +1,5 @@
 name: "IdentityFg"
-type: Heimdall.f_g.IdentityFg
+type: Heimdall.fg.IdentityFg
 
 args:
   embedding_filepath: null

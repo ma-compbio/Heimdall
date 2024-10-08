@@ -5,8 +5,8 @@ import numpy as np
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.f_g import IdentityFg
 from Heimdall.fe import BinningFe, DummyFe, SortingFe
+from Heimdall.fg import IdentityFg
 
 
 @fixture

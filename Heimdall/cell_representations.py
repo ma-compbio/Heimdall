@@ -20,9 +20,9 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from Heimdall.datasets import Dataset
-from Heimdall.f_c import Fc
-from Heimdall.f_g import Fg
+from Heimdall.fc import Fc
 from Heimdall.fe import Fe
+from Heimdall.fg import Fg
 from Heimdall.utils import (
     deprecate,
     get_cached_paths,
@@ -87,8 +87,8 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.dataset_preproc_cfg = config.dataset.preprocess_args
         self.dataset_task_cfg = config.tasks.args
-        self.fg_cfg = config.f_g
-        self.fc_cfg = config.f_c
+        self.fg_cfg = config.fg
+        self.fc_cfg = config.fc
         self.fe_cfg = config.fe
         self.model_cfg = config.model
         self.optimizer_cfg = config.optimizer
@@ -382,13 +382,13 @@ class CellRepresentation(SpecialTokenMixin):
             OmegaConf.save(cfg, processed_cfg_path)
 
         self.fg.preprocess_embeddings()
-        print(f"> Finished calculating f_g with {self.fg_cfg.type}")
+        print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
         self.fc.preprocess_cells()
-        print(f"> Finished calculating f_c with {self.fc_cfg.type}")
+        print(f"> Finished calculating fc with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:

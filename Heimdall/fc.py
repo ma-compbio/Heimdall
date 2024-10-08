@@ -7,8 +7,8 @@ from numpy.typing import NDArray
 from torch import Tensor
 from torch.nn import Module
 
-from Heimdall.f_g import Fg
 from Heimdall.fe import Fe
+from Heimdall.fg import Fg
 
 
 class Fc(ABC):

@@ -6,7 +6,7 @@ import pytest
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.f_g import ESM2Fg, Gene2VecFg, IdentityFg
+from Heimdall.fg import ESM2Fg, Gene2VecFg, IdentityFg
 
 
 @fixture

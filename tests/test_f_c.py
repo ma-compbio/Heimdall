@@ -5,9 +5,9 @@ import numpy as np
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.f_c import GeneformerFc, ScGPTFc
-from Heimdall.f_g import Gene2VecFg, IdentityFg
+from Heimdall.fc import GeneformerFc, ScGPTFc
 from Heimdall.fe import BinningFe, SortingFe
+from Heimdall.fg import Gene2VecFg, IdentityFg
 
 
 @fixture

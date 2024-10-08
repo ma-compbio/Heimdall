@@ -1,4 +1,4 @@
-type: Heimdall.f_g.ESM2Fg
+type: Heimdall.fg.ESM2Fg
 
 args:
   embedding_filepath: ${data_path}/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt

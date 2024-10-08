@@ -112,7 +112,7 @@ class HeimdallTrainer:
     def _initialize_wandb(self):
         if self.run_wandb and self.accelerator.is_main_process:
             print("==> Starting a new WANDB run")
-            new_tags = (self.cfg.dataset.dataset_name, self.cfg.f_g.type, self.cfg.fe.type, self.cfg.f_c.type)
+            new_tags = (self.cfg.dataset.dataset_name, self.cfg.fg.type, self.cfg.fe.type, self.cfg.fc.type)
             wandb_config = {
                 "wandb": {
                     "tags": new_tags,

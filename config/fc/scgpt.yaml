@@ -1,4 +1,4 @@
-type: Heimdall.f_c.GeneformerFc
+type: Heimdall.fc.ScGPTFc
 
 args:
   max_input_length: ${model.args.d_model}

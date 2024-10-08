@@ -10,9 +10,9 @@ defaults:
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
-  - override /f_c: geneformer
+  - override /fc: geneformer
   - override /fe: sorting
-  - override /f_g: identity
+  - override /fg: identity
 
   - override /loss: CrossEntropyLoss
 
