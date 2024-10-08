@@ -96,7 +96,7 @@ class HeimdallModel(nn.Module):
             encoded_cells = tuple(
                 self.lm_model(cell_inputs, conditional_tokens, attention_mask) for cell_inputs in inputs
             )
-            encoded = self.reducer.reduce(encoded_cells)
+            encoded = self.reducer(encoded_cells)
         else:
             encoded = self.lm_model(inputs, conditional_tokens, attention_mask)
 
@@ -340,7 +340,7 @@ class LinearSeqPredHead(SeqPredHeadMixin, LinearDecoderMixin):
     """Linear sequence prediction head."""
 
 
-class Reducer(ABC):
+class Reducer(nn.Module, ABC):
     """Reduce a list of `n` tensors into a single tensor.
 
     Each tensor in the list must have dimensionality `(batch_size, dim_in)`. The
@@ -349,19 +349,20 @@ class Reducer(ABC):
     """
 
     def __init__(self, dim_in: int):
+        super().__init__()
         self.dim_in = dim_in
 
     @abstractmethod
-    def reduce(self, tensors: list[Tensor]): ...
+    def forward(self, tensors: list[Tensor]): ...
 
 
 class SumReducer(Reducer):
-    def reduce(self, tensors: list[Tensor]):
+    def forward(self, tensors: list[Tensor]):
         return torch.sum(torch.stack(tensors, axis=0), axis=0)
 
 
 class MeanReducer(Reducer):
-    def reduce(self, tensors: list[Tensor]):
+    def forward(self, tensors: list[Tensor]):
         return torch.mean(torch.stack(tensors, axis=0), axis=0)
 
 
@@ -370,7 +371,7 @@ class AsymmetricConcatReducer(Reducer):
         super().__init__(dim_in=dim_in)
         self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
 
-    def reduce(self, tensors: list[Tensor]):
+    def forward(self, tensors: list[Tensor]):
         concatenated = torch.cat(tensors, dim=2)
         return self.pair_embedder(concatenated)
 
@@ -380,7 +381,7 @@ class SymmetricConcatReducer(Reducer):
         super().__init__(dim_in=dim_in)
         self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
 
-    def reduce(self, tensors: list[Tensor]):
+    def forward(self, tensors: list[Tensor]):
         concatenated_1 = torch.cat(tensors, dim=2)
         concatenated_2 = torch.cat(list(reversed(tensors)), dim=2)
 
