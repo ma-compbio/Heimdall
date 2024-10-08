@@ -22,14 +22,14 @@ class Fg(ABC):
     def __init__(
         self,
         adata: ad.AnnData,
-        embedding_cls: str,
+        torch_parameters: str,
         d_embedding: int,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
         self.d_embedding = d_embedding
-        self.embedding_cls = embedding_cls
+        self.torch_parameters = torch_parameters
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -101,11 +101,11 @@ class PretrainedFg(Fg, ABC):
     def __init__(
         self,
         adata: ad.AnnData,
-        embedding_cls: str,
+        torch_parameters: str,
         d_embedding: int,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
-        super().__init__(adata, embedding_cls, d_embedding)
+        super().__init__(adata, torch_parameters, d_embedding)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod

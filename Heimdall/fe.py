@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from os import PathLike
 from typing import Optional, Sequence
 
 import anndata as ad
@@ -16,23 +15,19 @@ class Fe(ABC):
     Args:
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
         d_embedding: dimensionality of embedding for each expression entity
-        num_embeddings: number of embeddings to generate for expression-based embedding,
-            e.g. how many bins for binning, etc.
 
     """
 
     def __init__(
         self,
         adata: ad.AnnData,
-        embedding_cls: str,
+        torch_parameters: str,
         d_embedding: int,
-        num_embeddings: Optional[int] = None,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
-        self.embedding_cls = embedding_cls
+        self.torch_parameters = torch_parameters
         self.d_embedding = d_embedding
-        self.num_embeddings = num_embeddings
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -83,7 +78,25 @@ class DummyFe(Fe):
 
 
 class BinningFe(Fe):
-    """Value-binning Fe from scGPT."""
+    """Value-binning Fe from scGPT.
+
+    Args:
+        adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+        d_embedding: dimensionality of embedding for each expression entity
+        torch_parameters: dimensionality of embedding for each expression entity
+        num_bins: number of bins to generate
+
+    """
+
+    def __init__(
+        self,
+        adata: ad.AnnData,
+        torch_parameters: str,
+        d_embedding: int,
+        num_bins: Optional[int],
+    ):
+        super().__init__(adata, torch_parameters, d_embedding)
+        self.num_bins = num_bins
 
     def preprocess_embeddings(self):
         """Compute bin identities of expression profiles in raw data."""
@@ -92,7 +105,7 @@ class BinningFe(Fe):
         valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
         expression = self.adata.X[:, valid_mask]
 
-        n_bins = self.num_embeddings
+        n_bins = self.num_bins
         if np.max(expression) == 0:
             binned_values = np.zeros_like(expression)  # TODO: add correct typing (maybe add to config...?)
 

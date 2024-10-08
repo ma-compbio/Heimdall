@@ -11,7 +11,7 @@ from torch import Tensor
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.datasets import PairedInstanceDataset
-from Heimdall.utils import get_name, instantiate_from_config
+from Heimdall.utils import instantiate_from_config
 
 # try:
 #     from flash_attn.models.bert import BertEncoder
@@ -145,29 +145,35 @@ class HeimdallTransformer(nn.Module):
         self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
         self.max_seq_length = data.sequence_length
 
+        # Setting up embedding layers
         gene_embeddings = data.fg.gene_embeddings
-        gene_embedding_cls, _, _ = get_name(data.fg.embedding_cls)
-        if gene_embeddings is not None:
-            self.gene_embeddings = gene_embedding_cls.from_pretrained(
-                torch.tensor(gene_embeddings, dtype=torch.float32),
-            )
-            # self.gene_embeddings = nn.Embedding.from_pretrained(torch.tensor(gene_embedding_layer, dtype=torch.float32))
-        elif data.fg.d_embedding is not None:
-            self.gene_embeddings = gene_embedding_cls(self.vocab_size, data.fg.d_embedding)
+        gene_embedding_config = data.fg.torch_parameters
+        expression_embeddings = data.fe.expression_embeddings
+        expression_embedding_config = data.fe.torch_parameters
+
+        # TODO: can we avoid this?
+        for embedding_config in (gene_embedding_config, expression_embedding_config):
+            for key, value in embedding_config.args.items():
+                if value == "max_seq_length":
+                    value = self.max_seq_length
+                elif value == "vocab_size":
+                    value = self.vocab_size
+                elif value == "gene_embeddings":
+                    value = gene_embeddings
+                elif value == "expression_embeddings":
+                    value = expression_embeddings
+                else:
+                    continue
+
+                embedding_config.args[key] = value
+
+        if data.fg.d_embedding is not None:
+            self.gene_embeddings = instantiate_from_config(gene_embedding_config)
         else:
             self.gene_embeddings = None
 
-        expression_embeddings = data.fe.expression_embeddings
-        expression_embedding_cls, _, _ = get_name(data.fe.embedding_cls)
-        if expression_embeddings is not None:
-            self.expression_embeddings = expression_embedding_cls.from_pretrained(
-                torch.tensor(expression_embeddings, dtype=torch.float32),
-            )
-        elif data.fe.d_embedding is not None:
-            self.expression_embeddings = expression_embedding_cls(
-                data.fe.num_embeddings or self.vocab_size,
-                data.fe.d_embedding,
-            )
+        if data.fe.d_embedding is not None:
+            self.expression_embeddings = instantiate_from_config(expression_embedding_config)
         else:
             self.expression_embeddings = None
 

@@ -1,6 +1,9 @@
 type: Heimdall.fe.SortingFe
 
 args:
-  embedding_cls: torch.nn.Embedding
-  num_embeddings: null # TODO: how to make number of genes? Maybe use `null` to indicate this? Or at least, individual Fes can ignore `num_embeddings` if they want
-  d_embedding: 128 #
+  torch_parameters:
+    type: torch.nn.Embedding
+    args:
+      num_embeddings: "max_seq_length"
+      embedding_dim: ${fe.args.d_embedding}
+  d_embedding: ${model.args.d_model}

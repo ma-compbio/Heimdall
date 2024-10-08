@@ -407,3 +407,12 @@ def _load_ensembl_table(
             symbol_to_ensembl = json.load(f)
 
     return symbol_to_ensembl
+
+
+class FlexibleTypeLinear(nn.Linear):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dtype = self.weight.dtype
+
+    def forward(self, inputs: torch.Tensor):
+        return super().forward(inputs.type(self.dtype))
