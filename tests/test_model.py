@@ -250,10 +250,10 @@ def single_task_config(toy_single_data_path):
 @pytest.mark.parametrize(
     "paired_task_config",
     [
-        "Heimdall.utils.SumReducer",
-        "Heimdall.utils.MeanReducer",
-        "Heimdall.utils.SymmetricConcatReducer",
-        "Heimdall.utils.AsymmetricConcatReducer",
+        "Heimdall.models.SumReducer",
+        "Heimdall.models.MeanReducer",
+        "Heimdall.models.SymmetricConcatReducer",
+        "Heimdall.models.AsymmetricConcatReducer",
     ],
     indirect=True,
 )

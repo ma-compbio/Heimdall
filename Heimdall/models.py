@@ -1,11 +1,13 @@
 """Heimdall model."""
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
+from torch import Tensor
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.datasets import PairedInstanceDataset
@@ -336,3 +338,51 @@ class LinearCellPredHead(CellPredHeadMixin, LinearDecoderMixin):
 
 class LinearSeqPredHead(SeqPredHeadMixin, LinearDecoderMixin):
     """Linear sequence prediction head."""
+
+
+class Reducer(ABC):
+    """Reduce a list of `n` tensors into a single tensor.
+
+    Each tensor in the list must have dimensionality `(batch_size, dim_in)`. The
+    reduction may be symmetric or asymmetric.
+
+    """
+
+    def __init__(self, dim_in: int):
+        self.dim_in = dim_in
+
+    @abstractmethod
+    def reduce(self, tensors: list[Tensor]): ...
+
+
+class SumReducer(Reducer):
+    def reduce(self, tensors: list[Tensor]):
+        return torch.sum(torch.stack(tensors, axis=0), axis=0)
+
+
+class MeanReducer(Reducer):
+    def reduce(self, tensors: list[Tensor]):
+        return torch.mean(torch.stack(tensors, axis=0), axis=0)
+
+
+class AsymmetricConcatReducer(Reducer):
+    def __init__(self, dim_in: int):
+        super().__init__(dim_in=dim_in)
+        self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
+
+    def reduce(self, tensors: list[Tensor]):
+        concatenated = torch.cat(tensors, dim=2)
+        return self.pair_embedder(concatenated)
+
+
+class SymmetricConcatReducer(Reducer):
+    def __init__(self, dim_in: int):
+        super().__init__(dim_in=dim_in)
+        self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
+
+    def reduce(self, tensors: list[Tensor]):
+        concatenated_1 = torch.cat(tensors, dim=2)
+        concatenated_2 = torch.cat(list(reversed(tensors)), dim=2)
+
+        encoded = self.pair_embedder(concatenated_1) + self.pair_embedder(concatenated_2)
+        return encoded
