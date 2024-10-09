@@ -4,9 +4,12 @@ args:
   metrics:
     - Accuracy
     - MatthewsCorrCoef
+  track_metric: MatthewsCorrCoef
+  early_stopping: True
+  early_stopping_patience: 6
   shuffle: true
   batchsize: 32
-  epochs: 20
+  epochs: 50
   splits:
     type: predefined
     keys_:
