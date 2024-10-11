@@ -75,11 +75,11 @@ def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
     return binned_values
 
 
-def get_class(target: str):
+def get_name(target: str):
     module, obj = target.rsplit(".", 1)
-    cls = getattr(importlib.import_module(module, package=None), obj)
+    name = getattr(importlib.import_module(module, package=None), obj)
 
-    return cls, module, obj
+    return name, module, obj
 
 
 def instantiate_from_config(
@@ -96,7 +96,7 @@ def instantiate_from_config(
         return
 
     # Obtain target object and kwargs
-    cls, module, obj = get_class(config[_target_key])
+    cls, module, obj = get_name(config[_target_key])
     kwargs = config.get(_params_key, None) or {}
 
     if _catch_conflict:
@@ -428,3 +428,12 @@ def sample_without_replacement(rng: Generator, max_index: int, num_samples: int,
     random_indices = np.argpartition(random_samples, sample_size - 1, axis=1)[:, :sample_size]
 
     return random_indices
+
+
+class FlexibleTypeLinear(nn.Linear):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dtype = self.weight.dtype
+
+    def forward(self, inputs: torch.Tensor):
+        return super().forward(inputs.type(self.dtype))

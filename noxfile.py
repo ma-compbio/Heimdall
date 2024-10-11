@@ -45,7 +45,7 @@ def test_experiments(session):
     experiments = [i.stem for i in exp_config_dir.glob("*.yaml")]
 
     small_experiments = [
-        "pancreas",
+        "cta_pancreas",
         "pretrain_geneformer_dev",
     ]
     large_experiments = [

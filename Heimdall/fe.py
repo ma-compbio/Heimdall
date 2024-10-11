@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
-from os import PathLike
 from typing import Optional, Sequence
 
 import anndata as ad
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+from omegaconf import OmegaConf
+from omegaconf.dictconfig import DictConfig
 
 from Heimdall.utils import searchsorted2d
 
@@ -16,24 +17,19 @@ class Fe(ABC):
     Args:
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
         d_embedding: dimensionality of embedding for each expression entity
-        num_embeddings: number of embeddings to generate for expression-based embedding,
-            e.g. how many bins for binning, etc.
-        embedding_filepath: filepath from which to load pretrained embeddings
 
     """
 
     def __init__(
         self,
         adata: ad.AnnData,
+        embedding_parameters: DictConfig,
         d_embedding: int,
-        num_embeddings: Optional[int] = None,
-        embedding_filepath: Optional[str | PathLike] = None,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
+        self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
-        self.num_embeddings = num_embeddings
-        self.embedding_filepath = embedding_filepath
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -70,6 +66,21 @@ class Fe(ABC):
         # TODO: add tests
         self.adata.obsm["processed_expression_values"] = processed_expression_values
         self.expression_embeddings = expression_embeddings
+        self.replace_placeholders()
+
+    def replace_placeholders(self):
+        """Replace config placeholders with values after preprocessing."""
+        for key, value in self.embedding_parameters["args"].items():
+            if value == "max_seq_length":
+                value = len(self.adata.var)
+            elif value == "vocab_size":
+                value = len(self.adata.var) + 2  # <PAD> and <MASK> TODO: data.vocab_size
+            elif value == "expression_embeddings":
+                value = self.expression_embeddings
+            else:
+                continue
+
+            self.embedding_parameters["args"][key] = value
 
 
 class DummyFe(Fe):
@@ -87,9 +98,29 @@ class DummyFe(Fe):
         dummy_indices = pd.array(np.full((len(self.adata), self.num_embeddings), np.nan))
         self.adata.obsm["processed_expression_values"] = dummy_indices
 
+        self.replace_placeholders()
+
 
 class BinningFe(Fe):
-    """Value-binning Fe from scGPT."""
+    """Value-binning Fe from scGPT.
+
+    Args:
+        adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+        d_embedding: dimensionality of embedding for each expression entity
+        embedding_parameters: dimensionality of embedding for each expression entity
+        num_bins: number of bins to generate
+
+    """
+
+    def __init__(
+        self,
+        adata: ad.AnnData,
+        embedding_parameters: OmegaConf,
+        d_embedding: int,
+        num_bins: Optional[int],
+    ):
+        super().__init__(adata, embedding_parameters, d_embedding)
+        self.num_bins = num_bins
 
     def preprocess_embeddings(self):
         """Compute bin identities of expression profiles in raw data."""
@@ -98,7 +129,7 @@ class BinningFe(Fe):
         valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
         expression = self.adata.X[:, valid_mask]
 
-        n_bins = self.num_embeddings
+        n_bins = self.num_bins
         if np.max(expression) == 0:
             binned_values = np.zeros_like(expression)  # TODO: add correct typing (maybe add to config...?)
 
@@ -114,6 +145,8 @@ class BinningFe(Fe):
         binned_values[expression > 0] += 1
 
         self.adata.obsm["processed_expression_values"] = binned_values
+
+        self.replace_placeholders()
 
 
 class SortingFe(Fe):
@@ -135,3 +168,5 @@ class SortingFe(Fe):
         argsorted_expression = np.argsort(normalized_expression, axis=1)[:, ::-1]
 
         self.adata.obsm["processed_expression_values"] = argsorted_expression
+
+        self.replace_placeholders()

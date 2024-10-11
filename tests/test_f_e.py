@@ -5,8 +5,8 @@ import numpy as np
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.f_g import IdentityFg
 from Heimdall.fe import BinningFe, DummyFe, SortingFe
+from Heimdall.fg import IdentityFg
 
 
 @fixture
@@ -32,7 +32,13 @@ def mock_dataset():
 def identity_fg(mock_dataset):
     fg_config = OmegaConf.create(
         {
-            "embedding_filepath": None,
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "embedding_dim": 128,
+                },
+            },
             "d_embedding": 128,
         },
     )
@@ -45,8 +51,13 @@ def identity_fg(mock_dataset):
 def sorting_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "embedding_filepath": None,
-            "num_embeddings": None,
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "embedding_dim": 128,
+                },
+            },
             "d_embedding": 128,
         },
     )
@@ -59,8 +70,14 @@ def sorting_fe(mock_dataset):
 def binning_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "embedding_filepath": None,
-            "num_embeddings": int(np.max(mock_dataset.X)) + 1,
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": int(np.max(mock_dataset.X)) + 1,
+                    "embedding_dim": 128,
+                },
+            },
+            "num_bins": int(np.max(mock_dataset.X)) + 1,
             "d_embedding": 128,
         },
     )

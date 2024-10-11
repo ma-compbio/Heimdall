@@ -20,9 +20,9 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from Heimdall.datasets import Dataset
-from Heimdall.f_c import Fc
-from Heimdall.f_g import Fg
+from Heimdall.fc import Fc
 from Heimdall.fe import Fe
+from Heimdall.fg import Fg
 from Heimdall.utils import (
     deprecate,
     get_cached_paths,
@@ -87,8 +87,8 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.dataset_preproc_cfg = config.dataset.preprocess_args
         self.dataset_task_cfg = config.tasks.args
-        self.fg_cfg = config.f_g
-        self.fc_cfg = config.f_c
+        self.fg_cfg = config.fg
+        self.fc_cfg = config.fc
         self.fe_cfg = config.fe
         self.model_cfg = config.model
         self.optimizer_cfg = config.optimizer
@@ -123,21 +123,34 @@ class CellRepresentation(SpecialTokenMixin):
                 UserWarning,
                 stacklevel=2,
             )
-            if (self.labels % 1).any():  # inferred to be regression
-                task_type = "regression"
-                out = self._labels.shape[1]
-            elif self.labels.max() == 1:  # inferred to be multilabel
-                task_type = "classification-multilabel"
+            assert self.dataset_task_cfg.task_type in [
+                "regression",
+                "binary",
+                "multiclass",
+            ], "task type must be regression, binary, or multiclass. Check the task config file."
+
+            task_type = self.dataset_task_cfg.task_type
+            if task_type == "regression":
                 if len(self.labels.shape) == 1:
                     out = 1
                 else:
                     out = self._labels.shape[1]
-            else:  # inferred to be multiclass
-                task_type = "classification-multiclass"
+            elif task_type == "binary":
+                if len(self.labels.shape) == 1:
+                    out = 1
+                else:
+                    out = self._labels.shape[1]
+            elif task_type == "multiclass":
                 out = self._labels.max() + 1
+            else:
+                raise ValueError(
+                    f"Unknown task type {task_type!r}. Valid options are: 'multiclass', 'binary', 'regression'.",
+                )
 
             self._num_tasks = out = int(out)
-            print(f"> Task dimension inferred: {out} (inferred task type {task_type!r}, {self.labels.shape=})")
+            print(
+                f"> Task dimension: {out} " f"(task type {self.dataset_task_cfg.task_type!r}, {self.labels.shape=})",
+            )
 
         return self._num_tasks
 
@@ -369,13 +382,13 @@ class CellRepresentation(SpecialTokenMixin):
             OmegaConf.save(cfg, processed_cfg_path)
 
         self.fg.preprocess_embeddings()
-        print(f"> Finished calculating f_g with {self.fg_cfg.type}")
+        print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
         self.fc.preprocess_cells()
-        print(f"> Finished calculating f_c with {self.fc_cfg.type}")
+        print(f"> Finished calculating fc with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:

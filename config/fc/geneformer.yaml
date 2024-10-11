@@ -1,4 +1,4 @@
-type: Heimdall.f_c.GeneformerFc
+type: Heimdall.fc.GeneformerFc
 
 args:
   max_input_length: 2048

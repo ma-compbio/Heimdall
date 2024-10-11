@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 from Heimdall.cell_representations import CellRepresentation
 
 # initialize the model
-from Heimdall.models import HeimdallTransformer
+from Heimdall.models import HeimdallModel
 from Heimdall.trainer import HeimdallTrainer
 from Heimdall.utils import count_parameters
 
@@ -43,10 +43,10 @@ def main(config):
     # }
     conditional_input_types = None
 
-    model = HeimdallTransformer(
+    model = HeimdallModel(
         data=cr,
-        config=config.model.args,
-        input_type="learned",
+        model_config=config.model.args,
+        task_config=config.tasks.args,
         conditional_input_types=conditional_input_types,
     )
 

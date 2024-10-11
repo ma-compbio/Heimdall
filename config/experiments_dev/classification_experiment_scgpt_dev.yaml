@@ -10,9 +10,9 @@ defaults:
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
-  - override /f_c: scgpt
+  - override /fc: scgpt
   - override /fe: binning
-  - override /f_g: identity
+  - override /fg: identity
 
   - override /loss: CrossEntropyLoss
 
@@ -21,7 +21,7 @@ defaults:
 ####
 
 
-project_name: 'cell_type_classification_dev' #project name for WandB
+project_name: 'cell_type_classification_scgpt_dev' #project name for WandB
 run_name: 'test01'  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
 

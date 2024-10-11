@@ -112,7 +112,7 @@ class HeimdallTrainer:
     def _initialize_wandb(self):
         if self.run_wandb and self.accelerator.is_main_process:
             print("==> Starting a new WANDB run")
-            new_tags = (self.cfg.dataset.dataset_name, self.cfg.f_g.type, self.cfg.fe.type, self.cfg.f_c.type)
+            new_tags = (self.cfg.dataset.dataset_name, self.cfg.fg.type, self.cfg.fe.type, self.cfg.fc.type)
             wandb_config = {
                 "wandb": {
                     "tags": new_tags,
@@ -157,7 +157,7 @@ class HeimdallTrainer:
         metrics.update(self.custom_metrics)
 
         # Then, add built-in metrics if not overridden by custom metrics
-        if task_type == "classification":
+        if task_type == "multiclass":
             num_classes = self.num_labels
             for metric_name in self.cfg.tasks.args.metrics:
                 if metric_name not in metrics:
@@ -186,12 +186,62 @@ class HeimdallTrainer:
     def fit(self):
         """This is the main trainer.fit() function that is called for
         training."""
+
+        # If the tracked parameter is specified
+        track_metric = None
+        if self.cfg.tasks.args.get("track_metric", False):
+            track_metric = self.cfg.tasks.args.track_metric
+            best_metric = {
+                f"best_val_{track_metric}": float("-inf"),
+                f"reported_test_{track_metric}": float("-inf"),
+            }
+            assert (
+                track_metric in self.cfg.tasks.args.metrics
+            ), "The tracking metric is not in the list of metrics, please check your configuration task file"
+
+        # Initialize early stopping parameters
+        early_stopping = self.cfg.tasks.args.get("early_stopping", False)
+        early_stopping_patience = self.cfg.tasks.args.get("early_stopping_patience", 5)
+        patience_counter = 0
+
         for epoch in range(self.cfg.tasks.args.epochs):
-            self.validate_model(self.dataloader_val, dataset_type="valid")
-            self.validate_model(self.dataloader_test, dataset_type="test")
+            # Validation and test evaluation
+            valid_log = self.validate_model(self.dataloader_val, dataset_type="valid")
+            test_log = self.validate_model(self.dataloader_test, dataset_type="test")
+
+            # Track the best metric if specified
+            if track_metric:
+                val_metric = valid_log.get(f"valid_{track_metric}", float("-inf"))
+                if val_metric > best_metric[f"best_val_{track_metric}"]:
+                    best_metric[f"best_val_{track_metric}"] = val_metric
+                    print(f"New best validation {track_metric}: {val_metric}")
+                    best_metric["reported_epoch"] = epoch  # log the epoch for convenience
+                    for metric in self.cfg.tasks.args.metrics:
+                        best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
+                        print(f"Corresponding test {metric}: {best_metric[f'reported_test_{metric}']}")
+                    patience_counter = 0  # Reset patience counter since we have a new best
+                else:
+                    patience_counter += 1
+                    if early_stopping:
+                        print(
+                            f"No improvement in validation {track_metric}. "
+                            f"Patience counter: {patience_counter}/{early_stopping_patience}",
+                        )
+
+            # Check early stopping condition
+            if early_stopping and patience_counter >= early_stopping_patience:
+                print(
+                    f"Early stopping triggered. No improvement in {track_metric} for {early_stopping_patience} epochs.",
+                )
+                break
+
+            # Training for the current epoch
             self.train_epoch(epoch)
 
         if self.run_wandb and self.accelerator.is_main_process:
+            if track_metric:  # logging the best val score and the tracked test scores
+                self.accelerator.log(best_metric)
+
             self.accelerator.end_training()
 
         if self.accelerator.is_main_process:
@@ -208,7 +258,6 @@ class HeimdallTrainer:
         elif self.cfg.loss.name == "CrossEntropyLoss":
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "MSELoss":
-            raise NotImplementedError("Not Fully Implemented Yet, Please Check")
             loss = self.loss_fn(logits, labels)
         else:
             raise NotImplementedError("Only custom, CrossEntropyLoss, and MSELoss are supported right now")
@@ -249,6 +298,7 @@ class HeimdallTrainer:
                         "train_loss": loss.item(),
                         "step": step,
                         "learning_rate": lr,
+                        "epoch": epoch,
                     }
                     if self.run_wandb and self.accelerator.is_main_process:
                         self.accelerator.log(log)
@@ -330,4 +380,4 @@ class HeimdallTrainer:
         if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
 
-        return log.get(f"{dataset_type}_MatthewsCorrCoef", None)
+        return log

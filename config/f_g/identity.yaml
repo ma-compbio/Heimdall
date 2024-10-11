@@ -1,6 +1,0 @@
-name: "IdentityFg"
-type: Heimdall.f_g.IdentityFg
-
-args:
-  embedding_filepath: null
-  d_embedding: ${model.args.d_model}
