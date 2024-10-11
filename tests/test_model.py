@@ -134,7 +134,7 @@ def paired_task_config(request, toy_paried_data_path):
     fe:
       type: Heimdall.fe.SortingFe
       args:
-        torch_parameters:
+        embedding_parameters:
           type: torch.nn.Embedding
           args:
             num_embeddings: "max_seq_length"
@@ -144,7 +144,7 @@ def paired_task_config(request, toy_paried_data_path):
       name: IdentityFg
       type: Heimdall.fg.IdentityFg
       args:
-        torch_parameters:
+        embedding_parameters:
           type: torch.nn.Embedding
           args:
             num_embeddings: "vocab_size"
@@ -238,7 +238,7 @@ def single_task_config(toy_single_data_path):
       args:
         d_embedding: 128
         num_bins: 10
-        torch_parameters:
+        embedding_parameters:
           type: Heimdall.utils.FlexibleTypeLinear
           args:
             in_features: "max_seq_length"
@@ -247,7 +247,7 @@ def single_task_config(toy_single_data_path):
       name: IdentityFg
       type: Heimdall.fg.IdentityFg
       args:
-        torch_parameters:
+        embedding_parameters:
           type: torch.nn.Embedding
           args:
             num_embeddings: "vocab_size"

@@ -33,7 +33,7 @@ def mock_dataset():
 def identity_fg(mock_dataset):
     fg_config = OmegaConf.create(
         {
-            "torch_parameters": {
+            "embedding_parameters": {
                 "type": "torch.nn.Embedding",
                 "args": {
                     "num_embeddings": "vocab_size",
@@ -52,7 +52,7 @@ def identity_fg(mock_dataset):
 def sorting_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "torch_parameters": {
+            "embedding_parameters": {
                 "type": "torch.nn.Embedding",
                 "args": {
                     "num_embeddings": "vocab_size",
@@ -71,7 +71,7 @@ def sorting_fe(mock_dataset):
 def binning_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "torch_parameters": {
+            "embedding_parameters": {
                 "type": "Heimdall.utils.FlexibleTypeLinear",
                 "args": {
                     "in_features": "max_seq_length",

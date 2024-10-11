@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import torch
 from numpy.typing import NDArray
+from omegaconf import OmegaConf
+from omegaconf.dictconfig import DictConfig
 from pandas.api.typing import NAType
 
 
@@ -22,14 +24,14 @@ class Fg(ABC):
     def __init__(
         self,
         adata: ad.AnnData,
-        torch_parameters: str,
+        embedding_parameters: DictConfig,
         d_embedding: int,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
         self.d_embedding = d_embedding
-        self.torch_parameters = torch_parameters
+        self.embedding_parameters = OmegaConf.to_container(embedding_parameters)
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -73,6 +75,20 @@ class Fg(ABC):
         else:
             return embedding_indices
 
+    def replace_placeholders(self):
+        """Replace config placeholders with values after preprocessing."""
+        for key, value in self.embedding_parameters["args"].items():
+            if value == "max_seq_length":
+                value = len(self.adata.var)
+            elif value == "vocab_size":
+                value = len(self.adata.var) + 2  # <PAD> and <MASK> TODO: data.vocab_size
+            elif value == "gene_embeddings":
+                value = self.gene_embeddings
+            else:
+                continue
+
+            self.embedding_parameters["args"][key] = value
+
     def load_from_cache(
         self,
         identity_embedding_index: NDArray,
@@ -85,6 +101,8 @@ class Fg(ABC):
         self.adata.var["identity_embedding_index"] = identity_embedding_index
         self.adata.var["identity_valid_mask"] = identity_valid_mask
         self.gene_embeddings = gene_embeddings
+
+        self.replace_placeholders()
 
 
 class PretrainedFg(Fg, ABC):
@@ -101,11 +119,11 @@ class PretrainedFg(Fg, ABC):
     def __init__(
         self,
         adata: ad.AnnData,
-        torch_parameters: str,
+        embedding_parameters: OmegaConf,
         d_embedding: int,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
-        super().__init__(adata, torch_parameters, d_embedding)
+        super().__init__(adata, embedding_parameters, d_embedding)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod
@@ -148,6 +166,8 @@ class PretrainedFg(Fg, ABC):
             if not pd.isna(embedding_index):
                 self.gene_embeddings[embedding_index] = embedding_map[gene_name][: self.d_embedding]
 
+        self.replace_placeholders()
+
         print(f"Found {len(valid_indices)} genes with mappings out of {len(self.adata.var_names)} genes.")
 
 
@@ -164,6 +184,8 @@ class IdentityFg(Fg):
         self.gene_embeddings = None
         self.adata.var["identity_embedding_index"] = np.arange(self.num_genes)
         self.adata.var["identity_valid_mask"] = np.full(self.num_genes, True)
+
+        self.replace_placeholders()
 
 
 class ESM2Fg(PretrainedFg):

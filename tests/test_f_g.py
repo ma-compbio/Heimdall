@@ -31,7 +31,7 @@ def mock_dataset():
 def test_identity_fg(mock_dataset):
     config = OmegaConf.create(
         {
-            "torch_parameters": {
+            "embedding_parameters": {
                 "type": "torch.nn.Embedding",
                 "args": {
                     "num_embeddings": "vocab_size",
@@ -54,7 +54,7 @@ def test_identity_fg(mock_dataset):
 def test_esm2_fg(mock_dataset):
     config = OmegaConf.create(
         {
-            "torch_parameters": {
+            "embedding_parameters": {
                 "type": "torch.nn.Embedding.from_pretrained",
                 "args": {
                     "embeddings": "gene_embeddings",
@@ -90,7 +90,7 @@ def test_esm2_fg(mock_dataset):
 def test_gene2vec_fg(mock_dataset):
     config = OmegaConf.create(
         {
-            "torch_parameters": {
+            "embedding_parameters": {
                 "type": "torch.nn.Embedding.from_pretrained",
                 "args": {
                     "embeddings": "gene_embeddings",

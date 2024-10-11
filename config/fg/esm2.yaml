@@ -1,7 +1,7 @@
 type: Heimdall.fg.ESM2Fg
 
 args:
-  torch_parameters:
+  embedding_parameters:
     type: torch.nn.Embedding.from_pretrained
     args:
       embeddings: "gene_embeddings"

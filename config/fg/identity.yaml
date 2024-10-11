@@ -1,7 +1,7 @@
 name: "IdentityFg"
 type: Heimdall.fg.IdentityFg
 args:
-  torch_parameters:
+  embedding_parameters:
     type: torch.nn.Embedding
     args:
       num_embeddings: "vocab_size"

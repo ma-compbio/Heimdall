@@ -146,34 +146,13 @@ class HeimdallTransformer(nn.Module):
         self.max_seq_length = data.sequence_length
 
         # Setting up embedding layers
-        gene_embeddings = data.fg.gene_embeddings
-        gene_embedding_config = data.fg.torch_parameters
-        expression_embeddings = data.fe.expression_embeddings
-        expression_embedding_config = data.fe.torch_parameters
-
-        # TODO: can we avoid this?
-        for embedding_config in (gene_embedding_config, expression_embedding_config):
-            for key, value in embedding_config.args.items():
-                if value == "max_seq_length":
-                    value = self.max_seq_length
-                elif value == "vocab_size":
-                    value = self.vocab_size
-                elif value == "gene_embeddings":
-                    value = gene_embeddings
-                elif value == "expression_embeddings":
-                    value = expression_embeddings
-                else:
-                    continue
-
-                embedding_config.args[key] = value
-
         if data.fg.d_embedding is not None:
-            self.gene_embeddings = instantiate_from_config(gene_embedding_config)
+            self.gene_embeddings = instantiate_from_config(data.fg.embedding_parameters)
         else:
             self.gene_embeddings = None
 
         if data.fe.d_embedding is not None:
-            self.expression_embeddings = instantiate_from_config(expression_embedding_config)
+            self.expression_embeddings = instantiate_from_config(data.fe.embedding_parameters)
         else:
             self.expression_embeddings = None
 

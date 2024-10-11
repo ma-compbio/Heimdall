@@ -1,7 +1,7 @@
 type: Heimdall.fe.SortingFe
 
 args:
-  torch_parameters:
+  embedding_parameters:
     type: torch.nn.Embedding
     args:
       num_embeddings: "max_seq_length"

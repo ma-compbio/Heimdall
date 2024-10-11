@@ -5,6 +5,8 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
+from omegaconf import OmegaConf
+from omegaconf.dictconfig import DictConfig
 
 from Heimdall.utils import searchsorted2d
 
@@ -21,12 +23,12 @@ class Fe(ABC):
     def __init__(
         self,
         adata: ad.AnnData,
-        torch_parameters: str,
+        embedding_parameters: DictConfig,
         d_embedding: int,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
-        self.torch_parameters = torch_parameters
+        self.embedding_parameters = OmegaConf.to_container(embedding_parameters)
         self.d_embedding = d_embedding
 
     @abstractmethod
@@ -64,6 +66,21 @@ class Fe(ABC):
         # TODO: add tests
         self.adata.obsm["processed_expression_values"] = processed_expression_values
         self.expression_embeddings = expression_embeddings
+        self.replace_placeholders()
+
+    def replace_placeholders(self):
+        """Replace config placeholders with values after preprocessing."""
+        for key, value in self.embedding_parameters["args"].items():
+            if value == "max_seq_length":
+                value = len(self.adata.var)
+            elif value == "vocab_size":
+                value = len(self.adata.var) + 2  # <PAD> and <MASK> TODO: data.vocab_size
+            elif value == "expression_embeddings":
+                value = self.expression_embeddings
+            else:
+                continue
+
+            self.embedding_parameters["args"][key] = value
 
 
 class DummyFe(Fe):
@@ -76,6 +93,8 @@ class DummyFe(Fe):
         dummy_indices = pd.array(np.full((len(self.adata), self.num_embeddings), np.nan))
         self.adata.obsm["processed_expression_values"] = dummy_indices
 
+        self.replace_placeholders()
+
 
 class BinningFe(Fe):
     """Value-binning Fe from scGPT.
@@ -83,7 +102,7 @@ class BinningFe(Fe):
     Args:
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
         d_embedding: dimensionality of embedding for each expression entity
-        torch_parameters: dimensionality of embedding for each expression entity
+        embedding_parameters: dimensionality of embedding for each expression entity
         num_bins: number of bins to generate
 
     """
@@ -91,11 +110,11 @@ class BinningFe(Fe):
     def __init__(
         self,
         adata: ad.AnnData,
-        torch_parameters: str,
+        embedding_parameters: OmegaConf,
         d_embedding: int,
         num_bins: Optional[int],
     ):
-        super().__init__(adata, torch_parameters, d_embedding)
+        super().__init__(adata, embedding_parameters, d_embedding)
         self.num_bins = num_bins
 
     def preprocess_embeddings(self):
@@ -122,6 +141,8 @@ class BinningFe(Fe):
 
         self.adata.obsm["processed_expression_values"] = binned_values
 
+        self.replace_placeholders()
+
 
 class SortingFe(Fe):
     """Sorting Fe."""
@@ -142,3 +163,5 @@ class SortingFe(Fe):
         argsorted_expression = np.argsort(normalized_expression, axis=1)[:, ::-1]
 
         self.adata.obsm["processed_expression_values"] = argsorted_expression
+
+        self.replace_placeholders()
