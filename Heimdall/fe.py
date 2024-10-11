@@ -28,7 +28,7 @@ class Fe(ABC):
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
-        self.embedding_parameters = OmegaConf.to_container(embedding_parameters)
+        self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
 
     @abstractmethod
