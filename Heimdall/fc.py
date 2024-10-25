@@ -61,8 +61,9 @@ class Fc(ABC):
 
         identity_inputs = self.adata.obsm["cell_identity_embedding_indices"][cell_indices].copy()
         expression_inputs = self.adata.obsm["cell_expression_embedding_indices"][cell_indices].copy()
+        expression_padding_mask = self.adata.obsm["cell_expression_padding_mask"][cell_indices].copy()
 
-        return identity_inputs, expression_inputs
+        return identity_inputs, expression_inputs, expression_padding_mask
 
     @abstractmethod
     def embed_cells(
@@ -88,13 +89,15 @@ class Fc(ABC):
     def load_from_cache(
         self,
         cell_identity_embedding_indices: NDArray,
-        cell_expression_embedding_indices: NDArray | None,
+        cell_expression_embedding_indices: NDArray,
+        expression_padding: NDArray | None,
     ):
         """Load processed values from cache."""
         # TODO: add tests
 
         self.adata.obsm["cell_identity_embedding_indices"] = cell_identity_embedding_indices
         self.adata.obsm["cell_expression_embedding_indices"] = cell_expression_embedding_indices
+        self.adata.obsm["cell_expression_padding_mask"] = expression_padding
 
 
 class GeneformerFc(Fc):
@@ -107,7 +110,8 @@ class GeneformerFc(Fc):
         valid_mask = self.adata.var["identity_valid_mask"]
         valid_genes = self.adata.var_names[valid_mask].values
 
-        cell_expression_embedding_indices = self.fe[:, : self.max_input_length]
+        breakpoint()
+        cell_expression_embedding_indices, padding_mask = self.fe[:, : self.max_input_length]
 
         try:
             gene_lists = valid_genes[cell_expression_embedding_indices]
@@ -123,6 +127,7 @@ class GeneformerFc(Fc):
 
         self.adata.obsm["cell_identity_embedding_indices"] = cell_identity_embedding_indices
         self.adata.obsm["cell_expression_embedding_indices"] = cell_expression_embedding_indices
+        self.adata.obsm["cell_expression_padding_mask"] = padding_mask
 
     def embed_cells(
         self,

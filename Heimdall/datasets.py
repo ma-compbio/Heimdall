@@ -157,11 +157,12 @@ class SingleInstanceDataset(Dataset):
             raise ValueError(f"Unknown split type {split_type!r}")
 
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
-        identity_inputs, expression_inputs = self.data.fc[idx]
+        identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
 
         return {
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
             "labels": self.data.labels[idx],
         }
 

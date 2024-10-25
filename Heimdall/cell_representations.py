@@ -367,15 +367,22 @@ class CellRepresentation(SpecialTokenMixin):
                         identity_embedding_index,
                         identity_valid_mask,
                         processed_expression_values,
+                        expression_padding_mask_fe,
                         gene_embeddings,
                         expression_embeddings,
                         identity_reps,
                         expression_reps,
+                        expression_padding,
                     ) = pkl.load(rep_file)
 
+                    breakpoint()
                     self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
-                    self.fe.load_from_cache(processed_expression_values, expression_embeddings)
-                    self.fc.load_from_cache(identity_reps, expression_reps)
+                    self.fe.load_from_cache(
+                        processed_expression_values,
+                        expression_padding_mask_fe,
+                        expression_embeddings,
+                    )
+                    self.fc.load_from_cache(identity_reps, expression_reps, expression_padding)
 
                     self.processed_fcfg = True
                     # TODO: caching should also load other things, such as var["identity_valid_mask"],
@@ -397,8 +404,8 @@ class CellRepresentation(SpecialTokenMixin):
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             # Gather things for caching
-            identity_reps, expression_reps = self.fc[:]
-            processed_expression_values = self.fe[:]
+            identity_reps, expression_reps, expression_padding = self.fc[:]
+            processed_expression_values, expression_padding_mask_fe = self.fe[:]
             identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
             gene_embeddings = self.fg.gene_embeddings
@@ -409,10 +416,12 @@ class CellRepresentation(SpecialTokenMixin):
                     identity_embedding_index,
                     identity_valid_mask,
                     processed_expression_values,
+                    expression_padding_mask_fe,
                     gene_embeddings,
                     expression_embeddings,
                     identity_reps,
                     expression_reps,
+                    expression_padding,
                 )
                 pkl.dump(cache_representation, rep_file)
                 print(f"Finished writing cell representations at {processed_data_path}")

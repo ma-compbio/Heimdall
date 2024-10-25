@@ -274,6 +274,7 @@ class HeimdallTrainer:
                 step += 1
                 is_logging = step % log_every == 0
 
+                breakpoint()
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
                     inputs = (batch["identity_inputs"], batch["expression_inputs"])
@@ -315,7 +316,6 @@ class HeimdallTrainer:
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
                 inputs = (batch["identity_inputs"], batch["expression_inputs"])
-
                 outputs = self.model(inputs=inputs, conditional_tokens=batch.get("conditional_tokens"))
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
