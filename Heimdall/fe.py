@@ -198,11 +198,10 @@ class SortingFe(Fe):
         # pmask = np.vstack([a[i, b[i]] for i in range(a.shape[0])]) == False
 
         padding_mask = (
-            np.vstack([nonzero_mask[i, argsorted_expression[i]] for i in range(nonzero_mask.shape[0])]) == False
+            np.vstack([nonzero_mask[i, argsorted_expression[i]] for i in range(nonzero_mask.shape[0])]) == True
         )
 
         # breakpoint()
-
         # # Iterate over each cell (row)
         # padding_mask = np.zeros_like(argsorted_expression)
         # for i in tqdm(range(nonzero_mask.shape[0])):

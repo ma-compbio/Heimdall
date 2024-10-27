@@ -198,8 +198,7 @@ class HeimdallTransformer(nn.Module):
                 floats for predefined embeddings
             conditional_tokens (dictionary, optional): _description_. Defaults
                 to None.
-            attention_mask (Attention Mask for Padding, optional): NOT
-                IMPLEMENTED YET. Defaults to None.
+            attention_mask (Attention Mask for Padding, optional): A tensor of shape [batchsize, seqlen] where 1/True is have attention and 0/False is no attention
 
         Returns:
             torch.tensor: The predicted outputs before cross entropy loss.
@@ -217,6 +216,11 @@ class HeimdallTransformer(nn.Module):
         # Concatenate [CLS] token to the beginning of every sequence in the batch
         batch_size = identity_inputs.size(0)
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # Expand to match batch size
+        cls_attention = torch.ones(
+            (batch_size, 1),
+            dtype=torch.bool,
+            device=attention_mask.device,
+        )  # Shape: (batch_size, 1)
 
         # Positional Encoding
         seq_length = input_embeds.size(1)
@@ -248,11 +252,16 @@ class HeimdallTransformer(nn.Module):
                 "Please pass in the conditional tokens"
             )
 
-        # Add the CLS Token
+        # Add the CLS Token to both the attention mask and the input
         input_embeds = torch.cat([cls_tokens, input_embeds], dim=1)
+        if attention_mask is not None:
+            attention_mask = torch.cat([cls_attention, attention_mask], dim=1)  # Shape: (batch_size, seq_len + 1)
 
         # Encoder
-        encoder_output = self.encoder(input_embeds, src_key_padding_mask=attention_mask)
+        encoder_output = self.encoder(
+            input_embeds,
+            src_key_padding_mask=~attention_mask if attention_mask is not None else None,
+        )
         # print(encoder_output.size())
 
         return encoder_output

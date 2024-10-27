@@ -218,7 +218,7 @@ class HeimdallTrainer:
                     best_metric["reported_epoch"] = epoch  # log the epoch for convenience
                     for metric in self.cfg.tasks.args.metrics:
                         best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
-                        print(f"Corresponding test {metric}: {best_metric[f'reported_test_{metric}']}")
+                        # print(f"Corresponding test {metric}: {best_metric[f'reported_test_{metric}']}")
                     patience_counter = 0  # Reset patience counter since we have a new best
                 else:
                     patience_counter += 1
@@ -274,11 +274,15 @@ class HeimdallTrainer:
                 step += 1
                 is_logging = step % log_every == 0
 
-                breakpoint()
+                # breakpoint()
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
                     inputs = (batch["identity_inputs"], batch["expression_inputs"])
-                    outputs = self.model(inputs=inputs, conditional_tokens=batch.get("conditional_tokens"))
+                    outputs = self.model(
+                        inputs=inputs,
+                        conditional_tokens=batch.get("conditional_tokens"),
+                        attention_mask=batch.get("expression_padding"),
+                    )
                     labels = batch["labels"].to(outputs.device)
                     if (masks := batch.get("masks")) is not None:
                         masks = masks.to(outputs.device)
@@ -313,10 +317,15 @@ class HeimdallTrainer:
         # print(metrics)
         loss = 0
 
+        # breakpoint()
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
                 inputs = (batch["identity_inputs"], batch["expression_inputs"])
-                outputs = self.model(inputs=inputs, conditional_tokens=batch.get("conditional_tokens"))
+                outputs = self.model(
+                    inputs=inputs,
+                    conditional_tokens=batch.get("conditional_tokens"),
+                    attention_mask=batch.get("expression_padding"),
+                )
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
 

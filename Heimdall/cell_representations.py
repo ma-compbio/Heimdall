@@ -375,7 +375,6 @@ class CellRepresentation(SpecialTokenMixin):
                         expression_padding,
                     ) = pkl.load(rep_file)
 
-                    breakpoint()
                     self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
                     self.fe.load_from_cache(
                         processed_expression_values,
@@ -391,7 +390,6 @@ class CellRepresentation(SpecialTokenMixin):
 
             OmegaConf.save(cfg, processed_cfg_path)
 
-        breakpoint()
         self.fg.preprocess_embeddings()
         print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
