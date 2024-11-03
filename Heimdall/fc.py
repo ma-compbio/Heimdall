@@ -1,17 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Sequence, Union
+from typing import Optional
 
 import anndata as ad
 import awkward as ak
 import numpy as np
-import torch
 from numpy.typing import NDArray
 from torch import Tensor
 from torch.nn import Module
 
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
-from Heimdall.utils import sample_without_replacement
 
 
 class Fc(ABC):

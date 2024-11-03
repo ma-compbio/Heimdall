@@ -195,11 +195,12 @@ class HeimdallTransformer(nn.Module):
         """LM model.
 
         Args:
-            inputs (torch tensor): This is either integers if IDs or bf16/fp32
+            inputs: This is either integers if IDs or bf16/fp32
                 floats for predefined embeddings
-            conditional_tokens (dictionary, optional): _description_. Defaults
+            conditional_tokens: _description_. Defaults
                 to None.
-            attention_mask (Attention Mask for Padding, optional): A tensor of shape [batchsize, seqlen] where 1/True is have attention and 0/False is no attention
+            attention_mask: A tensor of shape [batchsize, seqlen] where 1/True
+                represents no attention and 0/False represents that attention should be used
 
         Returns:
             torch.tensor: The predicted outputs before cross entropy loss.
@@ -208,7 +209,6 @@ class HeimdallTransformer(nn.Module):
 
         identity_inputs, expression_inputs = inputs
 
-        ## takes in attention_mask as it may need to be reprocessed if, for example, genes are sampled based on nonzero
         input_embeds = self.fc.embed_cells(
             identity_inputs,
             self.gene_embeddings,

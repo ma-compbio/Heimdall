@@ -11,7 +11,6 @@ from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from scipy.sparse import csc_array, csr_array, issparse
-from tqdm import tqdm
 
 from Heimdall.utils import searchsorted2d
 
@@ -156,14 +155,10 @@ class BinningFe(Fe):
 
         # masked_expression = expression.astype(np.float64)
         # masked_expression[masked_expression == 0] = np.nan
-        print(f"cellwise_nonzero_expression: {cellwise_nonzero_expression}")
-        print(np.linspace(0, 1, n_bins))
         quantiles = np.linspace(0, 1, n_bins)
         bin_edges = ak.Array(
             [np.quantile(nonzero_expression, quantiles) for nonzero_expression in cellwise_nonzero_expression],
         )  # First axis is quantiles, second is cells
-
-        print(f"bin_edges: {bin_edges}")
 
         binned_values = searchsorted2d(
             bin_edges,
@@ -176,8 +171,8 @@ class BinningFe(Fe):
         self.replace_placeholders()
 
 
-class RawVals(Fe):
-    """Directly passign the continuous values.
+class IdentityFe(Fe):
+    """Directly pass the continuous values.
 
     Args:
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
@@ -187,15 +182,6 @@ class RawVals(Fe):
 
     """
 
-    def __init__(
-        self,
-        adata: ad.AnnData,
-        embedding_parameters: OmegaConf,
-        d_embedding: int,
-        vocab_size: int,
-    ):
-        super().__init__(adata, embedding_parameters, d_embedding)
-
     def preprocess_embeddings(self):
         """Compute bin identities of expression profiles in raw data."""
         self.expression_embeddings = None
@@ -203,12 +189,11 @@ class RawVals(Fe):
         valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
         self.adata = self.adata[:, valid_mask].copy()
 
-        if issparse(self.adata.X):
-            expression = self.adata.X.toarray()  ## not needed if it is scaled
-        else:
-            expression = self.adata.X
+        expression = self.adata.X
+        csr_expression = csr_array(expression)
+        cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
 
-        self.adata.obsm["processed_expression_values"] = expression
+        self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression
 
         self.replace_placeholders()
 
