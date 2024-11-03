@@ -20,7 +20,7 @@ class Fc(ABC):
         fe: `Fe` used for this `Fe` implementation.
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
         max_input_length: maximum number of identity/expression tokens to consider for each cell.
-            Extra tokens are limitd.
+            Extra tokens are limited.
 
     """
 
