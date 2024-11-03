@@ -70,7 +70,6 @@ class Fc(ABC):
 
         # Padding and truncating
         identity_inputs = self.tailor(identity_inputs, self.fg.pad_value)
-
         identity_inputs = ak.to_numpy(identity_inputs)
 
         expression_inputs = self.tailor(expression_inputs, self.fe.pad_value)
