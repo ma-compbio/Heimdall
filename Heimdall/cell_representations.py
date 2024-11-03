@@ -216,9 +216,6 @@ class CellRepresentation(SpecialTokenMixin):
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
         print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
-        # save a mask of 0s or nonzero
-        self.adata.layers["zero_expression_mask"] = csr_array(self.adata.X == 0)
-
         # convert gene names to ensembl ids
         if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
             self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
@@ -341,7 +338,6 @@ class CellRepresentation(SpecialTokenMixin):
         self.fg: Fg
         self.fe: Fe
         self.fc: Fc
-        print(self.fc_cfg)
         self.fg, fg_name = instantiate_from_config(
             self.fg_cfg,
             self.adata,
@@ -355,7 +351,6 @@ class CellRepresentation(SpecialTokenMixin):
             return_name=True,
         )
         self.fc, fc_name = instantiate_from_config(self.fc_cfg, self.fg, self.fe, self.adata, return_name=True)
-        print(self.fc.max_input_length)
 
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = DictConfig(
@@ -408,8 +403,9 @@ class CellRepresentation(SpecialTokenMixin):
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             # Gather things for caching
-            identity_reps, expression_reps, expression_padding = self.fc[:]
-            processed_expression_values, expression_padding_mask_fe = self.fe[:]
+            identity_reps = self.adata.obsm["cell_identity_embedding_indices"]
+            expression_reps = self.adata.obsm["cell_expression_embedding_indices"]
+            processed_expression_values = self.fe[:]
             identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
             gene_embeddings = self.fg.gene_embeddings

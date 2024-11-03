@@ -221,13 +221,18 @@ class SortingFe(Fe):
 
         gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
 
-        normalized_expression = expression / gene_medians
-        argsorted_expression = np.argsort(normalized_expression, axis=1)
+        normalized_expression = csr_array(expression)
+        normalized_expression = csr_array(normalized_expression / gene_medians)
+
+        cellwise_nonzero_expression = np.split(normalized_expression.data, normalized_expression.indptr[1:-1])
+        cellwise_nonzero_indices = np.split(normalized_expression.indices, normalized_expression.indptr[1:-1])
+
+        argsorted_expression = ak.argsort(cellwise_nonzero_expression, axis=1)[:, ::-1]
 
         processed_expression_values = ak.Array(
             [
-                processed_cell[zero_count:][::-1]
-                for zero_count, processed_cell in zip(zero_counts, argsorted_expression)
+                cell_nonzero_indices[processed_cell]
+                for cell_nonzero_indices, processed_cell in zip(cellwise_nonzero_indices, argsorted_expression)
             ],
         )
 

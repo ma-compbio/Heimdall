@@ -79,6 +79,7 @@ def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
 
 
 def get_name(target: str):
+    print(target)
     module, obj = target.rsplit(".", 1)
     name = getattr(importlib.import_module(module, package=None), obj)
 

@@ -23,7 +23,7 @@ def toy_paried_data_path(pytestconfig, plain_toy_data):
     data_path = pytestconfig.cache.mkdir("toy_data")
 
     adata = plain_toy_data.copy()
-    zeros = sp.csr_matrix((adata.shape[0], adata.shape[0]))
+    zeros = sp.csr_array((adata.shape[0], adata.shape[0]))
     for i, key in enumerate(("train", "val", "test", "task")):
         adata.obsp[key] = zeros.copy()
         if key != "task":
