@@ -68,11 +68,18 @@ class Fc(ABC):
         identity_inputs = self.adata.obsm["cell_identity_embedding_indices"][cell_index]
         expression_inputs = self.adata.obsm["cell_expression_embedding_indices"][cell_index]
 
-        # Padding and truncating
-        identity_inputs = self.tailor(identity_inputs, self.fg.pad_value)
-        identity_inputs = ak.to_numpy(identity_inputs)
+        assert len(identity_inputs) == len(
+            expression_inputs,
+        ), "Cell Representations gene and expression do not have the same shape"
 
-        expression_inputs = self.tailor(expression_inputs, self.fe.pad_value)
+        # Padding and truncating
+        identity_inputs, expression_inputs = self.tailor(
+            identity_inputs,
+            expression_inputs,
+            self.fg.pad_value,
+            self.fe.pad_value,
+        )
+        identity_inputs = ak.to_numpy(identity_inputs)
         expression_inputs = ak.to_numpy(expression_inputs)
 
         padding_mask = expression_inputs == self.fe.pad_value
@@ -83,7 +90,7 @@ class Fc(ABC):
         return ak.fill_none(ak.pad_none(cell_tokenization, self.max_input_length, axis=0), pad_value)
 
     @abstractmethod
-    def limit(self, cell_tokenization: ak.Array) -> ak.Array:
+    def limit(self, gene_tokenization: ak.Array, expression_tokenization: ak.Array) -> ak.Array:
         """Ensure that none of the cell tokenizations exceed the maximum length.
 
         Args:
@@ -91,11 +98,17 @@ class Fc(ABC):
 
         """
 
-    def tailor(self, cell_tokenization: ak.Array, pad_value: int | float) -> ak.Array:
-        if len(cell_tokenization) > self.max_input_length:
-            return self.limit(cell_tokenization)
+    def tailor(
+        self,
+        gene_tokenization: ak.Array,
+        expression_tokenization: ak.Array,
+        gene_pad_value: int | float,
+        expression_pad_value: int | float,
+    ) -> ak.Array:
+        if len(gene_tokenization) > self.max_input_length:
+            return self.limit(gene_tokenization, expression_tokenization)
 
-        return self.pad(cell_tokenization, pad_value)
+        return self.pad(gene_tokenization, gene_pad_value), self.pad(expression_tokenization, expression_pad_value)
 
     @abstractmethod
     def embed_cells(
@@ -139,23 +152,32 @@ class GeneformerFc(Fc):
     def preprocess_cells(self):
         # For Geneformer, we retrieve sorted indices based on expression. We then convert these to gene names.
         # We then map these names back to indices (or other identity values).
-        valid_mask = self.adata.var["identity_valid_mask"]
-        valid_genes = self.adata.var_names[valid_mask].values
+        # valid_mask = self.adata.var["identity_valid_mask"]
+        # valid_genes = self.adata.var_names[valid_mask].values
 
-        cell_expression_embedding_indices = self.fe[:]
+        # cell_expression_embedding_indices = self.fe[:]
 
-        try:
-            gene_lists = [
-                valid_genes[expression_embedding_indices]
-                for expression_embedding_indices in cell_expression_embedding_indices
-            ]
-        except IndexError:
-            raise IndexError(
-                "It seems like you are using an `Fe` that indexes more outputs than are available in the `Fg` embedding"
-                "layer, which is not compatible with Geneformer. Please use a valid combination of `Fe` and `Fg`.",
-            )
+        # try:
+        #     gene_lists = [
+        #         valid_genes[expression_embedding_indices]
+        #         for expression_embedding_indices in cell_expression_embedding_indices
+        #     ]
+        # except IndexError:
+        #     raise IndexError(
+        #         "It seems like you are using an `Fe` that indexes more outputs than are available in the `Fg` embedding"
+        #         "layer, which is not compatible with Geneformer. Please use a valid combination of `Fe` and `Fg`.",
+        #     )
 
-        cell_identity_embedding_indices = ak.Array([self.fg[gene_list] for gene_list in gene_lists])
+        # cell_identity_embedding_indices = ak.Array([self.fg[gene_list] for gene_list in gene_lists])
+
+        expression_values, expression_indices = self.fe[:]
+        cell_expression_embedding_indices = expression_values
+        expression_gene_names = ak.Array(
+            [self.adata.var_names[cell_indices] for cell_indices in expression_indices],
+        )
+        cell_identity_embedding_indices = ak.Array(
+            [self.fg[cell] for cell in expression_gene_names],
+        )
 
         self.adata.obsm["cell_identity_embedding_indices"] = cell_identity_embedding_indices
         self.adata.obsm["cell_expression_embedding_indices"] = cell_expression_embedding_indices
@@ -181,8 +203,8 @@ class GeneformerFc(Fc):
 
         return embeddings
 
-    def limit(self, cell_tokenization: ak.Array) -> ak.Array:
-        return cell_tokenization[: self.max_input_length]
+    def limit(self, gene_tokenization: ak.Array, expression_tokenization: ak.Array) -> tuple[ak.Array, ak.Array]:
+        return gene_tokenization[: self.max_input_length], expression_tokenization[: self.max_input_length]
 
 
 class ScGPTFc(Fc):
@@ -200,20 +222,34 @@ class ScGPTFc(Fc):
         self.rng = np.random.default_rng(seed)
 
     def preprocess_cells(self):
-        valid_mask = self.adata.var["identity_valid_mask"]
-        valid_genes = self.adata.var_names[valid_mask].values
+        # valid_mask = self.adata.var["identity_valid_mask"]
+        # valid_genes = self.adata.var_names[valid_mask].values
 
-        cell_identity_embedding_indices = np.array(
-            [self.fg[valid_genes] for _ in range(len(self.adata))],
+        # cell_identity_embedding_indices = np.array(
+        #     [self.fg[valid_genes] for _ in range(len(self.adata))],
+        # )
+        # cell_expression_embedding_indices = self.fe[:]
+        # nonzero_gene_names = [[self.adata.var_names[idx] for idx in cell_indices] for cell_indices in expression_indices]
+        # cell_identity_embedding_indices = ak.Array(
+        #     [self.fg[valid_genes] for _ in range(len(self.adata))],
+        # )
+
+        expression_values, expression_indices = self.fe[:]
+        cell_expression_embedding_indices = expression_values
+        expression_gene_names = ak.Array(
+            [self.adata.var_names[cell_indices] for cell_indices in expression_indices],
         )
-        cell_expression_embedding_indices = self.fe[:]
+        cell_identity_embedding_indices = ak.Array(
+            [self.fg[cell] for cell in expression_gene_names],
+        )
 
         self.adata.obsm["cell_identity_embedding_indices"] = cell_identity_embedding_indices
         self.adata.obsm["cell_expression_embedding_indices"] = cell_expression_embedding_indices
         # self.adata.obsm["cell_expression_padding_mask"] = padding_mask
 
-    def limit(self, cell_tokenization: ak.Array) -> ak.Array:
-        return self.rng.choice(cell_tokenization, self.max_input_length)
+    def limit(self, gene_tokenization: ak.Array, expression_tokenization: ak.Array) -> tuple[ak.Array, ak.Array]:
+        sample_indices = self.rng.choice(len(gene_tokenization), self.max_input_length, replace=False)
+        return gene_tokenization[sample_indices], expression_tokenization[sample_indices]
 
     def embed_cells(
         self,

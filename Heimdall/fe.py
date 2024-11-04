@@ -68,18 +68,21 @@ class Fe(ABC):
         """
 
         subset = self.adata[cell_indices]
-        embedding_indices = subset.obsm["processed_expression_values"]
-
-        return embedding_indices
+        expression_values = subset.obsm["processed_expression_values"]
+        expression_indices = subset.obsm["processed_expression_indices"]
+        # breakpoint()
+        return expression_values, expression_indices
 
     def load_from_cache(
         self,
         processed_expression_values: NDArray,
+        processed_expression_indices: NDArray,
         expression_embeddings: NDArray | None,
     ):
         """Load processed values from cache."""
         # TODO: add tests
         self.adata.obsm["processed_expression_values"] = processed_expression_values
+        self.adata.obsm["processed_expression_indices"] = processed_expression_indices
         self.expression_embeddings = expression_embeddings
         self.replace_placeholders()
 
@@ -150,6 +153,10 @@ class BinningFe(Fe):
         csr_expression = csr_array(expression)
         cellwise_nonzero_expression = np.split(csr_expression.data, csr_expression.indptr[1:-1])
 
+        # Obtain the indices of non-zero entries for each row (cell)
+        nonzero_indices = np.split(csr_expression.indices, csr_expression.indptr[1:-1])
+        nonzero_indices = ak.Array(nonzero_indices)
+
         n_bins = self.num_bins
         if np.max(expression) == 0:
             binned_values = csr_array(expression.shape)  # TODO: add correct typing (maybe add to config...?)
@@ -169,10 +176,12 @@ class BinningFe(Fe):
         binned_values = binned_values + 1
 
         self.adata.obsm["processed_expression_values"] = binned_values
+        self.adata.obsm["processed_expression_indices"] = nonzero_indices
+
         self.replace_placeholders()
 
 
-class IdentityFe(Fe):
+class NonzeroIdentityFe(Fe):
     """Directly pass the continuous values.
 
     Args:
@@ -193,8 +202,10 @@ class IdentityFe(Fe):
         expression = self.adata.X
         csr_expression = csr_array(expression)
         cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
+        cellwise_nonzero_indices = ak.Array(np.split(csr_expression.indices, csr_expression.indptr[1:-1]))
 
         self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression
+        self.adata.obsm["processed_expression_indices"] = cellwise_nonzero_indices
 
         self.replace_placeholders()
 
@@ -236,4 +247,5 @@ class SortingFe(Fe):
         )
 
         self.adata.obsm["processed_expression_values"] = processed_expression_values
+        self.adata.obsm["processed_expression_indices"] = processed_expression_values  ## both are the same thing
         self.replace_placeholders()

@@ -374,6 +374,7 @@ class CellRepresentation(SpecialTokenMixin):
                         identity_embedding_index,
                         identity_valid_mask,
                         processed_expression_values,
+                        processed_expression_indices,
                         gene_embeddings,
                         expression_embeddings,
                         identity_reps,
@@ -381,7 +382,11 @@ class CellRepresentation(SpecialTokenMixin):
                     ) = pkl.load(rep_file)
 
                     self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
-                    self.fe.load_from_cache(processed_expression_values, expression_embeddings)
+                    self.fe.load_from_cache(
+                        processed_expression_values,
+                        processed_expression_indices,
+                        expression_embeddings,
+                    )
                     self.fc.load_from_cache(identity_reps, expression_reps)
 
                     self.processed_fcfg = True
@@ -405,7 +410,7 @@ class CellRepresentation(SpecialTokenMixin):
             # Gather things for caching
             identity_reps = self.adata.obsm["cell_identity_embedding_indices"]
             expression_reps = self.adata.obsm["cell_expression_embedding_indices"]
-            processed_expression_values = self.fe[:]
+            processed_expression_values, processed_expression_indices = self.fe[:]
             identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
             gene_embeddings = self.fg.gene_embeddings
@@ -416,6 +421,7 @@ class CellRepresentation(SpecialTokenMixin):
                     identity_embedding_index,
                     identity_valid_mask,
                     processed_expression_values,
+                    processed_expression_indices,
                     gene_embeddings,
                     expression_embeddings,
                     identity_reps,
