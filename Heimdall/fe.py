@@ -238,5 +238,5 @@ class SortingFe(Fe):
         )
 
         self.adata.obsm["processed_expression_values"] = processed_expression_values
-        self.adata.obsm["processed_expression_indices"] = processed_expression_values  ## both are the same thing
+        self.adata.obsm["processed_expression_indices"] = processed_expression_values  # both are the same in this case
         self.replace_placeholders()

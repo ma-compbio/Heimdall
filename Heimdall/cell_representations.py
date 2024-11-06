@@ -13,18 +13,14 @@ import pandas as pd
 import scanpy as sc
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
-from scipy.sparse import csr_matrix, issparse
-from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 from torch.utils.data import DataLoader, Subset
-from tqdm import tqdm
 
 from Heimdall.datasets import Dataset
 from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
 from Heimdall.utils import (
-    deprecate,
     get_cached_paths,
     get_value,
     heimdall_collate_fn,
@@ -191,7 +187,7 @@ class CellRepresentation(SpecialTokenMixin):
         return self.adata, symbol_to_ensembl_mapping
 
     def get_preprocessed_data_path(self):
-        preprocessed_data_path = None
+        preprocessed_data_path = preprocessed_cfg_path = cfg = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = DictConfig(OmegaConf.to_container(self._cfg.dataset, resolve=True))
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
@@ -200,9 +196,9 @@ class CellRepresentation(SpecialTokenMixin):
                 "data.h5ad",
             )
 
-        return preprocessed_data_path
+        return preprocessed_data_path, preprocessed_cfg_path, cfg
 
-    def anndata_from_cache(self, preprocessed_data_path):
+    def anndata_from_cache(self, preprocessed_data_path, preprocessed_cfg_path, cfg):
         if preprocessed_data_path.is_file():
             loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(preprocessed_cfg_path)).replace("\n", "\n    ")
             print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
@@ -225,9 +221,9 @@ class CellRepresentation(SpecialTokenMixin):
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        preprocessed_data_path = self.get_preprocessed_data_path()
+        preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
         if preprocessed_data_path is not None:
-            is_cached = self.anndata_from_cache(preprocessed_data_path)
+            is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
             if is_cached:
                 return
 
@@ -429,7 +425,7 @@ class CellRepresentation(SpecialTokenMixin):
         print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
         self.drop_invalid_genes()
-        print(f"> Finished dropping invalid genes from AnnData")
+        print("> Finished dropping invalid genes from AnnData")
 
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")

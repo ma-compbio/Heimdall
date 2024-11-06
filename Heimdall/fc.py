@@ -64,8 +64,6 @@ class Fc(ABC):
             [self.fg[gene_list] for gene_list in gene_lists],
         )
 
-        cell_expression_inputs = processed_expression_values
-
         self.adata.obsm["cell_identity_inputs"] = cell_identity_inputs
         self.adata.obsm["cell_expression_inputs"] = processed_expression_values
 
