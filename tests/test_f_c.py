@@ -83,6 +83,7 @@ def binning_fe(mock_dataset):
             "vocab_size": 6,
             "num_bins": int(np.max(mock_dataset.X)),
             "d_embedding": 128,
+            "pad_value": 0,
         },
     )
     binning_fe = BinningFe(mock_dataset, **fe_config)
@@ -124,7 +125,7 @@ def test_geneformer_fc_preprocess_cells_and_getitem(mock_dataset, geneformer_fc)
     geneformer_fc.preprocess_cells()
     geneformer_fc.preprocess_cells()
 
-    output = mock_dataset.obsm["cell_identity_embedding_indices"]
+    output = mock_dataset.obsm["cell_identity_inputs"]
 
     expected = np.array(
         [
@@ -152,19 +153,19 @@ def test_geneformer_fc_preprocess_cells_and_getitem(mock_dataset, geneformer_fc)
 def test_scgpt_fc_preprocess_cells_and_getitem(mock_dataset, scgpt_fc):
     scgpt_fc.preprocess_cells()
 
-    identity_output = mock_dataset.obsm["cell_identity_embedding_indices"]
+    identity_output = mock_dataset.obsm["cell_identity_inputs"]
     identity_expected = np.array(
         [
-            [0, 1, 2, 3],
-            [0, 1, 2, 3],
-            [0, 1, 2, 3],
-            [0, 1, 2, 3],
+            [1, 2, 3],
+            [0, 2, 3],
+            [0, 1, 3],
+            [0, 1, 2],
         ],
     )
 
     assert np.allclose(identity_expected, identity_output)
 
-    expression_output = mock_dataset.obsm["cell_expression_embedding_indices"]
+    expression_output = mock_dataset.obsm["cell_expression_inputs"]
     expression_expected = np.array(
         [
             [3, 2, 1],
@@ -179,10 +180,14 @@ def test_scgpt_fc_preprocess_cells_and_getitem(mock_dataset, scgpt_fc):
     # Get first cell, using padding and sampling
     first_identity_indices, first_expression_indices, first_mask = scgpt_fc[0]
 
+    cell_expected = np.stack([identity_expected[0], expression_expected[0]])
+    _, input_length = cell_expected.shape
+
     seed = 0
     rng = np.random.default_rng(seed)
-    sampled_first_identity_expected = rng.choice(identity_expected[0], scgpt_fc.max_input_length)
-    sampled_first_expression_expected = rng.choice(expression_expected[0], scgpt_fc.max_input_length)
+    sample_indices = rng.choice(input_length, scgpt_fc.max_input_length, replace=False)
+
+    sampled_first_identity_expected, sampled_first_expression_expected = cell_expected[:, sample_indices]
 
     assert len(first_identity_indices) == scgpt_fc.max_input_length
     assert np.allclose(first_identity_indices, sampled_first_identity_expected)
@@ -194,7 +199,7 @@ def test_geneformer_fc_embed_cells(geneformer_fc):
     geneformer_fc.preprocess_cells()
     # geneformer_fc.embed_cells() # TODO: fill out function call
 
-    # output = mock_dataset.obsm["cell_identity_embedding_indices"]
+    # output = mock_dataset.obsm["cell_identity_inputs"]
 
     # expected = np.array(
     #     [

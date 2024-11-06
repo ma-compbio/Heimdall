@@ -146,9 +146,6 @@ class BinningFe(Fe):
         """Compute bin identities of expression profiles in raw data."""
         self.expression_embeddings = None
 
-        valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
-        self.adata = self.adata[:, valid_mask].copy()
-
         expression = self.adata.X
         csr_expression = csr_array(expression)
         cellwise_nonzero_expression = np.split(csr_expression.data, csr_expression.indptr[1:-1])
@@ -196,9 +193,6 @@ class NonzeroIdentityFe(Fe):
         """Compute bin identities of expression profiles in raw data."""
         self.expression_embeddings = None
 
-        valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
-        self.adata = self.adata[:, valid_mask].copy()
-
         expression = self.adata.X
         csr_expression = csr_array(expression)
         cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
@@ -221,9 +215,6 @@ class SortingFe(Fe):
         """
         warnings.filterwarnings("ignore", category=ExperimentalFeatureWarning)  # Ignore warnings for Awkward Arrays
         self.expression_embeddings = None
-
-        valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
-        self.adata = self.adata[:, valid_mask].copy()
 
         expression = self.adata.X
         csc_expression = csc_array(expression)
