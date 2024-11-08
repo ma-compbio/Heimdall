@@ -2,7 +2,8 @@ type: Heimdall.fg.ESM2Fg
 
 args:
   embedding_parameters:
-    type: torch.nn.Embedding.from_pretrained
+    type: Heimdall.utils.FlexibleTypeEmbedding
+    constructor: from_pretrained
     args:
       embeddings: "gene_embeddings"
   embedding_filepath: ${data_path}/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt

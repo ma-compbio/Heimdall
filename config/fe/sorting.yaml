@@ -2,7 +2,7 @@ type: Heimdall.fe.SortingFe
 
 args:
   embedding_parameters:
-    type: torch.nn.Embedding
+    type: Heimdall.utils.FlexibleTypeEmbedding
     args:
       num_embeddings: "max_seq_length"
       embedding_dim: ${fe.args.d_embedding}

@@ -92,9 +92,11 @@ class HeimdallModel(nn.Module):
         if conditional_tokens is not None and len(conditional_tokens) == 0:
             conditional_tokens = None
 
+        # print(inputs, attention_mask)
         if self.reducer is not None:
             encoded_cells = tuple(
-                self.lm_model(cell_inputs, conditional_tokens, attention_mask) for cell_inputs in inputs
+                self.lm_model(cell_inputs, conditional_tokens, attention_mask=mask)
+                for cell_inputs, mask in zip(inputs, attention_mask)
             )
             encoded = self.reducer(encoded_cells)
         else:
@@ -143,7 +145,6 @@ class HeimdallTransformer(nn.Module):
         self.fc = data.fc
 
         self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
-        self.max_seq_length = data.sequence_length
 
         # Setting up embedding layers
         if data.fg.d_embedding is not None:
@@ -158,7 +159,7 @@ class HeimdallTransformer(nn.Module):
 
         # Setting up explicit Positional Encodings
         if config.pos_enc == "BERT":
-            self.position_embeddings = nn.Embedding(self.max_seq_length + 1, config.d_model)  # +1 cuz of CLS
+            self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, config.d_model)  # +1 cuz of CLS
         elif config.pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
         else:
@@ -194,12 +195,12 @@ class HeimdallTransformer(nn.Module):
         """LM model.
 
         Args:
-            inputs (torch tensor): This is either integers if IDs or bf16/fp32
+            inputs: This is either integers if IDs or bf16/fp32
                 floats for predefined embeddings
-            conditional_tokens (dictionary, optional): _description_. Defaults
+            conditional_tokens: _description_. Defaults
                 to None.
-            attention_mask (Attention Mask for Padding, optional): NOT
-                IMPLEMENTED YET. Defaults to None.
+            attention_mask: A tensor of shape [batchsize, seqlen] where 1/True
+                represents no attention and 0/False represents that attention should be used
 
         Returns:
             torch.tensor: The predicted outputs before cross entropy loss.
@@ -207,6 +208,7 @@ class HeimdallTransformer(nn.Module):
         """
 
         identity_inputs, expression_inputs = inputs
+
         input_embeds = self.fc.embed_cells(
             identity_inputs,
             self.gene_embeddings,
@@ -214,17 +216,16 @@ class HeimdallTransformer(nn.Module):
             self.expression_embeddings,
         )
 
-        # Concatenate [CLS] token to the beginning of every sequence in the batch
         batch_size = identity_inputs.size(0)
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # Expand to match batch size
+        seq_length = input_embeds.size(1)
 
         # Positional Encoding
-        seq_length = input_embeds.size(1)
         position_ids = torch.arange(
             seq_length,
             dtype=torch.long,
             device=input_embeds.device,
         ).expand((batch_size, -1))
+
         input_embeds += self.position_embeddings(position_ids)
 
         # Dynamically adding the conditional tokens, if there are any
@@ -248,11 +249,23 @@ class HeimdallTransformer(nn.Module):
                 "Please pass in the conditional tokens"
             )
 
-        # Add the CLS Token
+        # Concatenate the CLS Token to both the attention mask and the input
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # Expand to match batch size
         input_embeds = torch.cat([cls_tokens, input_embeds], dim=1)
+        if attention_mask is not None:
+            cls_attention = torch.zeros(
+                (batch_size, 1),
+                dtype=torch.bool,
+                device=attention_mask.device,
+            )  # Shape: (batch_size, 1)
+
+            attention_mask = torch.cat([cls_attention, attention_mask], dim=1)  # Shape: (batch_size, seq_len + 1)
 
         # Encoder
-        encoder_output = self.encoder(input_embeds, src_key_padding_mask=attention_mask)
+        encoder_output = self.encoder(
+            input_embeds,
+            src_key_padding_mask=attention_mask,
+        )
         # print(encoder_output.size())
 
         return encoder_output

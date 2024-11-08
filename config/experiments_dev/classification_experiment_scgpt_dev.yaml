@@ -5,12 +5,12 @@
 ####
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: pancreas # dataset for the relevant task
+  - override /dataset: pancreas_2000_genes # dataset for the relevant task
   - override /tasks: cell_type_annotation # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
-  - override /fc: geneformer
+  - override /fc: scgpt
   - override /fe: binning
   - override /fg: identity
 

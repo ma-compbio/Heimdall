@@ -1,12 +1,17 @@
+import warnings
 from abc import ABC, abstractmethod
 from typing import Optional, Sequence
 
 import anndata as ad
+import awkward as ak
 import numpy as np
 import pandas as pd
+import torch
+from anndata._warnings import ExperimentalFeatureWarning
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
+from scipy.sparse import csc_array, csr_array
 
 from Heimdall.utils import searchsorted2d
 
@@ -25,11 +30,15 @@ class Fe(ABC):
         adata: ad.AnnData,
         embedding_parameters: DictConfig,
         d_embedding: int,
+        vocab_size: int,
+        pad_value: int = None,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
+        self.vocab_size = vocab_size
+        self.pad_value = vocab_size - 2 if pad_value is None else pad_value
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -57,14 +66,23 @@ class Fe(ABC):
             Index of value in the expression embeddings, or `pd.NA` if the gene has no mapping.
 
         """
-        embedding_indices = self.adata.obsm["processed_expression_values"][cell_indices]
 
-        return embedding_indices
+        subset = self.adata[cell_indices]
+        expression_values = subset.obsm["processed_expression_values"]
+        expression_indices = subset.obsm["processed_expression_indices"]
+        # breakpoint()
+        return expression_values, expression_indices
 
-    def load_from_cache(self, processed_expression_values: NDArray, expression_embeddings: NDArray | None):
+    def load_from_cache(
+        self,
+        processed_expression_values: NDArray,
+        processed_expression_indices: NDArray,
+        expression_embeddings: NDArray | None,
+    ):
         """Load processed values from cache."""
         # TODO: add tests
         self.adata.obsm["processed_expression_values"] = processed_expression_values
+        self.adata.obsm["processed_expression_indices"] = processed_expression_indices
         self.expression_embeddings = expression_embeddings
         self.replace_placeholders()
 
@@ -74,9 +92,9 @@ class Fe(ABC):
             if value == "max_seq_length":
                 value = len(self.adata.var)
             elif value == "vocab_size":
-                value = len(self.adata.var) + 2  # <PAD> and <MASK> TODO: data.vocab_size
+                value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "expression_embeddings":
-                value = self.expression_embeddings
+                value = torch.tensor(self.expression_embeddings, dtype=torch.float32)
             else:
                 continue
 
@@ -88,7 +106,12 @@ class DummyFe(Fe):
 
     def preprocess_embeddings(self):
         """Stand-in `fe` preprocessing; marks `expression_embedding_index` as
-        invalid."""
+        invalid.
+
+        TODO: maybe we should have the `None` value for `self.expression_embeddings` marked
+        with some other value to indicate that no embedding layer should be instantiated
+
+        """
         self.expression_embeddings = None
         dummy_indices = pd.array(np.full((len(self.adata), self.num_embeddings), np.nan))
         self.adata.obsm["processed_expression_values"] = dummy_indices
@@ -112,34 +135,71 @@ class BinningFe(Fe):
         adata: ad.AnnData,
         embedding_parameters: OmegaConf,
         d_embedding: int,
+        vocab_size: int,
         num_bins: Optional[int],
+        pad_value: int = None,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding)
+        super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
         self.num_bins = num_bins
 
     def preprocess_embeddings(self):
         """Compute bin identities of expression profiles in raw data."""
         self.expression_embeddings = None
 
-        valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
-        expression = self.adata.X[:, valid_mask]
+        expression = self.adata.X
+        csr_expression = csr_array(expression)
+        cellwise_nonzero_expression = np.split(csr_expression.data, csr_expression.indptr[1:-1])
+
+        # Obtain the indices of non-zero entries for each row (cell)
+        nonzero_indices = np.split(csr_expression.indices, csr_expression.indptr[1:-1])
+        nonzero_indices = ak.Array(nonzero_indices)
 
         n_bins = self.num_bins
         if np.max(expression) == 0:
-            binned_values = np.zeros_like(expression)  # TODO: add correct typing (maybe add to config...?)
+            binned_values = csr_array(expression.shape)  # TODO: add correct typing (maybe add to config...?)
 
-        masked_expression = expression.astype(np.float64)
-        masked_expression[masked_expression == 0] = np.nan
-        bin_edges = np.nanquantile(masked_expression, np.linspace(0, 1, n_bins - 1), axis=1).T
+        # masked_expression = expression.astype(np.float64)
+        # masked_expression[masked_expression == 0] = np.nan
+        quantiles = np.linspace(0, 1, n_bins)
+        bin_edges = ak.Array(
+            [np.quantile(nonzero_expression, quantiles) for nonzero_expression in cellwise_nonzero_expression],
+        )  # First axis is quantiles, second is cells
 
         binned_values = searchsorted2d(
             bin_edges,
-            expression,
+            cellwise_nonzero_expression,
             side="left",
-        )  # TODO: now that we do binning per cell, how to efficiently vectorize digitization???
-        binned_values[expression > 0] += 1
+        )
+        binned_values = binned_values + 1
 
         self.adata.obsm["processed_expression_values"] = binned_values
+        self.adata.obsm["processed_expression_indices"] = nonzero_indices
+
+        self.replace_placeholders()
+
+
+class NonzeroIdentityFe(Fe):
+    """Directly pass the continuous values.
+
+    Args:
+        adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+        d_embedding: dimensionality of embedding for each expression entity
+        embedding_parameters: dimensionality of embedding for each expression entity
+        num_bins: number of bins to generate
+
+    """
+
+    def preprocess_embeddings(self):
+        """Compute bin identities of expression profiles in raw data."""
+        self.expression_embeddings = None
+
+        expression = self.adata.X
+        csr_expression = csr_array(expression)
+        cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
+        cellwise_nonzero_indices = ak.Array(np.split(csr_expression.indices, csr_expression.indptr[1:-1]))
+
+        self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression
+        self.adata.obsm["processed_expression_indices"] = cellwise_nonzero_indices
 
         self.replace_placeholders()
 
@@ -153,15 +213,30 @@ class SortingFe(Fe):
         Uses median normalization before sorting (Geneformer style).
 
         """
+        warnings.filterwarnings("ignore", category=ExperimentalFeatureWarning)  # Ignore warnings for Awkward Arrays
         self.expression_embeddings = None
 
-        valid_mask = self.adata.var["identity_valid_mask"]  # TODO: assumes that Fg is run first. Is that okay?
-        expression = self.adata.X[:, valid_mask]
-        gene_medians = np.median(expression, axis=0)
-        normalized_expression = expression / gene_medians
+        expression = self.adata.X
+        csc_expression = csc_array(expression)
+        genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
 
-        argsorted_expression = np.argsort(normalized_expression, axis=1)[:, ::-1]
+        gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
 
-        self.adata.obsm["processed_expression_values"] = argsorted_expression
+        normalized_expression = csr_array(expression)
+        normalized_expression = csr_array(normalized_expression / gene_medians)
 
+        cellwise_nonzero_expression = np.split(normalized_expression.data, normalized_expression.indptr[1:-1])
+        cellwise_nonzero_indices = np.split(normalized_expression.indices, normalized_expression.indptr[1:-1])
+
+        argsorted_expression = ak.argsort(cellwise_nonzero_expression, axis=1)[:, ::-1]
+
+        processed_expression_values = ak.Array(
+            [
+                cell_nonzero_indices[processed_cell]
+                for cell_nonzero_indices, processed_cell in zip(cellwise_nonzero_indices, argsorted_expression)
+            ],
+        )
+
+        self.adata.obsm["processed_expression_values"] = processed_expression_values
+        self.adata.obsm["processed_expression_indices"] = processed_expression_values  # both are the same in this case
         self.replace_placeholders()

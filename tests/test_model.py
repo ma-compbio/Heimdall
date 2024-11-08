@@ -23,7 +23,7 @@ def toy_paried_data_path(pytestconfig, plain_toy_data):
     data_path = pytestconfig.cache.mkdir("toy_data")
 
     adata = plain_toy_data.copy()
-    zeros = sp.csr_matrix((adata.shape[0], adata.shape[0]))
+    zeros = sp.csr_array((adata.shape[0], adata.shape[0]))
     for i, key in enumerate(("train", "val", "test", "task")):
         adata.obsp[key] = zeros.copy()
         if key != "task":
@@ -79,7 +79,7 @@ def paired_task_config(request, toy_paried_data_path):
         top_n_genes: 1000
         normalize: true
         log_1p: true
-        scale_data: true
+        scale_data: false
         species: mouse
     tasks:
       args:
@@ -135,7 +135,7 @@ def paired_task_config(request, toy_paried_data_path):
       type: Heimdall.fe.SortingFe
       args:
         embedding_parameters:
-          type: torch.nn.Embedding
+          type: Heimdall.utils.FlexibleTypeEmbedding
           args:
             num_embeddings: "max_seq_length"
             embedding_dim: 128
@@ -145,7 +145,7 @@ def paired_task_config(request, toy_paried_data_path):
       type: Heimdall.fg.IdentityFg
       args:
         embedding_parameters:
-          type: torch.nn.Embedding
+          type: Heimdall.utils.FlexibleTypeEmbedding
           args:
             num_embeddings: "vocab_size"
             embedding_dim: 128
@@ -188,7 +188,7 @@ def single_task_config(toy_single_data_path):
         top_n_genes: 1000
         normalize: true
         log_1p: true
-        scale_data: true
+        scale_data: false
         species: mouse
     tasks:
       args:
@@ -241,14 +241,14 @@ def single_task_config(toy_single_data_path):
         embedding_parameters:
           type: Heimdall.utils.FlexibleTypeLinear
           args:
-            in_features: "max_seq_length"
+            in_features: 1
             out_features: 128
     fg:
       name: IdentityFg
       type: Heimdall.fg.IdentityFg
       args:
         embedding_parameters:
-          type: torch.nn.Embedding
+          type: Heimdall.utils.FlexibleTypeEmbedding
           args:
             num_embeddings: "vocab_size"
             embedding_dim: 128
@@ -282,7 +282,11 @@ def test_paired_task_model_instantiation(paired_task_config):
 
     # Test execution
     batch = next(iter(cr.dataloaders["train"]))
-    model(inputs=(batch["identity_inputs"], batch["expression_inputs"]), conditional_tokens=None)
+    model(
+        inputs=(batch["identity_inputs"], batch["expression_inputs"]),
+        attention_mask=batch["expression_padding"],
+        conditional_tokens=None,
+    )
 
 
 def test_single_task_model_instantiation(single_task_config):
@@ -296,4 +300,8 @@ def test_single_task_model_instantiation(single_task_config):
 
     # Test execution
     batch = next(iter(cr.dataloaders["train"]))
-    model(inputs=(batch["identity_inputs"], batch["expression_inputs"]), conditional_tokens=None)
+    model(
+        inputs=(batch["identity_inputs"], batch["expression_inputs"]),
+        attention_mask=batch["expression_padding"],
+        conditional_tokens=None,
+    )

@@ -26,12 +26,16 @@ class Fg(ABC):
         adata: ad.AnnData,
         embedding_parameters: DictConfig,
         d_embedding: int,
+        vocab_size: int,
+        pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
         self.d_embedding = d_embedding
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
+        self.vocab_size = vocab_size
+        self.pad_value = vocab_size - 2 if pad_value is None else pad_value
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -81,9 +85,9 @@ class Fg(ABC):
             if value == "max_seq_length":
                 value = len(self.adata.var)
             elif value == "vocab_size":
-                value = len(self.adata.var) + 2  # <PAD> and <MASK> TODO: data.vocab_size
+                value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
-                value = self.gene_embeddings
+                value = torch.tensor(self.gene_embeddings, dtype=torch.float32)  # TODO: pick type correctly?
             else:
                 continue
 
@@ -121,9 +125,11 @@ class PretrainedFg(Fg, ABC):
         adata: ad.AnnData,
         embedding_parameters: OmegaConf,
         d_embedding: int,
+        vocab_size: int,
+        pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding)
+        super().__init__(adata, embedding_parameters, d_embedding, pad_value, vocab_size)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod
@@ -157,7 +163,7 @@ class PretrainedFg(Fg, ABC):
         index_map[valid_indices] = np.arange(num_mapped_genes)
 
         self.adata.var["identity_embedding_index"] = index_map
-        self.adata.var["identity_valid_mask"] = valid_mask
+        self.adata.var["identity_valid_mask"] = valid_mask.to_numpy()
 
         self.gene_embeddings = np.zeros((num_mapped_genes, self.d_embedding), dtype=np.float64)
 

@@ -13,18 +13,14 @@ import pandas as pd
 import scanpy as sc
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
-from scipy.sparse import csr_matrix, issparse
-from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 from torch.utils.data import DataLoader, Subset
-from tqdm import tqdm
 
 from Heimdall.datasets import Dataset
 from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
 from Heimdall.utils import (
-    deprecate,
     get_cached_paths,
     get_value,
     heimdall_collate_fn,
@@ -190,11 +186,8 @@ class CellRepresentation(SpecialTokenMixin):
 
         return self.adata, symbol_to_ensembl_mapping
 
-    def preprocess_anndata(self):
-        if self.adata is not None:
-            raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
-
-        preprocessed_data_path = None
+    def get_preprocessed_data_path(self):
+        preprocessed_data_path = preprocessed_cfg_path = cfg = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = DictConfig(OmegaConf.to_container(self._cfg.dataset, resolve=True))
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
@@ -202,16 +195,37 @@ class CellRepresentation(SpecialTokenMixin):
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
                 "data.h5ad",
             )
-            if preprocessed_data_path.is_file():
-                loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(preprocessed_cfg_path)).replace("\n", "\n    ")
-                print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
-                print(f"  Preprocessing config:\n    {loaded_cfg_str}")
-                self.adata = ad.read_h5ad(preprocessed_data_path)
-                self.sequence_length = len(self.adata.var)
-                print(f"> Finished Processing Anndata Object:\n{self.adata}")
-                return
 
-            OmegaConf.save(cfg, preprocessed_cfg_path)
+        return preprocessed_data_path, preprocessed_cfg_path, cfg
+
+    def anndata_from_cache(self, preprocessed_data_path, preprocessed_cfg_path, cfg):
+        if preprocessed_data_path.is_file():
+            loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(preprocessed_cfg_path)).replace("\n", "\n    ")
+            print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
+            print(f"  Preprocessing config:\n    {loaded_cfg_str}")
+            self.adata = ad.read_h5ad(preprocessed_data_path)
+            self.sequence_length = len(self.adata.var)
+            print(f"> Finished Processing Anndata Object:\n{self.adata}")
+            return True
+
+        OmegaConf.save(cfg, preprocessed_cfg_path)
+
+        return False
+
+    def anndata_to_cache(self, preprocessed_data_path):
+        print("> Writing preprocessed Anndata Object")
+        self.adata.write(preprocessed_data_path)
+        print("> Finished writing preprocessed Anndata Object")
+
+    def preprocess_anndata(self):
+        if self.adata is not None:
+            raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
+
+        preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
+        if preprocessed_data_path is not None:
+            is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
+            if is_cached:
+                return
 
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
         print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
@@ -260,9 +274,7 @@ class CellRepresentation(SpecialTokenMixin):
         print("> Finished Processing Anndata Object")
 
         if preprocessed_data_path is not None:
-            print("> Writing preprocessed Anndata Object")
-            self.adata.write(preprocessed_data_path)
-            print("> Finished writing preprocessed Anndata Object")
+            self.anndata_to_cache(preprocessed_data_path)
 
         print(f"> Finished Processing Anndata Object:\n{self.adata}")
 
@@ -325,6 +337,21 @@ class CellRepresentation(SpecialTokenMixin):
 
         return df_balanced
 
+    def drop_invalid_genes(self):
+        """Modify `self.adata` to only contain valid genes after preprocessing
+        with the `Fg`."""
+
+        valid_mask = self.adata.var["identity_valid_mask"]
+        self.adata.raw = self.adata.copy()
+        self.adata = self.adata[:, valid_mask].copy()
+
+        self.fe.adata = self.adata
+        self.fc.adata = self.adata
+
+        preprocessed_data_path, *_ = self.get_preprocessed_data_path()
+        if preprocessed_data_path is not None:
+            self.anndata_to_cache(preprocessed_data_path)
+
     @check_states(adata=True)
     def tokenize_cells(self):
         """Processes the `f_g`, `fe` and `f_c` from the config.
@@ -338,8 +365,18 @@ class CellRepresentation(SpecialTokenMixin):
         self.fg: Fg
         self.fe: Fe
         self.fc: Fc
-        self.fg, fg_name = instantiate_from_config(self.fg_cfg, self.adata, return_name=True)
-        self.fe, fe_name = instantiate_from_config(self.fe_cfg, self.adata, return_name=True)
+        self.fg, fg_name = instantiate_from_config(
+            self.fg_cfg,
+            self.adata,
+            vocab_size=self.sequence_length + 2,
+            return_name=True,
+        )
+        self.fe, fe_name = instantiate_from_config(
+            self.fe_cfg,
+            self.adata,
+            vocab_size=self.sequence_length + 2,
+            return_name=True,
+        )
         self.fc, fc_name = instantiate_from_config(self.fc_cfg, self.fg, self.fe, self.adata, return_name=True)
 
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
@@ -364,6 +401,7 @@ class CellRepresentation(SpecialTokenMixin):
                         identity_embedding_index,
                         identity_valid_mask,
                         processed_expression_values,
+                        processed_expression_indices,
                         gene_embeddings,
                         expression_embeddings,
                         identity_reps,
@@ -371,18 +409,23 @@ class CellRepresentation(SpecialTokenMixin):
                     ) = pkl.load(rep_file)
 
                     self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
-                    self.fe.load_from_cache(processed_expression_values, expression_embeddings)
+                    self.fe.load_from_cache(
+                        processed_expression_values,
+                        processed_expression_indices,
+                        expression_embeddings,
+                    )
                     self.fc.load_from_cache(identity_reps, expression_reps)
 
                     self.processed_fcfg = True
-                    # TODO: caching should also load other things, such as var["identity_valid_mask"],
-                    # fg.gene_embedings, etc.
                     return
 
             OmegaConf.save(cfg, processed_cfg_path)
 
         self.fg.preprocess_embeddings()
         print(f"> Finished calculating fg with {self.fg_cfg.type}")
+
+        self.drop_invalid_genes()
+        print("> Finished dropping invalid genes from AnnData")
 
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
@@ -393,8 +436,9 @@ class CellRepresentation(SpecialTokenMixin):
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             # Gather things for caching
-            identity_reps, expression_reps = self.fc[:]
-            processed_expression_values = self.fe[:]
+            identity_reps = self.adata.obsm["cell_identity_inputs"]
+            expression_reps = self.adata.obsm["cell_expression_inputs"]
+            processed_expression_values, processed_expression_indices = self.fe[:]
             identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
             gene_embeddings = self.fg.gene_embeddings
@@ -405,6 +449,7 @@ class CellRepresentation(SpecialTokenMixin):
                     identity_embedding_index,
                     identity_valid_mask,
                     processed_expression_values,
+                    processed_expression_indices,
                     gene_embeddings,
                     expression_embeddings,
                     identity_reps,
@@ -412,160 +457,3 @@ class CellRepresentation(SpecialTokenMixin):
                 )
                 pkl.dump(cache_representation, rep_file)
                 print(f"Finished writing cell representations at {processed_data_path}")
-
-    ###################################################
-    # Deprecated functions
-    ###################################################
-
-    @deprecate(raise_error=True)
-    def _prepare_splits(self):
-        # TODO: use predefined splits if available
-        predefined_splits = None
-        size = len(self.datasets["full"])
-        seed = self._cfg.seed
-
-        if predefined_splits is None:
-            warnings.warn(
-                "Pre-defined split unavailable, using random 6/2/2 split",
-                UserWarning,
-                stacklevel=2,
-            )
-            train_val_idx, test_idx = train_test_split(np.arange(size), train_size=0.6, random_state=seed)
-            train_idx, val_idx = train_test_split(train_val_idx, test_size=0.2, random_state=seed)
-
-        self._splits = {"train": train_idx, "val": val_idx, "test": test_idx}
-
-    @deprecate
-    def prepare_datasets(self):
-        """After preprocessing, provides the dataset in dataframe format that
-        can be processed."""
-        assert self.adata is not None, "no adata found, Make sure to run preprocess_anndata() first"
-        assert (
-            self.processed_fcfg is not False
-        ), "Please make sure to preprocess the cell representation at least once first"
-
-        cell_representation = self.adata.obsm["cell_representation"]
-
-        if self.task_structure == "single":
-            self.prepare_labels()
-            x = cell_representation
-            y = self.labels
-            self.df = pd.DataFrame({"inputs": x, "labels": y})
-
-        elif self.task_structure == "paired":
-            self.df = self.prepare_paired_dataset(self.dataset_task_cfg.interaction_type)
-
-            if self.dataset_task_cfg.rebalance:
-                self.df = self.rebalance_dataset(self.df)
-
-        else:
-            raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
-
-        print("> Finished Preprocessing the dataset into self.df ")
-
-    @deprecate(raise_error=True)
-    def prepare_labels(self):
-        """Pull out the specified class from data to set up label."""
-        assert self.adata is not None, "no adata found, Make sure to run preprocess_anndata() first"
-
-        if self.task_structure == "single":
-            df = self.adata.obs
-            class_mapping = {
-                label: idx
-                for idx, label in enumerate(
-                    df[self.dataset_task_cfg.label_col_name].unique(),
-                    start=0,
-                )
-            }
-            df["class_id"] = df[self.dataset_task_cfg.label_col_name].map(class_mapping)
-            self._labels = np.array(df["class_id"])
-
-        elif self.task_structure == "paired":
-            all_obsp_task_keys, obsp_mask_keys = [], []
-            for key in self.adata.obsp:
-                from Heimdall.datasets import SPLIT_MASK_KEYS
-
-                (obsp_mask_keys if key in SPLIT_MASK_KEYS else all_obsp_task_keys).append(key)
-            all_obsp_task_keys = sorted(all_obsp_task_keys)
-
-            # Select task keys
-            candidate_obsp_task_keys = self.dataset_task_cfg.interaction_type
-            if candidate_obsp_task_keys == "_all_":
-                obsp_task_keys = all_obsp_task_keys
-            else:
-                if isinstance(candidate_obsp_task_keys, str):
-                    candidate_obsp_task_keys = [candidate_obsp_task_keys]
-
-                if invalid_obsp_task_keys := [i for i in candidate_obsp_task_keys if i not in all_obsp_task_keys]:
-                    raise ValueError(
-                        f"{len(invalid_obsp_task_keys)} out of {len(candidate_obsp_task_keys)} "
-                        f"specified interaction types are invalid: {invalid_obsp_task_keys}\n"
-                        f"Valid options are: {pformat(all_obsp_task_keys)}",
-                    )
-
-            # Set up task mask
-            full_mask = np.sum([np.abs(self.adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
-            self.adata.obsp["full_mask"] = full_mask
-            nz = np.nonzero(full_mask)
-            num_tasks = len(obsp_task_keys)
-
-            # TODO: specify task type multiclass/multilabel/regression in config
-            (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
-            for i, task in enumerate(obsp_task_keys):
-                label_i = np.array(self.adata.obsp[task][nz]).ravel()
-                labels[:, i][label_i == 1] = 1
-                labels[:, i][label_i == -1] = 0
-            self._labels = labels
-
-            # TODO: set up split given the predefiend split mask if possible
-
-        else:
-            raise ValueError("config.tasks.args.task_structure must be 'single' or 'paired'")
-
-        print(f"> Finished extracting labels, self.labels.shape: {self.labels.shape}")
-
-    @deprecate(raise_error=True)
-    def prepare_paired_dataset(self, interaction_type):
-        assert self.adata is not None, "no adata found, Make sure to run preprocess_anndata() first"
-
-        interaction_matrix = self.adata.obsp[interaction_type]
-        cell_expression = self.adata.obsm["cell_representation"]
-
-        # Ensure interaction_matrix is in CSR format for efficient row slicing
-        if not isinstance(interaction_matrix, csr_matrix):
-            interaction_matrix = csr_matrix(interaction_matrix)
-
-        # Initialize lists to store data
-        cell_a_indices = []
-        cell_b_indices = []
-        labels = []
-
-        # Iterate through non-zero elements efficiently
-        for i in tqdm(range(interaction_matrix.shape[0]), desc=f"Processing {interaction_type}", unit="cell"):
-            row = interaction_matrix.getrow(i)
-            non_zero_cols = row.nonzero()[1]
-            non_zero_values = row.data
-
-            cell_a_indices.extend([i] * len(non_zero_cols))
-            cell_b_indices.extend(non_zero_cols)
-            labels.extend(non_zero_values)
-
-        # Create DataFrame with indices
-        df = pd.DataFrame(
-            {
-                "CellA_Index": cell_a_indices,
-                "CellB_Index": cell_b_indices,
-                "labels": labels,
-            },
-        )
-        # Add expression data
-        if issparse(cell_expression):
-            df["CellA_Expression"] = [cell_expression[i].toarray().flatten() for i in df["CellA_Index"]]
-            df["CellB_Expression"] = [cell_expression[j].toarray().flatten() for j in df["CellB_Index"]]
-        else:
-            df["CellA_Expression"] = [cell_expression[i] for i in df["CellA_Index"]]
-            df["CellB_Expression"] = [cell_expression[j] for j in df["CellB_Index"]]
-
-        df["labels"] = df["labels"].replace(-1, 0)
-
-        return df[["CellA_Expression", "CellB_Expression", "labels"]]
