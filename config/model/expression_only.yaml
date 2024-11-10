@@ -1,0 +1,2 @@
+type: Heimdall.models.ExpressionOnly
+name: logistic_regression

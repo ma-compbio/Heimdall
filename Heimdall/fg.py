@@ -81,7 +81,8 @@ class Fg(ABC):
 
     def replace_placeholders(self):
         """Replace config placeholders with values after preprocessing."""
-        for key, value in self.embedding_parameters["args"].items():
+        args = self.embedding_parameters.get("args", {})
+        for key, value in args.items():
             if value == "max_seq_length":
                 value = len(self.adata.var)
             elif value == "vocab_size":

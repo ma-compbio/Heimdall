@@ -5,6 +5,7 @@ from typing import Optional, Sequence
 import anndata as ad
 import awkward as ak
 import numpy as np
+from scipy.sparse import issparse
 import pandas as pd
 import torch
 from anndata._warnings import ExperimentalFeatureWarning
@@ -28,13 +29,13 @@ class Fe(ABC):
     def __init__(
         self,
         adata: ad.AnnData,
+        vocab_size: int,
         embedding_parameters: DictConfig,
         d_embedding: int,
-        vocab_size: int,
         pad_value: int = None,
     ):
         self.adata = adata
-        _, self.num_genes = adata.shape
+        self.num_cells, self.num_genes = adata.shape
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
         self.vocab_size = vocab_size
@@ -88,7 +89,8 @@ class Fe(ABC):
 
     def replace_placeholders(self):
         """Replace config placeholders with values after preprocessing."""
-        for key, value in self.embedding_parameters["args"].items():
+        args = self.embedding_parameters.get("args", {})
+        for key, value in args.items():
             if value == "max_seq_length":
                 value = len(self.adata.var)
             elif value == "vocab_size":
@@ -99,25 +101,6 @@ class Fe(ABC):
                 continue
 
             self.embedding_parameters["args"][key] = value
-
-
-class DummyFe(Fe):
-    """Dummy Fe for `fc`s that don't use expresssion-based embeddings."""
-
-    def preprocess_embeddings(self):
-        """Stand-in `fe` preprocessing; marks `expression_embedding_index` as
-        invalid.
-
-        TODO: maybe we should have the `None` value for `self.expression_embeddings` marked
-        with some other value to indicate that no embedding layer should be instantiated
-
-        """
-        self.expression_embeddings = None
-        dummy_indices = pd.array(np.full((len(self.adata), self.num_embeddings), np.nan))
-        self.adata.obsm["processed_expression_values"] = dummy_indices
-
-        self.replace_placeholders()
-
 
 class BinningFe(Fe):
     """Value-binning Fe from scGPT.
@@ -200,6 +183,31 @@ class NonzeroIdentityFe(Fe):
 
         self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression
         self.adata.obsm["processed_expression_indices"] = cellwise_nonzero_indices
+
+        self.replace_placeholders()
+
+class DummyFe(Fe):
+    """Directly pass the continuous values.
+
+    Args:
+        adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+        d_embedding: dimensionality of embedding for each expression entity
+        embedding_parameters: dimensionality of embedding for each expression entity
+        num_bins: number of bins to generate
+
+    """
+
+    def preprocess_embeddings(self):
+        """Compute bin identities of expression profiles in raw data."""
+        self.expression_embeddings = None
+
+        expression = self.adata.X.todense() if issparse(self.adata.X) else self.adata.X
+        csr_expression = csr_array(expression)
+        cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
+        cellwise_nonzero_indices = ak.Array(np.split(csr_expression.indices, csr_expression.indptr[1:-1]))
+
+        self.adata.obsm["processed_expression_values"] = expression
+        self.adata.obsm["processed_expression_indices"] = np.tile(np.arange(self.num_genes), (self.num_cells, 1))
 
         self.replace_placeholders()
 
