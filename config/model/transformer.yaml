@@ -2,6 +2,7 @@ type: transformer
 args:
   d_model: 128
   pos_enc: BERT
+  frozen_pos_enc: False
   num_encoder_layers: 2
   nhead: 2
   hidden_act: gelu

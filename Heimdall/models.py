@@ -163,6 +163,12 @@ class HeimdallTransformer(nn.Module):
         # Setting up explicit Positional Encodings
         if config.pos_enc == "BERT":
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, config.d_model)  # +1 cuz of CLS
+
+            if config.frozen_pos_enc:  ## do we freeze the randomly initialized positional embeddings
+                print("> Freezing the positional encodings")
+                for param in self.position_embeddings.parameters():
+                    param.requires_grad = False
+
         elif config.pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
         elif config.pos_enc == "none" or config.pos_enc == "NONE":
