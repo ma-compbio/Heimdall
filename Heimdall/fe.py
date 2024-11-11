@@ -38,7 +38,7 @@ class Fe(ABC):
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
         self.vocab_size = vocab_size
-        self.pad_value = vocab_size - 2 if pad_value is None else pad_value
+        self.pad_value = 0 if pad_value is None else pad_value
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -70,7 +70,6 @@ class Fe(ABC):
         subset = self.adata[cell_indices]
         expression_values = subset.obsm["processed_expression_values"]
         expression_indices = subset.obsm["processed_expression_indices"]
-        # breakpoint()
         return expression_values, expression_indices
 
     def load_from_cache(

@@ -28,6 +28,7 @@ class Fg(ABC):
         d_embedding: int,
         vocab_size: int,
         pad_value: int = None,
+        frozen: bool = None,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
         self.adata = adata
@@ -35,7 +36,8 @@ class Fg(ABC):
         self.d_embedding = d_embedding
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
-        self.pad_value = vocab_size - 2 if pad_value is None else pad_value
+        self.pad_value = 0 if pad_value is None else pad_value
+        self.frozen = None  ## this should be None here
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -127,10 +129,12 @@ class PretrainedFg(Fg, ABC):
         d_embedding: int,
         vocab_size: int,
         pad_value: int = None,
+        frozen: bool = True,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding, pad_value, vocab_size)
+        super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
         self.embedding_filepath = embedding_filepath
+        self.frozen = frozen
 
     @abstractmethod
     def load_embeddings(self) -> Dict[str, NDArray]:
@@ -170,7 +174,9 @@ class PretrainedFg(Fg, ABC):
         for gene_name in self.adata.var_names:
             embedding_index = self.adata.var.loc[gene_name, "identity_embedding_index"]
             if not pd.isna(embedding_index):
-                self.gene_embeddings[embedding_index] = embedding_map[gene_name][: self.d_embedding]
+                self.gene_embeddings[embedding_index] = embedding_map[gene_name][
+                    : self.d_embedding
+                ]  ## why are we truncating?
 
         self.replace_placeholders()
 

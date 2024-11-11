@@ -149,6 +149,9 @@ class HeimdallTransformer(nn.Module):
         # Setting up embedding layers
         if data.fg.d_embedding is not None:
             self.gene_embeddings = instantiate_from_config(data.fg.embedding_parameters)
+            if data.fg.frozen:
+                for param in self.gene_embeddings.parameters():
+                    param.requires_grad = False
         else:
             self.gene_embeddings = None
 
@@ -162,6 +165,8 @@ class HeimdallTransformer(nn.Module):
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, config.d_model)  # +1 cuz of CLS
         elif config.pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
+        elif config.pos_enc == "none" or config.pos_enc == "NONE":
+            self.positional_embeddings = None
         else:
             raise ValueError("config.pos_enc canonly be: BERT")
 
@@ -206,7 +211,6 @@ class HeimdallTransformer(nn.Module):
             torch.tensor: The predicted outputs before cross entropy loss.
 
         """
-
         identity_inputs, expression_inputs = inputs
 
         input_embeds = self.fc.embed_cells(
@@ -226,7 +230,8 @@ class HeimdallTransformer(nn.Module):
             device=input_embeds.device,
         ).expand((batch_size, -1))
 
-        input_embeds += self.position_embeddings(position_ids)
+        if self.position_embeddings is not None:
+            input_embeds += self.position_embeddings(position_ids)
 
         # Dynamically adding the conditional tokens, if there are any
         if conditional_tokens is not None:

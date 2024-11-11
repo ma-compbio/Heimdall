@@ -340,12 +340,12 @@ class CellRepresentation(SpecialTokenMixin):
     def drop_invalid_genes(self):
         """Modify `self.adata` to only contain valid genes after preprocessing
         with the `Fg`."""
-
         valid_mask = self.adata.var["identity_valid_mask"]
         self.adata.raw = self.adata.copy()
         self.adata = self.adata[:, valid_mask].copy()
 
         self.fe.adata = self.adata
+        self.fg.adata = self.adata
         self.fc.adata = self.adata
 
         preprocessed_data_path, *_ = self.get_preprocessed_data_path()
@@ -361,7 +361,6 @@ class CellRepresentation(SpecialTokenMixin):
         them and save them.
 
         """
-
         self.fg: Fg
         self.fe: Fe
         self.fc: Fc
