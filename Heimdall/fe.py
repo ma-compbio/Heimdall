@@ -187,13 +187,15 @@ class NonzeroIdentityFe(Fe):
 
 
 class DummyFe(Fe):
-    """Directly pass the continuous values.
+    """Directly pass the continuous values. Does not remove zero expression
+    elements.
+
+    TODO: should we formulate a "sparse" baseline instead?
 
     Args:
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
         d_embedding: dimensionality of embedding for each expression entity
         embedding_parameters: dimensionality of embedding for each expression entity
-        num_bins: number of bins to generate
 
     """
 
@@ -203,8 +205,6 @@ class DummyFe(Fe):
 
         expression = self.adata.X.todense() if issparse(self.adata.X) else self.adata.X
         csr_expression = csr_array(expression)
-        cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
-        cellwise_nonzero_indices = ak.Array(np.split(csr_expression.indices, csr_expression.indptr[1:-1]))
 
         self.adata.obsm["processed_expression_values"] = expression
         self.adata.obsm["processed_expression_indices"] = np.tile(np.arange(self.num_genes), (self.num_cells, 1))
