@@ -12,5 +12,10 @@ args:
   shuffle: true
   batchsize: 32
   epochs: 10
+  reduction:
+    type: Heimdall.models.SumReducer
   dataset_config:
     type: Heimdall.datasets.PairedInstanceDataset
+  head_config:
+    type: Heimdall.models.LinearCellPredHead
+    args: null

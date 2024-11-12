@@ -1,0 +1,4 @@
+type: Heimdall.fc.ScGPTFc
+
+args:
+  max_input_length: 1200

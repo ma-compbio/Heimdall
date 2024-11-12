@@ -1,6 +1,11 @@
 type: Heimdall.fe.BinningFe
 
 args:
-  embedding_filepath: null
-  num_embeddings: 10 # Number of bins
-  d_embedding: 128 #
+  embedding_parameters:
+    type: Heimdall.utils.FlexibleTypeLinear # TODO: replace this with the actual scGPT ValueEncoder: https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/scgpt/model/model.py#L765
+    args:
+      in_features: 1 # Replace later
+      out_features: ${fe.args.d_embedding}
+  num_bins: 10 # Number of bins
+  d_embedding: ${model.args.d_model}
+  pad_value: 0

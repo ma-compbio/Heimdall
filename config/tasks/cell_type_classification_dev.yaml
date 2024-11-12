@@ -11,3 +11,6 @@ args:
   prediction_dim: 14
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
+  head_config:
+    type: Heimdall.models.LinearCellPredHead
+    args: null

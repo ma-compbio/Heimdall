@@ -116,13 +116,21 @@ class SingleInstanceDataset(Dataset):
             }
             df["class_id"] = df[dataset_task_cfg.label_col_name].map(class_mapping)
             labels = np.array(df["class_id"])
+            if dataset_task_cfg.task_type == "regression":
+                labels = labels.reshape(-1, 1).astype(np.float32)
 
         elif "label_obsm_name" in dataset_task_cfg:
             assert "label_col_name" not in dataset_task_cfg
             df = adata.obsm[dataset_task_cfg.label_obsm_name]
-            (labels := np.empty(df.shape, dtype=np.float32)).fill(np.nan)
-            labels[np.where(df == 1)] = 1
-            labels[np.where(df == -1)] = 0
+
+            if dataset_task_cfg.task_type == "binary":
+                (labels := np.empty(df.shape, dtype=np.float32)).fill(np.nan)
+                labels[np.where(df == 1)] = 1
+                labels[np.where(df == -1)] = 0
+            elif dataset_task_cfg.task_type == "regression":
+                labels = np.array(df).astype(np.float32)
+
+            print(f"labels shape {labels.shape}")
 
         else:
             raise ValueError("Either 'label_col_name' or 'label_obsm_name' needs to be set.")
@@ -149,11 +157,12 @@ class SingleInstanceDataset(Dataset):
             raise ValueError(f"Unknown split type {split_type!r}")
 
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
-        identity_inputs, expression_inputs = self.data.fc[idx]
+        identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
 
         return {
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
             "labels": self.data.labels[idx],
         }
 
@@ -251,11 +260,15 @@ class PairedInstanceDataset(Dataset):
         self.labels = labels
 
     def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
-        identity_inputs, expression_inputs = zip(*[self.data.fc[cell_idx] for cell_idx in self.idx[idx]])
+        identity_inputs, expression_inputs, expression_padding = zip(
+            *[self.data.fc[cell_idx] for cell_idx in self.idx[idx]],
+        )
 
+        print(identity_inputs, expression_inputs, expression_padding)
         return {
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
             "labels": self.data.labels[idx],
         }
 
@@ -265,10 +278,12 @@ class PretrainDataset(SingleInstanceDataset, ABC):
         super().__init__(*args, **kwargs)
 
     def _setup_labels_and_pre_splits(self):
-        # FIX: not necessarily the case,e.g., UCE.....
-        # FIX: probably doesn't work after we changed fg/fe/fc implementation...
-        identity_inputs, expression_inputs = self.data.fc[:]
-        self.labels = identity_inputs.copy()
+        # # FIX: not necessarily the case,e.g., UCE.....
+        # # FIX: probably doesn't work after we changed fg/fe/fc implementation...
+        # identity_inputs, expression_inputs = self.data.fc[:]
+        identity_inputs = [self.data.fc[i][0] for i in range(len(self.data.adata))]
+        identity_inputs = np.vstack(identity_inputs).astype(int)
+        self.labels = identity_inputs
         # self.labels = self.data.fc.copy()
 
     def __getitem__(self, idx):

@@ -1,6 +1,9 @@
 type: Heimdall.fe.SortingFe
 
 args:
-  embedding_filepath: null
-  num_embeddings: null # TODO: how to make number of genes? Maybe use `null` to indicate this? Or at least, individual Fes can ignore `num_embeddings` if they want
-  d_embedding: 128 #
+  embedding_parameters:
+    type: Heimdall.utils.FlexibleTypeEmbedding
+    args:
+      num_embeddings: "max_seq_length"
+      embedding_dim: ${fe.args.d_embedding}
+  d_embedding: ${model.args.d_model}

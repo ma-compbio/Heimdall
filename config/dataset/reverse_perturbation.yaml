@@ -5,5 +5,5 @@ preprocess_args:
   top_n_genes: 1000
   normalize: true
   log_1p: true
-  scale_data: true
+  scale_data: false
   species: 'mouse'

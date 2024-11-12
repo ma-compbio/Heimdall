@@ -1,0 +1,39 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - override /model: transformer # the chosen model
+  - override /dataset: pancreas_2000_genes # dataset for the relevant task
+  - override /tasks: cell_type_annotation # dataset for the relevant task
+  - override /scheduler: cosine # contains scheduler
+  - override /trainer: default # contains optimizer and trainer details
+  - override /optimizer: AdamW
+  - override /fc: scgpt
+  - override /fe: binning
+  - override /fg: identity
+
+  - override /loss: CrossEntropyLoss
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+
+
+project_name: 'cell_type_classification_scgpt_dev' #project name for WandB
+run_name: 'test01'  ## what is set for WandB
+work_dir: 'work_dir'  ## set your custom working directory
+
+seed: 55
+
+trainer:
+  accumulate_grad_batches: 1
+
+optimizer:
+  args:
+    lr: 2e-3
+
+tasks:
+  args:
+    epochs: 1

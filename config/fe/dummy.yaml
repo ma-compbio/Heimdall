@@ -1,6 +1,6 @@
 type: Heimdall.fe.DummyFe
 
 args:
-  embedding_filepath: null
-  num_embeddings: null
+  embedding_parameters:
+    type: torch.nn.Module  # Should throw an error if called
   d_embedding: null # `null` indicates that this config doesn't use expression embeddings

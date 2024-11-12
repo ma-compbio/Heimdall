@@ -1,0 +1,9 @@
+type: Heimdall.fe.NonzeroIdentityFe
+
+args:
+  embedding_parameters:
+    type: Heimdall.utils.FlexibleTypeLinear # TODO: replace this with the actual scGPT ValueEncoder: https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/scgpt/model/model.py#L765
+    args:
+      in_features: 1 # Replace later
+      out_features: ${fe.args.d_embedding}
+  d_embedding: ${model.args.d_model}

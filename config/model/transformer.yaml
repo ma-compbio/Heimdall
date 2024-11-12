@@ -9,6 +9,3 @@ args:
   attention_probs_dropout_prob: 0.1
   use_flash_attn: False
   pooling: cls_pooling # or "mean_pooling"
-  head_config:
-    type: Heimdall.models.LinearCellPredHead
-    args: null

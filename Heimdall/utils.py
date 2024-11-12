@@ -1,6 +1,8 @@
+import hashlib
 import importlib
 import json
 import math
+import uuid
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -9,18 +11,41 @@ from pathlib import Path
 from pprint import pformat
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import awkward as ak
 import mygene
 import numpy as np
 import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+from numpy.random import Generator
 from numpy.typing import NDArray
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
-MAIN_KEYS = {"identity_inputs", "expression_inputs", "labels", "masks"}
+MAIN_KEYS = {"identity_inputs", "expression_inputs", "labels", "masks", "expression_padding"}
+
+
+def hash_config(cfg: DictConfig) -> str:
+    """Generate hash for a given config."""
+    cfg_str = OmegaConf.to_yaml(cfg, sort_keys=True)
+    hex_str = hashlib.md5(cfg_str.encode("utf-8")).hexdigest()
+    return str(uuid.UUID(hex_str))
+
+
+def get_cached_paths(cfg: DictConfig, cache_dir: Path, file_name: str) -> Tuple[Path, Path]:
+    """Get cached data and config path given config."""
+    hash_str = hash_config(cfg)
+
+    cache_dir = cache_dir / hash_str
+    cache_dir.mkdir(exist_ok=True, parents=True)
+
+    cached_file_path = cache_dir / file_name
+    cached_cfg_path = cache_dir / "config.yaml"
+
+    return cached_file_path, cached_cfg_path
 
 
 def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
@@ -37,32 +62,38 @@ def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
 
     """
 
-    num_cells, num_bin_edges = bin_edges.shape
-    max_value = np.maximum(bin_edges.ptp(), expression.ptp()) + 1
+    num_cells = len(expression)
+    max_value = np.maximum(ak.ptp(bin_edges), ak.ptp(expression)) + 1
+
     cell_indices = np.arange(num_cells)[:, np.newaxis]
+    offsets = ak.Array(max_value * cell_indices)
 
-    offsets = max_value * cell_indices
+    expression_counts = ak.count(expression, axis=1)
+    bin_edges_counts = ak.count(bin_edges, axis=1)
+    offset_bin_edges = ak.ravel(bin_edges + offsets).to_numpy()
+    offset_expression = ak.ravel(expression + offsets).to_numpy()
+    binned_values = np.searchsorted(offset_bin_edges, offset_expression, side=side)
 
-    binned_values = np.searchsorted((bin_edges + offsets).ravel(), (expression + offsets).ravel(), side=side).reshape(
-        num_cells,
-        -1,
-    )
-    binned_values -= num_bin_edges * cell_indices
+    binned_values = ak.unflatten(binned_values, expression_counts)
+    cumulative_counts = np.cumsum([0] + ak.to_list(bin_edges_counts))[:-1]
+
+    binned_values = binned_values - cumulative_counts
 
     return binned_values
 
 
-def get_class(target: str):
+def get_name(target: str):
     module, obj = target.rsplit(".", 1)
-    cls = getattr(importlib.import_module(module, package=None), obj)
+    name = getattr(importlib.import_module(module, package=None), obj)
 
-    return cls, module, obj
+    return name, module, obj
 
 
 def instantiate_from_config(
     config: DictConfig,
     *args: Tuple[Any],
     _target_key: str = "type",
+    _constructor_key: str = "constructor",
     _params_key: str = "args",
     _disable_key: str = "disable",
     _catch_conflict: bool = True,
@@ -73,8 +104,14 @@ def instantiate_from_config(
         return
 
     # Obtain target object and kwargs
-    cls, module, obj = get_class(config[_target_key])
+    cls, module, obj = get_name(config[_target_key])
     kwargs = config.get(_params_key, None) or {}
+
+    constructor_name = config.get(_constructor_key, None)
+    if constructor_name is not None:
+        constructor = getattr(cls, constructor_name)
+    else:
+        constructor = cls
 
     if _catch_conflict:
         assert not (set(kwargs) & set(extra_kwargs)), f"kwargs and extra_kwargs conflicted:\n{kwargs=}\n{extra_kwargs=}"
@@ -83,12 +120,12 @@ def instantiate_from_config(
     # Instantiate object and handel exception during instantiation
     try:
         if return_name:
-            return cls(*args, **full_kwargs), obj
+            return constructor(*args, **full_kwargs), obj
 
-        return cls(*args, **full_kwargs)
+        return constructor(*args, **full_kwargs)
     except Exception as e:
         raise RuntimeError(
-            f"Failed to instantiate {cls!r} with\nargs:\n{pformat(args)}\nkwargs:\n{pformat(full_kwargs)}",
+            f"Failed to instantiate {constructor!r} with\nargs:\n{pformat(args)}\nkwargs:\n{pformat(full_kwargs)}",
         ) from e
 
 
@@ -385,3 +422,44 @@ def _load_ensembl_table(
             symbol_to_ensembl = json.load(f)
 
     return symbol_to_ensembl
+
+
+def sample_without_replacement(
+    rng: Generator,
+    max_index: int,
+    num_samples: int,
+    sample_size: int,
+    attention_mask: Tensor,
+):
+    """Generate random samples of indices without replacement using NumPy
+    vectorization.
+
+    Args:
+        rng: random number generator from which to sample
+        max_index: max index of which can be included in a sample
+        num_samples: number of index vectors to sample
+        sample_size: number of random indices (without replacement) per sample
+
+    Return:
+        randomly sampled indices without replacement
+
+    """
+    attention_mask = np.array(attention_mask)
+    random_samples = rng.random((num_samples, max_index))
+    random_indices = np.argpartition(random_samples, sample_size - 1, axis=1)[:, :sample_size]
+
+    return random_indices
+
+
+class FlexibleTypeLinear(nn.Linear):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dtype = self.weight.dtype
+
+    def forward(self, inputs: torch.Tensor):
+        return super().forward(inputs.type(self.dtype).unsqueeze(-1))
+
+
+class FlexibleTypeEmbedding(nn.Embedding):
+    def forward(self, idx: torch.Tensor):
+        return super().forward(idx.type(torch.long))

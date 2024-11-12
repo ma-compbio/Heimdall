@@ -2,4 +2,4 @@
 defaults:
   - lane
 
-cache_preprocessed_dataset_dir: '/scratch/heimdallshared/cache'
+cache_preprocessed_dataset_dir: '/scratch/heimdall/shared/cache'

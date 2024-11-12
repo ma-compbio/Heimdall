@@ -6,7 +6,7 @@ import pytest
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.f_g import ESM2Fg, Gene2VecFg, IdentityFg
+from Heimdall.fg import ESM2Fg, Gene2VecFg, IdentityFg
 
 
 @fixture
@@ -31,7 +31,14 @@ def mock_dataset():
 def test_identity_fg(mock_dataset):
     config = OmegaConf.create(
         {
-            "embedding_filepath": None,
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "out_features": "128",
+                },
+            },
+            "vocab_size": 6,
             "d_embedding": 128,
         },
     )
@@ -48,10 +55,18 @@ def test_identity_fg(mock_dataset):
 def test_esm2_fg(mock_dataset):
     config = OmegaConf.create(
         {
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "constructor": "from_pretrained",
+                "args": {
+                    "embeddings": "gene_embeddings",
+                },
+            },
+            "vocab_size": 6,
+            "d_embedding": 128,
             "embedding_filepath": Path(
                 "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt",
             ),
-            "d_embedding": 128,
         },
     )
     if not config.embedding_filepath.is_file():
@@ -78,10 +93,18 @@ def test_esm2_fg(mock_dataset):
 def test_gene2vec_fg(mock_dataset):
     config = OmegaConf.create(
         {
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "constructor": "from_pretrained",
+                "args": {
+                    "embeddings": "gene_embeddings",
+                },
+            },
+            "vocab_size": 6,
+            "d_embedding": 128,
             "embedding_filepath": Path(
                 "/work/magroup/shared/Heimdall/data/pretrained_embeddings/gene2vec/gene2vec_genes.txt",
             ),
-            "d_embedding": 128,
         },
     )
     if not config.embedding_filepath.is_file():

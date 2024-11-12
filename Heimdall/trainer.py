@@ -112,15 +112,11 @@ class HeimdallTrainer:
     def _initialize_wandb(self):
         if self.run_wandb and self.accelerator.is_main_process:
             print("==> Starting a new WANDB run")
-            new_tags = (self.cfg.dataset.dataset_name, self.cfg.f_g.type, self.cfg.fe.type, self.cfg.f_c.type)
-            lr = self.cfg.optimizer.args.lr
-            batch_size = self.cfg.tasks.args.batchsize
-            
-            run_name = f"lr_{lr}_bs_{batch_size}"
+            new_tags = (self.cfg.dataset.dataset_name, self.cfg.fg.type, self.cfg.fe.type, self.cfg.fc.type)
             wandb_config = {
                 "wandb": {
                     "tags": new_tags,
-                    "name": run_name,   #set run name dynamically here
+                    "name": self.cfg.run_name,
                     "entity": self.cfg.entity,
                 },
             }
@@ -129,7 +125,7 @@ class HeimdallTrainer:
                 config=OmegaConf.to_container(self.cfg, resolve=True),
                 init_kwargs=wandb_config,
             )
-            print(f"==> Initialized Run with name: {run_name}")
+            print("==> Initialized Run")
 
     def _initialize_lr_scheduler(self):
         dataset_config = self.cfg.tasks.args
@@ -190,12 +186,62 @@ class HeimdallTrainer:
     def fit(self):
         """This is the main trainer.fit() function that is called for
         training."""
+
+        # If the tracked parameter is specified
+        track_metric = None
+        if self.cfg.tasks.args.get("track_metric", False):
+            track_metric = self.cfg.tasks.args.track_metric
+            best_metric = {
+                f"best_val_{track_metric}": float("-inf"),
+                f"reported_test_{track_metric}": float("-inf"),
+            }
+            assert (
+                track_metric in self.cfg.tasks.args.metrics
+            ), "The tracking metric is not in the list of metrics, please check your configuration task file"
+
+        # Initialize early stopping parameters
+        early_stopping = self.cfg.tasks.args.get("early_stopping", False)
+        early_stopping_patience = self.cfg.tasks.args.get("early_stopping_patience", 5)
+        patience_counter = 0
+
         for epoch in range(self.cfg.tasks.args.epochs):
-            self.validate_model(self.dataloader_val, dataset_type="valid")
-            self.validate_model(self.dataloader_test, dataset_type="test")
+            # Validation and test evaluation
+            valid_log = self.validate_model(self.dataloader_val, dataset_type="valid")
+            test_log = self.validate_model(self.dataloader_test, dataset_type="test")
+
+            # Track the best metric if specified
+            if track_metric:
+                val_metric = valid_log.get(f"valid_{track_metric}", float("-inf"))
+                if val_metric > best_metric[f"best_val_{track_metric}"]:
+                    best_metric[f"best_val_{track_metric}"] = val_metric
+                    print(f"New best validation {track_metric}: {val_metric}")
+                    best_metric["reported_epoch"] = epoch  # log the epoch for convenience
+                    for metric in self.cfg.tasks.args.metrics:
+                        best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
+                        # print(f"Corresponding test {metric}: {best_metric[f'reported_test_{metric}']}")
+                    patience_counter = 0  # Reset patience counter since we have a new best
+                else:
+                    patience_counter += 1
+                    if early_stopping:
+                        print(
+                            f"No improvement in validation {track_metric}. "
+                            f"Patience counter: {patience_counter}/{early_stopping_patience}",
+                        )
+
+            # Check early stopping condition
+            if early_stopping and patience_counter >= early_stopping_patience:
+                print(
+                    f"Early stopping triggered. No improvement in {track_metric} for {early_stopping_patience} epochs.",
+                )
+                break
+
+            # Training for the current epoch
             self.train_epoch(epoch)
 
         if self.run_wandb and self.accelerator.is_main_process:
+            if track_metric:  # logging the best val score and the tracked test scores
+                self.accelerator.log(best_metric)
+
             self.accelerator.end_training()
 
         if self.accelerator.is_main_process:
@@ -212,7 +258,6 @@ class HeimdallTrainer:
         elif self.cfg.loss.name == "CrossEntropyLoss":
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "MSELoss":
-            raise NotImplementedError("Not Fully Implemented Yet, Please Check")
             loss = self.loss_fn(logits, labels)
         else:
             raise NotImplementedError("Only custom, CrossEntropyLoss, and MSELoss are supported right now")
@@ -229,10 +274,15 @@ class HeimdallTrainer:
                 step += 1
                 is_logging = step % log_every == 0
 
+                # breakpoint()
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
                     inputs = (batch["identity_inputs"], batch["expression_inputs"])
-                    outputs = self.model(inputs=inputs, conditional_tokens=batch.get("conditional_tokens"))
+                    outputs = self.model(
+                        inputs=inputs,
+                        conditional_tokens=batch.get("conditional_tokens"),
+                        attention_mask=batch.get("expression_padding"),
+                    )
                     labels = batch["labels"].to(outputs.device)
                     if (masks := batch.get("masks")) is not None:
                         masks = masks.to(outputs.device)
@@ -253,6 +303,7 @@ class HeimdallTrainer:
                         "train_loss": loss.item(),
                         "step": step,
                         "learning_rate": lr,
+                        "epoch": epoch,
                     }
                     if self.run_wandb and self.accelerator.is_main_process:
                         self.accelerator.log(log)
@@ -264,15 +315,16 @@ class HeimdallTrainer:
         self.model.eval()
         metrics = self._initialize_metrics()
         # print(metrics)
-
-        print("VALIDATE \n\n\n")
         loss = 0
 
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
                 inputs = (batch["identity_inputs"], batch["expression_inputs"])
-
-                outputs = self.model(inputs=inputs, conditional_tokens=batch.get("conditional_tokens"))
+                outputs = self.model(
+                    inputs=inputs,
+                    conditional_tokens=batch.get("conditional_tokens"),
+                    attention_mask=batch.get("expression_padding"),
+                )
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
 
@@ -287,6 +339,7 @@ class HeimdallTrainer:
 
                 # print(metrics)
                 # print("---")
+
                 for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
@@ -317,8 +370,8 @@ class HeimdallTrainer:
             if metric_name != "ConfusionMatrix":
                 # Built-in metric
                 log[f"{dataset_type}_{metric_name}"] = metric.compute().item()
-                #if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MatthewsCorrCoef"]:
-                    #log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
+                if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
+                    log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
 
         if "ConfusionMatrix" in metrics and not callable(metrics["ConfusionMatrix"]):
             confusion_matrix = metrics["ConfusionMatrix"].compute()
@@ -335,4 +388,4 @@ class HeimdallTrainer:
         if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
 
-        return log.get(f"{dataset_type}_MatthewsCorrCoef", None)
+        return log

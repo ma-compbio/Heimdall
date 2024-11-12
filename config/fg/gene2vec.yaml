@@ -1,0 +1,10 @@
+type: Heimdall.fg.Gene2VecFg
+
+args:
+  embedding_parameters:
+    type: Heimdall.utils.FlexibleTypeEmbedding
+    constructor: from_pretrained
+    args:
+      embeddings: "gene_embeddings"
+  embedding_filepath: ${data_path}/pretrained_embeddings/gene2vec/gene2vec_genes.txt
+  d_embedding: ${model.args.d_model}

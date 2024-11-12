@@ -10,3 +10,6 @@ args:
     type: Heimdall.datasets.SeqMaskedPretrainDataset
     args:
       mask_ratio: 0.15
+  head_config:
+    type: Heimdall.models.LinearSeqPredHead
+    args: null
