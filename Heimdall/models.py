@@ -324,7 +324,6 @@ class HeimdallTransformer(nn.Module):
 
 class CellPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
-        breakpoint()
         cls_emb = encoder_output[:, 0, :]
         logits = self.decoder(cls_emb.unsqueeze(1)).squeeze(1)
         return TransformerOutput(
