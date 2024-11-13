@@ -96,10 +96,26 @@ class HeimdallModel(nn.Module):
 
         # print(inputs, attention_mask)
         if self.reducer is not None:
+
+            identity_input, expression_input = inputs
+            cell1_identity_input = identity_input[0]
+            cell2_identity_input = identity_input[1]
+
+            cell1_expression_input = expression_input[0]
+            cell2_expression_input = expression_input[0]
+
+            inputs1 = (cell1_identity_input, cell1_expression_input)
+            inputs2 = (cell2_identity_input, cell2_expression_input)
+            cell1_attn_mask = attention_mask[0]
+            cell2_attn_mask = attention_mask[1]
+
             encoded_cells = tuple(
-                self.lm_model(cell_inputs, conditional_tokens, attention_mask=mask)
-                for cell_inputs, mask in zip(inputs, attention_mask)
+                [
+                    self.lm_model(inputs1, conditional_tokens, attention_mask=cell1_attn_mask),
+                    self.lm_model(inputs2, conditional_tokens, attention_mask=cell2_attn_mask),
+                ],
             )
+
             encoded = self.reducer(encoded_cells)
         else:
             encoded = self.lm_model(inputs, conditional_tokens, attention_mask)
@@ -308,6 +324,7 @@ class HeimdallTransformer(nn.Module):
 
 class CellPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
+        breakpoint()
         cls_emb = encoder_output[:, 0, :]
         logits = self.decoder(cls_emb.unsqueeze(1)).squeeze(1)
         return TransformerOutput(
@@ -427,7 +444,7 @@ class AsymmetricConcatReducer(Reducer):
         self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
 
     def forward(self, tensors: list[Tensor]):
-        concatenated = torch.cat(tensors, dim=2)
+        concatenated = torch.cat(tensors, dim=-1)
         return self.pair_embedder(concatenated)
 
 
