@@ -35,7 +35,7 @@ class Fg(ABC):
         self.d_embedding = d_embedding
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
-        self.pad_value = 0 if pad_value is None else pad_value
+        self.pad_value = vocab_size - 2 if pad_value is None else pad_value
 
     @abstractmethod
     def preprocess_embeddings(self):
@@ -130,7 +130,7 @@ class PretrainedFg(Fg, ABC):
         pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
+        super().__init__(adata, embedding_parameters, d_embedding, pad_value, vocab_size)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod

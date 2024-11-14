@@ -224,7 +224,7 @@ class HeimdallTrainer:
                     patience_counter += 1
                     if early_stopping:
                         print(
-                            f"No improvement in validation {track_metric}. Acc {val_metric} "
+                            f"No improvement in validation {track_metric}. "
                             f"Patience counter: {patience_counter}/{early_stopping_patience}",
                         )
 
