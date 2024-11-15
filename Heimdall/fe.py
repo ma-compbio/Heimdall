@@ -40,7 +40,7 @@ class Fe(ABC):
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
 
     @abstractmethod
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Preprocess expression embeddings and store them for use during model
         inference.
 
@@ -94,7 +94,7 @@ class Fe(ABC):
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "expression_embeddings":
-                value = torch.tensor(self.expression_embeddings, dtype=torch.float32)
+                value = torch.tensor(self.expression_embeddings)
             else:
                 continue
 
@@ -121,7 +121,7 @@ class BinningFe(Fe):
         super().__init__(adata, **fe_kwargs)
         self.num_bins = num_bins
 
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Compute bin identities of expression profiles in raw data."""
         self.expression_embeddings = None
 
@@ -135,10 +135,10 @@ class BinningFe(Fe):
 
         n_bins = self.num_bins
         if np.max(expression) == 0:
-            binned_values = csr_array(expression.shape)  # TODO: add correct typing (maybe add to config...?)
+            binned_values = csr_array(expression.shape).astype(
+                float_dtype,
+            )  # TODO: add correct typing (maybe add to config...?)
 
-        # masked_expression = expression.astype(np.float64)
-        # masked_expression[masked_expression == 0] = np.nan
         quantiles = np.linspace(0, 1, n_bins)
         bin_edges = ak.Array(
             [np.quantile(nonzero_expression, quantiles) for nonzero_expression in cellwise_nonzero_expression],
@@ -168,7 +168,7 @@ class NonzeroIdentityFe(Fe):
 
     """
 
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         self.expression_embeddings = None
 
         expression = self.adata.X
@@ -176,7 +176,7 @@ class NonzeroIdentityFe(Fe):
         cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
         cellwise_nonzero_indices = ak.Array(np.split(csr_expression.indices, csr_expression.indptr[1:-1]))
 
-        self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression
+        self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression.astype(float_dtype)
         self.adata.obsm["processed_expression_indices"] = cellwise_nonzero_indices
 
         self.replace_placeholders()
@@ -193,12 +193,12 @@ class DummyFe(Fe):
 
     """
 
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         self.expression_embeddings = None
 
-        expression = self.adata.X.todense() if issparse(self.adata.X) else self.adata.X
+        expression = self.adata.X.toarray() if issparse(self.adata.X) else self.adata.X
 
-        self.adata.obsm["processed_expression_values"] = expression
+        self.adata.obsm["processed_expression_values"] = expression.astype(float_dtype)
         self.adata.obsm["processed_expression_indices"] = np.tile(np.arange(self.num_genes), (self.num_cells, 1))
 
         self.replace_placeholders()
@@ -207,7 +207,7 @@ class DummyFe(Fe):
 class SortingFe(Fe):
     """Sorting Fe."""
 
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Sort genes by expression per cell.
 
         Uses median normalization before sorting (Geneformer style).
@@ -237,6 +237,9 @@ class SortingFe(Fe):
             ],
         )
 
-        self.adata.obsm["processed_expression_values"] = processed_expression_values
-        self.adata.obsm["processed_expression_indices"] = processed_expression_values  # both are the same in this case
+        self.adata.obsm["processed_expression_values"] = ak.values_astype(processed_expression_values, float_dtype)
+        self.adata.obsm["processed_expression_indices"] = ak.values_astype(
+            processed_expression_values,
+            np.int64,
+        )  # both are the same in this case
         self.replace_placeholders()

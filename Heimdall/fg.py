@@ -38,12 +38,15 @@ class Fg(ABC):
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
 
     @abstractmethod
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Preprocess gene embeddings and store them for use during model
         inference.
 
         Preprocessing may include anything from downloading gene embeddings from
         a URL to generating embeddings from scratch.
+
+        Args:
+            float_dtype: dtype to be used for identity embedding state.
 
         Returns:
             Sets `self.gene_embeddings`.
@@ -88,7 +91,7 @@ class Fg(ABC):
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
-                value = torch.tensor(self.gene_embeddings, dtype=torch.float32)  # TODO: pick type correctly?
+                value = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
             else:
                 continue
 
@@ -142,7 +145,7 @@ class PretrainedFg(Fg, ABC):
 
         """
 
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         embedding_map = self.load_embeddings()
 
         first_embedding = next(iter(embedding_map.values()))
@@ -166,7 +169,7 @@ class PretrainedFg(Fg, ABC):
         self.adata.var["identity_embedding_index"] = index_map
         self.adata.var["identity_valid_mask"] = valid_mask.to_numpy()
 
-        self.gene_embeddings = np.zeros((num_mapped_genes, self.d_embedding), dtype=np.float64)
+        self.gene_embeddings = np.zeros((num_mapped_genes, self.d_embedding), dtype=float_dtype)
 
         for gene_name in self.adata.var_names:
             embedding_index = self.adata.var.loc[gene_name, "identity_embedding_index"]
@@ -187,7 +190,7 @@ class IdentityFg(Fg):
 
     """
 
-    def preprocess_embeddings(self):
+    def preprocess_embeddings(self, float_dtype: str = "float32"):
         self.gene_embeddings = None
         self.adata.var["identity_embedding_index"] = np.arange(self.num_genes)
         self.adata.var["identity_valid_mask"] = np.full(self.num_genes, True)

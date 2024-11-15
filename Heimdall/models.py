@@ -96,24 +96,12 @@ class HeimdallModel(nn.Module):
 
         # print(inputs, attention_mask)
         if self.reducer is not None:
-
-            identity_input, expression_input = inputs
-            cell1_identity_input = identity_input[0]
-            cell2_identity_input = identity_input[1]
-
-            cell1_expression_input = expression_input[0]
-            cell2_expression_input = expression_input[0]
-
-            inputs1 = (cell1_identity_input, cell1_expression_input)
-            inputs2 = (cell2_identity_input, cell2_expression_input)
-            cell1_attn_mask = attention_mask[0]
-            cell2_attn_mask = attention_mask[1]
+            all_cell_inputs = zip(*inputs)
+            first_cell_mask, second_cell_mask = attention_mask
 
             encoded_cells = tuple(
-                [
-                    self.lm_model(inputs1, conditional_tokens, attention_mask=cell1_attn_mask),
-                    self.lm_model(inputs2, conditional_tokens, attention_mask=cell2_attn_mask),
-                ],
+                self.lm_model(cell_inputs, conditional_tokens, attention_mask=cell_mask)
+                for cell_inputs, cell_mask in zip(all_cell_inputs, attention_mask)
             )
 
             encoded = self.reducer(encoded_cells)
@@ -149,7 +137,7 @@ class ExpressionOnly(nn.Module):
     def forward(self, inputs, labels=None, conditional_tokens=None, attention_mask=None):
         _, outputs = inputs  # extract expression only
 
-        return outputs.to(torch.float32)  # TODO: better way to align dtype
+        return outputs
 
 
 class HeimdallTransformer(nn.Module):

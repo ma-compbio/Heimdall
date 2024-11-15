@@ -451,6 +451,14 @@ def sample_without_replacement(
     return random_indices
 
 
+def get_dtype(dtype_name: str, backend: str = "torch"):
+    """Retrieve `dtype` object from backend library."""
+
+    dtype, module_name, dtype_name = get_name(f"{backend}.{dtype_name}")
+
+    return dtype
+
+
 class FlexibleTypeLinear(nn.Linear):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
