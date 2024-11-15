@@ -10,7 +10,6 @@ from torch.nn import Module
 
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
-from Heimdall.utils import get_dtype
 
 
 class Fc(ABC):
