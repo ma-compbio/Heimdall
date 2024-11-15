@@ -264,6 +264,19 @@ Run a particular test suite with:
 python -m pytest tests/test_{suite_name}.py
 ```
 
+Run all tests but the integration test:
+
+```bash
+python -m pytest -m 'not integration'
+```
+
+Note: to run the integration test, you'll need to specify the Hydra user using a `.env` file.
+The contents of the file should be like so:
+
+```bash
+HYDRA_USER=test
+```
+
 ## Turning off caching
 
 To turn off dataset caching for dev purposes,

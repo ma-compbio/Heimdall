@@ -10,6 +10,7 @@ from torch.nn import Module
 
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
+from Heimdall.utils import get_dtype
 
 
 class Fc(ABC):
@@ -36,7 +37,7 @@ class Fc(ABC):
         self.adata = adata
         self.max_input_length = max_input_length
 
-    def preprocess_cells(self):
+    def preprocess_cells(self, float_dtype: str = "float32"):
         """Using the `fg` and `fe`, preprocess input cells, retrieve indices of
         both gene and expression embeddings.
 
@@ -64,8 +65,8 @@ class Fc(ABC):
             [self.fg[gene_list] for gene_list in gene_lists],
         )
 
-        self.adata.obsm["cell_identity_inputs"] = cell_identity_inputs
-        self.adata.obsm["cell_expression_inputs"] = processed_expression_values
+        self.adata.obsm["cell_identity_inputs"] = ak.values_astype(cell_identity_inputs, float_dtype)
+        self.adata.obsm["cell_expression_inputs"] = ak.values_astype(processed_expression_values, float_dtype)
 
     def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray, NDArray]:
         """Retrieve `cell_identity_inputs`, `cell_expression_inputs` and
@@ -88,6 +89,7 @@ class Fc(ABC):
         # Padding and truncating
         identity_inputs, expression_inputs = self.tailor(
             identity_inputs,
+            # using @hydra.main so that we can take in command line arguments
             expression_inputs,
         )
 

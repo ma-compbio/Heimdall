@@ -56,6 +56,7 @@ def paired_task_config(request, toy_paried_data_path):
     run_name: run_name
     work_dir: work_dir
     seed: 42
+    float_dtype: 'float32'
     data_path: null
     ensembl_dir: null
     cache_preprocessed_dataset_dir: null
@@ -166,6 +167,7 @@ def single_task_config(toy_single_data_path):
     run_name: run_name
     work_dir: work_dir
     seed: 42
+    float_dtype: 'float32'
     data_path: null
     ensembl_dir: null
     cache_preprocessed_dataset_dir: null

@@ -1,3 +1,6 @@
+# .env files for python-dotenv
+*.env
+
 .local_nvim_session
 .swp
 

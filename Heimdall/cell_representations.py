@@ -90,6 +90,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.optimizer_cfg = config.optimizer
         self.trainer_cfg = config.trainer
         self.scheduler_cfg = config.scheduler
+        self.float_dtype = config.float_dtype
         self.adata = None
         self.processed_fcfg = False
 
@@ -430,7 +431,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
-        self.fc.preprocess_cells()
+        self.fc.preprocess_cells(self.float_dtype)
         print(f"> Finished calculating fc with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
