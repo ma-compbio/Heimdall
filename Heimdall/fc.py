@@ -204,7 +204,6 @@ class GeneformerFc(Fc):
             expression_embedding_layer: # TODO fill out
 
         """
-
         embeddings = gene_embedding_layer(identity_inputs)
 
         return embeddings
