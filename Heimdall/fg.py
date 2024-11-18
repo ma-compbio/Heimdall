@@ -29,6 +29,7 @@ class Fg(ABC):
         vocab_size: int,
         pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
+        frozen: bool = False,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
@@ -37,6 +38,7 @@ class Fg(ABC):
         self.vocab_size = vocab_size
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
         self.mask_value = vocab_size - 1 if pad_value is None else pad_value
+        self.frozen = frozen
 
     @abstractmethod
     def preprocess_embeddings(self, float_dtype: str = "float32"):
@@ -176,10 +178,10 @@ class PretrainedFg(Fg, ABC):
                 "dimensionality to be compatible with the pretrained embeddings.",
             )
 
-        if len(first_embedding) > self.self.d_embedding:
+        if len(first_embedding) > self.d_embedding:
             print(
                 f"> Warning, the FG embedding dim is {first_embedding.shape} is larger than the model "
-                "dim {self.self.d_embedding}, truncation may occur.",
+                "dim {self.d_embedding}, truncation may occur.",
             )
 
         valid_gene_names = list(embedding_map.keys())

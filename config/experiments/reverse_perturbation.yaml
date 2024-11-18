@@ -21,7 +21,7 @@ defaults:
 
 
 project_name: "reverse_perturbation" #project name for WandB
-run_name: test01  ## what is set for WandB
+run_name: ${fg.type}_${fe.type}_${fc.type}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}  ## what is set for WandB
 work_dir: work_dir  ## set your custom working directory
 
 

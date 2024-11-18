@@ -184,6 +184,10 @@ class HeimdallTransformer(nn.Module):
         # Setting up embedding layers
         if data.fg.d_embedding is not None:
             self.gene_embeddings = instantiate_from_config(data.fg.embedding_parameters)
+            if data.fg.frozen:
+                print("> Freezing all params in F_g")
+                for param in self.gene_embeddings.parameters():
+                    param.requires_grad = False
         else:
             self.gene_embeddings = None
 

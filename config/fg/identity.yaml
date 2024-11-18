@@ -6,3 +6,4 @@ args:
       num_embeddings: "vocab_size"
       embedding_dim: ${fg.args.d_embedding}
   d_embedding: ${model.args.d_model}
+  frozen: False

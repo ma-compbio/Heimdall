@@ -8,3 +8,4 @@ args:
       d_model: ${model.args.d_model}
   embedding_filepath: ${data_path}/pretrained_embeddings/gene2vec/gene2vec_genes.txt
   d_embedding: 200
+  frozen: False
