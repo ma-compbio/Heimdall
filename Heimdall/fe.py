@@ -94,7 +94,29 @@ class Fe(ABC):
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "expression_embeddings":
-                value = torch.tensor(self.expression_embeddings)
+                expression_embeddings = torch.tensor(self.expression_embeddings)  # TODO: type is inherited from NDArray
+                pad_vector = torch.zeros(
+                    1,
+                    expression_embeddings.shape[1],
+                )  # Create a dummy vector with shape (1, dim) for padding
+                mask_vector = torch.zeros(
+                    1,
+                    expression_embeddings.shape[1],
+                )  # Create a dummy vector with shape (1, dim) for a mask vector if used
+                value = torch.cat(
+                    (expression_embeddings, pad_vector, mask_vector),
+                    dim=0,
+                )  # Concatenate along the num_genes x dimension
+                self.pad_value = value.shape[0] - 2
+                self.mask_value = value.shape[0] - 1
+                print(
+                    f"> Loading Pretrained Fe Embeddings... Padding Pad and Mask Embeds,"
+                    f" Fe Embedding SHAPE: {value.shape}",
+                )
+            elif value == "num_bins":
+                value = self.num_bins + 2
+                self.pad_value = value - 2
+                self.mask_value = value - 1
             else:
                 continue
 

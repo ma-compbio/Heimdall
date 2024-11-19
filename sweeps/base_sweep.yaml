@@ -6,9 +6,12 @@ metric:
 method: grid # or random or bayes
 parameters:
   optimizer.args.lr:
-    values: [1e-2, 5e-3 ,1e-3, 5e-4, 1e-4]
+    # values: [1e-2, 5e-3 ,1e-3, 5e-4, 1e-4]
+    # values: [1e-3, 5e-4, 1e-4, 5e-4, 1e-5]
+    values: [3e-3, 3e-4, 3e-5]
+
   tasks.args.batchsize:
-    values: [32, 64, 128, 256]
+    values: [32, 64, 128]
 
 # count:20 ## if you are interested in limiting the number of runs
 
@@ -17,8 +20,8 @@ command:
 # - ${interpreter}
 # - --num_processes=4
 # - +experiments=zheng68k
-- accelerate
-- launch
-- --mixed_precision=bf16
-- ${program}
-- ${args_no_hyphens}
+  - accelerate
+  - launch
+  - --mixed_precision=bf16
+  - ${program}
+  - ${args_no_hyphens}

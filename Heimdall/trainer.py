@@ -183,6 +183,20 @@ class HeimdallTrainer:
                         metrics[metric_name] = R2Score()
                     elif metric_name == "MSE":
                         metrics[metric_name] = MeanSquaredError()
+        elif task_type == "binary":
+            num_labels = self.num_labels
+            for metric_name in self.cfg.tasks.args.metrics:
+                if metric_name not in metrics:
+                    if metric_name == "Accuracy":
+                        metrics[metric_name] = Accuracy(task="multilabel", num_labels=num_labels)
+                    elif metric_name == "Precision":
+                        metrics[metric_name] = Precision(task="multilabel", num_labels=num_labels, average="macro")
+                    elif metric_name == "Recall":
+                        metrics[metric_name] = Recall(task="multilabel", num_labels=num_labels, average="macro")
+                    elif metric_name == "F1Score":
+                        metrics[metric_name] = F1Score(task="multilabel", num_labels=num_labels, average="macro")
+                    elif metric_name == "MatthewsCorrCoef":
+                        metrics[metric_name] = MatthewsCorrCoef(task="multilabel", num_labels=num_labels)
 
         return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
@@ -277,7 +291,6 @@ class HeimdallTrainer:
                 step += 1
                 is_logging = step % log_every == 0
 
-                # breakpoint()
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
                     inputs = (batch["identity_inputs"], batch["expression_inputs"])
@@ -342,11 +355,13 @@ class HeimdallTrainer:
 
                 # print(metrics)
                 # print("---")
-
                 for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
                     # print(metric_name)
+                    if self.cfg.tasks.args.task_type in ["multiclass", "binary"]:
+                        labels = labels.to(torch.int)
+
                     metric.update(logits, labels)
                     # if callable(metric):
                     #     # Custom metric

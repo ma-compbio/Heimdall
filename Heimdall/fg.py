@@ -154,6 +154,7 @@ class PretrainedFg(Fg, ABC):
         vocab_size: int,
         pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
+        frozen: bool = False,
     ):
         super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
         self.embedding_filepath = embedding_filepath

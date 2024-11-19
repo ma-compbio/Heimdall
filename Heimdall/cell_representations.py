@@ -190,7 +190,7 @@ class CellRepresentation(SpecialTokenMixin):
     def get_preprocessed_data_path(self):
         preprocessed_data_path = preprocessed_cfg_path = cfg = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-            cfg = DictConfig(OmegaConf.to_container(self._cfg.dataset, resolve=True))
+            cfg = DictConfig(OmegaConf.to_container(self._cfg, resolve=True))
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
                 cfg,
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
