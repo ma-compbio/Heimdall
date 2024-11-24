@@ -8,6 +8,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Update YAML for a sweep and provide run command")
     parser.add_argument("--commands", type=str, required=True, help="Commands as a single space-separated string")
     parser.add_argument("--project-name", type=str, default="test", help="The project name in WandB")
+    parser.add_argument("--precision", type=str, default="bf16", help="precision")
 
     args = parser.parse_args()
     return args
@@ -15,8 +16,13 @@ def parse_arguments():
 
 def update_yaml(args):
     # Load the YAML file
-    with open("sweeps/base_sweep.yaml") as file:
-        data = yaml.safe_load(file)
+
+    if args.precision == "bf16":
+        with open("sweeps/base_sweep.yaml") as file:
+            data = yaml.safe_load(file)
+    else:
+        with open("sweeps/fp_base_sweep.yaml") as file:
+            data = yaml.safe_load(file)
 
     # Split the commands by spaces and add each as an entry in data['command']
     commands = args.commands.split()

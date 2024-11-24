@@ -202,7 +202,7 @@ class HeimdallTransformer(nn.Module):
         elif pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
         elif pos_enc == "none" or pos_enc == "NONE":
-            self.positional_embeddings = None
+            self.position_embeddings = None
         else:
             raise ValueError("pos_enc canonly be: BERT")
 
@@ -271,7 +271,6 @@ class HeimdallTransformer(nn.Module):
             torch.tensor: The predicted outputs before cross entropy loss.
 
         """
-
         identity_inputs, expression_inputs = inputs
 
         input_embeds = self.fc.embed_cells(

@@ -4,7 +4,7 @@ args:
   embedding_parameters:
     type: Heimdall.utils.ScGPTCategoryValueEncoder # TODO: replace this with the actual scGPT ValueEncoder: https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/scgpt/model/model.py#L765
     args:
-      num_embeddings: 10 # this is the number of bins
+      num_embeddings: "num_bins" # this is the number of bins
       embedding_dim: ${fe.args.d_embedding}
   num_bins: 10 ## also the number of bins
   d_embedding: ${model.args.d_model}
