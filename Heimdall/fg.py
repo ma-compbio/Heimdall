@@ -36,7 +36,6 @@ class Fg(ABC):
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
-        self.mask_value = vocab_size - 1 if pad_value is None else pad_value
 
     @abstractmethod
     def preprocess_embeddings(self, float_dtype: str = "float32"):
@@ -86,32 +85,13 @@ class Fg(ABC):
     def replace_placeholders(self):
         """Replace config placeholders with values after preprocessing."""
         args = self.embedding_parameters.get("args", {})
-
         for key, value in args.items():
             if value == "max_seq_length":
                 value = len(self.adata.var)
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
-                gene_embeddings = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
-                pad_vector = torch.zeros(
-                    1,
-                    gene_embeddings.shape[1],
-                )  # Create a dummy vector with shape (1, dim) for padding
-                mask_vector = torch.zeros(
-                    1,
-                    gene_embeddings.shape[1],
-                )  # Create a dummy vector with shape (1, dim) for a mask vector if used
-                value = torch.cat(
-                    (gene_embeddings, pad_vector, mask_vector),
-                    dim=0,
-                )  # Concatenate along the num_genes x dimension
-                self.pad_value = value.shape[0] - 2
-                self.mask_value = value.shape[0] - 1
-                print(
-                    f"> Loading Pretrained Fg Embeddings... Padding Pad and Mask Embeds,"
-                    f" Fg Embedding SHAPE: {value.shape}",
-                )
+                value = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
             else:
                 continue
 
@@ -153,7 +133,7 @@ class PretrainedFg(Fg, ABC):
         pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
+        super().__init__(adata, embedding_parameters, d_embedding, pad_value, vocab_size)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod
@@ -174,12 +154,6 @@ class PretrainedFg(Fg, ABC):
                 f"Dimensionality of pretrained embeddings ({len(first_embedding)} is less than the embedding "
                 "dimensionality specified in the config ({self.d_embedding}). Please decrease the embedding"
                 "dimensionality to be compatible with the pretrained embeddings.",
-            )
-
-        if len(first_embedding) > self.self.d_embedding:
-            print(
-                f"> Warning, the FG embedding dim is {first_embedding.shape} is larger than the model "
-                "dim {self.self.d_embedding}, truncation may occur.",
             )
 
         valid_gene_names = list(embedding_map.keys())
