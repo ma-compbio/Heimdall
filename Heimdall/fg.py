@@ -222,3 +222,19 @@ class Gene2VecFg(PretrainedFg):
         }
 
         return raw_gene_embedding_map
+
+class HyenaDNAFg(PretrainedFg):
+    """Mapping of gene names to pretrained HyenaDNA embeddings. 
+    
+    Embeddings are stored in the same format as ESM2.
+    
+    """
+
+    def load_embeddings(self):
+        raw_gene_embedding_map = torch.load(self.embedding_filepath)
+
+        raw_gene_embedding_map = {
+            gene_name: embedding.detach().cpu().numpy() for gene_name, embedding in raw_gene_embedding_map.items()
+        }
+
+        return raw_gene_embedding_map
