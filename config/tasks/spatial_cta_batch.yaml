@@ -6,6 +6,7 @@ args:
     - MatthewsCorrCoef
   splits:
     type: predefined
+    col: split
     keys_:
       train: train
       val: val

@@ -12,6 +12,7 @@ args:
   epochs: 50
   splits:
     type: predefined
+    col: split
     keys_:
       train: train
       val: val
