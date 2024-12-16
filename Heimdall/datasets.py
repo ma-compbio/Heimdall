@@ -142,7 +142,10 @@ class SingleInstanceDataset(Dataset):
 
         elif (split_type := dataset_task_cfg.splits.type) == "predefined":
             self.splits = {}
-            split_col = adata.obs["split"]
+            if hasattr(dataset_task_cfg.splits, "col"):
+                split_col = adata.obs[dataset_task_cfg.splits.col]
+            else:
+                split_col = adata.obs["split"]
             for split in self.SPLITS:
                 if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
                     warnings.warn(

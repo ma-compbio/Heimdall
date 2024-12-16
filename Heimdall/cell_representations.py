@@ -268,6 +268,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         if get_value(self.dataset_preproc_cfg, "scale_data"):
             # Scale the data
+            raise NotImplementedError("Scaling the data is NOT RECOMMENDED, please set it to false")
             print("> Scaling the data...")
             sc.pp.scale(self.adata, max_value=10)
         else:

@@ -39,11 +39,19 @@ class Fc(ABC):
         self.max_input_length = max_input_length
 
     def preprocess_cells(self, float_dtype: str = "float32"):
-        # breakpoint()
+        # assert issparse(self.adata.X), "Input data must be sparse, either CSR or CSC to conserve mem, please check"
+        if not issparse(self.adata.X):
+            print(
+                "> Data was provided NOT in sparse format, converting to CSR."
+                " Please consider pre-computing it to save memory.",
+            )
+            self.adata.X = csr_matrix(self.adata.X)
+
         if issparse(self.adata.X) and not isinstance(self.adata.X, csr_matrix):
             self.adata.X = self.adata.X.tocsr()
         return
 
+    @deprecate
     def old_forward(self, float_dtype: str = "float32"):
         """Using the `fg` and `fe`, preprocess input cells, retrieve indices of
         both gene and expression embeddings.
