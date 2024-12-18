@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 from torch import Tensor
-from torch.nn import functional as F
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.datasets import PairedInstanceDataset
@@ -247,7 +246,7 @@ class FlashAttentionTransformerEncoderLayer(nn.Module):
             src = src + self.dropout1(src2)
 
             src = self.norm2(src)
-            src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
+            src2 = self.linear2(self.dropout(torch.nn.F.relu(self.linear1(src))))
             src = src + self.dropout2(src2)
         else:
             with torch.backends.cuda.sdp_kernel(enable_flash=True):
@@ -260,7 +259,7 @@ class FlashAttentionTransformerEncoderLayer(nn.Module):
                 )[0]
             src = src + self.dropout1(src2)
             src = self.norm1(src)
-            src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
+            src2 = self.linear2(self.dropout(torch.nn.F.relu(self.linear1(src))))
             src = src + self.dropout2(src2)
             src = self.norm2(src)
 
