@@ -1,9 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "Heimdall"
-version = "0.0.1"
+dynamic = ["version"]
 
-[tool.setuptools.packages.find]
-where = ["."]
+authors = [
+  { name="Remy Liu"},
+  { name="Nicholas Ho"},
+  { name="Shahul Alam", email="alam.shahul@gmail.com" },
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "Heimdall/*.py",
+]
+
+[tool.hatch.build.targets.wheel]
+include = [
+  "Heimdall/*.py",
+]
+
+[tool.hatch.version]
+path = "Heimdall/__about__.py"
 
 [tool.flake8]
 max-line-length = 120
