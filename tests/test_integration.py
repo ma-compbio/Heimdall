@@ -27,15 +27,12 @@ def test_default_hydra_train():
 
     cr = CellRepresentation(config)  # takes in the whole config from hydra
 
-    conditional_input_types = None
-
     float_dtype = get_dtype(config.float_dtype)
 
     model = HeimdallModel(
         data=cr,
         model_config=config.model,
         task_config=config.tasks.args,
-        conditional_input_types=conditional_input_types,
     ).to(float_dtype)
 
     num_params = count_parameters(model)

@@ -424,6 +424,9 @@ def sample_without_replacement(
 def get_dtype(dtype_name: str, backend: str = "torch"):
     """Retrieve `dtype` object from backend library."""
 
+    if backend == "torch" and dtype_name == "float16":
+        dtype_name = "bfloat16"  # Promote float16 dtype for Torch backend
+
     dtype, module_name, dtype_name = get_name(f"{backend}.{dtype_name}")
 
     return dtype

@@ -378,7 +378,14 @@ class CellRepresentation(SpecialTokenMixin):
             vocab_size=self.sequence_length + 2,
             return_name=True,
         )
-        self.fc, fc_name = instantiate_from_config(self.fc_cfg, self.fg, self.fe, self.adata, return_name=True)
+        self.fc, fc_name = instantiate_from_config(
+            self.fc_cfg,
+            self.fg,
+            self.fe,
+            self.adata,
+            float_dtype=self.float_dtype,
+            return_name=True,
+        )
 
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = DictConfig(
@@ -431,7 +438,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
-        self.fc.preprocess_cells(self.float_dtype)
+        self.fc.preprocess_cells()
         print(f"> Finished calculating fc with {self.fc_cfg.type}")
         self.processed_fcfg = True
 

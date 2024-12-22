@@ -5,7 +5,7 @@ args:
   pos_enc: BERT
   pooling: cls_pooling
   encoder_layer_parameters:
-    type: Heimdall.models.FlashAttentionTransformerEncoderLayer
+    type: Heimdall.flash_attention_models.FlashAttentionTransformerEncoderLayer
     args:
       d_model: ${model.args.d_model}
       nhead: 4
@@ -15,6 +15,6 @@ args:
       batch_first: True
       norm_first: True
   encoder_parameters:
-    type: Heimdall.models.FlashAttentionTransformerEncoder
+    type: Heimdall.flash_attention_models.FlashAttentionTransformerEncoder
     args:
       num_layers: 6
