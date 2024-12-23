@@ -50,6 +50,8 @@ def test_identity_fg(mock_dataset):
 
     embedding_indices = identity_fg[gene_names]
     assert np.allclose(embedding_indices, np.arange(len(gene_names)))
+    assert identity_fg.pad_value == 4
+    assert identity_fg.mask_value == 5
 
 
 def test_esm2_fg(mock_dataset):
@@ -89,6 +91,9 @@ def test_esm2_fg(mock_dataset):
     embeddings = esm2_fg.gene_embeddings[embedding_indices]
     assert np.allclose(embeddings[:, 0], expected_valid_values)
 
+    assert esm2_fg.pad_value == 4
+    assert esm2_fg.mask_value == 5
+
 
 def test_gene2vec_fg(mock_dataset):
     config = OmegaConf.create(
@@ -125,3 +130,5 @@ def test_gene2vec_fg(mock_dataset):
     embedding_indices = gene2vec_fg[gene_names[valid_gene_mask]]
     embeddings = gene2vec_fg.gene_embeddings[embedding_indices]
     assert np.allclose(embeddings[:, 0], expected_valid_values)
+    assert gene2vec_fg.pad_value == 4
+    assert gene2vec_fg.mask_value == 5

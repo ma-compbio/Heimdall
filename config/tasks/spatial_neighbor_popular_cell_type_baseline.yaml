@@ -9,9 +9,9 @@ args:
   train_split: 0.8
   shuffle: True
   batchsize: 32
-  epochs: 10
+  epochs: 20
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
   head_config:
-    type: Heimdall.models.LinearCellPredHead
+    type: Heimdall.models.ExpressionOnlyCellPredHead
     args: null

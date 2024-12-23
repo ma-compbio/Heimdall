@@ -20,5 +20,5 @@ args:
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
   head_config:
-    type: Heimdall.models.LinearCellPredHead
+    type: Heimdall.models.ExpressionOnlyCellPredHead
     args: null

@@ -3,11 +3,13 @@ import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
+import torch
 from omegaconf import OmegaConf
 from pytest import fixture
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.models import HeimdallModel
+from Heimdall.utils import get_dtype
 
 
 @fixture(scope="module")
@@ -67,13 +69,21 @@ def paired_task_config(request, toy_paried_data_path):
       args:
         d_model: 128
         pos_enc: BERT
-        num_encoder_layers: 2
-        nhead: 2
-        hidden_act: gelu
-        hidden_dropout_prob: 0.1
-        attention_probs_dropout_prob: 0.1
-        use_flash_attn: False
-        pooling: cls_pooling # or "mean_pooling"
+        pooling: cls_pooling
+        encoder_layer_parameters:
+          type: torch.nn.TransformerEncoderLayer
+          args:
+            d_model: 128
+            nhead: 2
+            activation: gelu
+            dropout: 0.1
+            dim_feedforward: 512
+            batch_first: True
+            norm_first: True
+        encoder_parameters:
+          type: torch.nn.TransformerEncoder
+          args:
+            num_layers: 2
     dataset:
       dataset_name: zeng_merfish_ccc_subset
       preprocess_args:
@@ -137,7 +147,7 @@ def paired_task_config(request, toy_paried_data_path):
       type: Heimdall.fe.SortingFe
       args:
         embedding_parameters:
-          type: Heimdall.utils.FlexibleTypeEmbedding
+          type: Heimdall.embedding.FlexibleTypeEmbedding
           args:
             num_embeddings: "max_seq_length"
             embedding_dim: 128
@@ -147,7 +157,7 @@ def paired_task_config(request, toy_paried_data_path):
       type: Heimdall.fg.IdentityFg
       args:
         embedding_parameters:
-          type: Heimdall.utils.FlexibleTypeEmbedding
+          type: Heimdall.embedding.FlexibleTypeEmbedding
           args:
             num_embeddings: "vocab_size"
             embedding_dim: 128
@@ -249,11 +259,13 @@ def single_task_config(toy_single_data_path):
 def instantiate_and_run_model(config):
     cr = CellRepresentation(config)  # takes in the whole config from hydra
 
+    float_dtype = get_dtype(config.float_dtype)
+
     model = HeimdallModel(
         data=cr,
         model_config=config.model,
         task_config=config.tasks.args,
-    )
+    ).to(float_dtype)
 
     # Test execution
     batch = next(iter(cr.dataloaders["train"]))

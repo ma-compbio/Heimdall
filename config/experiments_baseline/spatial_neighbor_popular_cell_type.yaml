@@ -5,8 +5,8 @@
 ####
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: zheng68k # dataset for the relevant task
-  - override /tasks: cell_type_annotation # dataset for the relevant task
+  - override /dataset: spatial_neighbor # dataset for the relevant task
+  - override /tasks: spatial_neighbor_popular_cell_type_baseline # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
@@ -19,10 +19,10 @@ defaults:
 ####
 
 
-project_name: cta_zheng68k #project name for WandB
-run_name: ${fg.type}_${fe.type}_${fc.type}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}  ## what is set for WandB
-work_dir: work_dir  ## set your custom working directory
-entity: Heimdall
+project_name: 'spatial_neighbor_popular_cell_type_test' #project name for WandB
+run_name: ${fg.type}_${fe.type}_${fc.type}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize} # what is set for WandB
+work_dir: 'work_dir'  ## set your custom working directory
+
 
 seed: 55
 

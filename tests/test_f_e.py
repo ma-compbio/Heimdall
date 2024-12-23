@@ -132,7 +132,7 @@ def zero_expression_sorting_fe(zero_expression_mock_dataset):
 def binning_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": 6,
+            "vocab_size": int(np.max(mock_dataset.X)) + 2,
             "embedding_parameters": {
                 "type": "Heimdall.utils.FlexibleTypeLinear",
                 "args": {
@@ -141,7 +141,6 @@ def binning_fe(mock_dataset):
                 },
             },
             "d_embedding": 128,
-            "pad_value": 0,
             "num_bins": int(np.max(mock_dataset.X)),
         },
     )
@@ -163,7 +162,6 @@ def zero_expression_binning_fe(zero_expression_mock_dataset):
                 },
             },
             "d_embedding": 128,
-            "pad_value": 0,
             "num_bins": int(np.max(zero_expression_mock_dataset.X)),
         },
     )
@@ -192,6 +190,9 @@ def test_sorting_fe(identity_fg, sorting_fe):
     )
 
     assert np.allclose(expected, output)
+
+    assert sorting_fe.pad_value == 4
+    assert sorting_fe.mask_value == 5
 
 
 def test_zero_expression_sorting_fe(zero_expression_identity_fg, zero_expression_sorting_fe):
@@ -225,6 +226,9 @@ def test_zero_expression_sorting_fe(zero_expression_identity_fg, zero_expression
     assert np.allclose(expected, output)
     assert np.allclose(padded_expected, padded_output)
 
+    assert zero_expression_sorting_fe.pad_value == 4
+    assert zero_expression_sorting_fe.mask_value == 5
+
 
 def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression_binning_fe):
     zero_expression_identity_fg.preprocess_embeddings()
@@ -257,6 +261,9 @@ def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression
     assert np.allclose(expected, output)
     assert np.allclose(padded_expected, padded_output)
 
+    assert zero_expression_binning_fe.pad_value == zero_expression_binning_fe.num_bins
+    assert zero_expression_binning_fe.mask_value == zero_expression_binning_fe.num_bins + 1
+
 
 def test_binning_fe(identity_fg, binning_fe):
     identity_fg.preprocess_embeddings()
@@ -267,3 +274,6 @@ def test_binning_fe(identity_fg, binning_fe):
     expected = binning_fe.adata.X
 
     assert np.allclose(expected, output)
+
+    assert binning_fe.pad_value == binning_fe.num_bins
+    assert binning_fe.mask_value == binning_fe.num_bins + 1

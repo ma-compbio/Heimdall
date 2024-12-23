@@ -1,7 +1,6 @@
 import hashlib
 import importlib
 import json
-import math
 import uuid
 import warnings
 from collections import defaultdict
@@ -16,8 +15,6 @@ import mygene
 import numpy as np
 import pandas as pd
 import requests
-import torch
-import torch.nn as nn
 from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
@@ -131,33 +128,6 @@ def instantiate_from_config(
 
 def get_value(dictionary, key, default=False):
     return dictionary.get(key, default)
-
-
-class PositionalEncoding(torch.nn.Module):
-
-    def __init__(self, d_model: int, max_len: int = 5000, dropout: float = 0.0):  # , dropout: float = 0.1
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        pe = torch.einsum("sbe->bse", pe)
-        self.register_buffer("pe", pe)
-
-    def forward(self, x):
-        """Forward function.
-
-        Args:
-            x: Tensor, shape ``[batch_size , seq_len, embedding_dim]``
-
-        """
-        # x = x + self.pe[:x.size(0)]
-        x = x + self.pe[:, : x.size(1)]  # Broadcasting to match input shape
-        x = self.dropout(x)
-        return x
 
 
 def count_parameters(model):
@@ -454,20 +424,9 @@ def sample_without_replacement(
 def get_dtype(dtype_name: str, backend: str = "torch"):
     """Retrieve `dtype` object from backend library."""
 
+    if backend == "torch" and dtype_name == "float16":
+        dtype_name = "bfloat16"  # Promote float16 dtype for Torch backend
+
     dtype, module_name, dtype_name = get_name(f"{backend}.{dtype_name}")
 
     return dtype
-
-
-class FlexibleTypeLinear(nn.Linear):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.dtype = self.weight.dtype
-
-    def forward(self, inputs: torch.Tensor):
-        return super().forward(inputs.type(self.dtype).unsqueeze(-1))
-
-
-class FlexibleTypeEmbedding(nn.Embedding):
-    def forward(self, idx: torch.Tensor):
-        return super().forward(idx.type(torch.long))

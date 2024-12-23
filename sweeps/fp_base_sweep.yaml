@@ -20,8 +20,6 @@ command:
 # - ${interpreter}
 # - --num_processes=4
 # - +experiments=zheng68k
-  - accelerate
-  - launch
-  - --mixed_precision=bf16
+  - python
   - ${program}
   - ${args_no_hyphens}

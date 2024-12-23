@@ -28,7 +28,8 @@ class Fg(ABC):
         d_embedding: int,
         vocab_size: int,
         pad_value: int = None,
-        embedding_filepath: Optional[str | PathLike] = None,
+        mask_value: int = None,
+        frozen: bool = False,
     ):
         self.adata = adata
         _, self.num_genes = adata.shape
@@ -36,6 +37,8 @@ class Fg(ABC):
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
+        self.mask_value = vocab_size - 1 if mask_value is None else mask_value
+        self.frozen = frozen
 
     @abstractmethod
     def preprocess_embeddings(self, float_dtype: str = "float32"):
@@ -82,16 +85,20 @@ class Fg(ABC):
         else:
             return embedding_indices
 
-    def replace_placeholders(self):
+    def prepare_embedding_parameters(self):
         """Replace config placeholders with values after preprocessing."""
         args = self.embedding_parameters.get("args", {})
+
         for key, value in args.items():
             if value == "max_seq_length":
                 value = len(self.adata.var)
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
-                value = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
+                gene_embeddings = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
+                pad_vector = torch.zeros(1, self.d_embedding)
+                mask_vector = torch.zeros(1, self.d_embedding)
+                value = torch.cat((gene_embeddings, pad_vector, mask_vector), dim=0)
             else:
                 continue
 
@@ -110,7 +117,7 @@ class Fg(ABC):
         self.adata.var["identity_valid_mask"] = identity_valid_mask
         self.gene_embeddings = gene_embeddings
 
-        self.replace_placeholders()
+        self.prepare_embedding_parameters()
 
 
 class PretrainedFg(Fg, ABC):
@@ -128,12 +135,10 @@ class PretrainedFg(Fg, ABC):
         self,
         adata: ad.AnnData,
         embedding_parameters: OmegaConf,
-        d_embedding: int,
-        vocab_size: int,
-        pad_value: int = None,
         embedding_filepath: Optional[str | PathLike] = None,
+        **fg_kwargs,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding, pad_value, vocab_size)
+        super().__init__(adata, embedding_parameters, **fg_kwargs)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod
@@ -156,6 +161,12 @@ class PretrainedFg(Fg, ABC):
                 "dimensionality to be compatible with the pretrained embeddings.",
             )
 
+        if len(first_embedding) > self.d_embedding:
+            print(
+                f"> Warning, the FG embedding dim is {first_embedding.shape} is larger than the model "
+                "dim {self.d_embedding}, truncation may occur.",
+            )
+
         valid_gene_names = list(embedding_map.keys())
 
         valid_mask = pd.array(np.isin(self.adata.var_names.values, valid_gene_names))
@@ -176,7 +187,7 @@ class PretrainedFg(Fg, ABC):
             if not pd.isna(embedding_index):
                 self.gene_embeddings[embedding_index] = embedding_map[gene_name][: self.d_embedding]
 
-        self.replace_placeholders()
+        self.prepare_embedding_parameters()
 
         print(f"Found {len(valid_indices)} genes with mappings out of {len(self.adata.var_names)} genes.")
 
@@ -195,7 +206,7 @@ class IdentityFg(Fg):
         self.adata.var["identity_embedding_index"] = np.arange(self.num_genes)
         self.adata.var["identity_valid_mask"] = np.full(self.num_genes, True)
 
-        self.replace_placeholders()
+        self.prepare_embedding_parameters()
 
 
 class ESM2Fg(PretrainedFg):

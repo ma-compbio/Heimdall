@@ -1,4 +1,4 @@
-type: Heimdall.fe.RawVals
+type: Heimdall.fe.BinningFe
 
 args:
   embedding_parameters:
@@ -6,4 +6,6 @@ args:
     args:
       in_features: 1 # Replace later
       out_features: ${fe.args.d_embedding}
+  num_bins: 10 # Number of bins
   d_embedding: ${model.args.d_model}
+  pad_value: 0
