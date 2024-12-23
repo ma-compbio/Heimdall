@@ -12,6 +12,36 @@ authors = [
   { name="Shahul Alam", email="alam.shahul@gmail.com" },
 ]
 
+dependencies = [  # TODO: check which are necessary
+    "accelerate",
+    "anndata>=0.11.0rc3",
+    "hydra-core",
+    "numpy",
+    "omegaconf",
+    "packaging",
+    "pandas",
+    "wandb",
+    "tqdm",
+    "scanpy",
+    "scikit-learn",
+    "scipy",
+    "torchmetrics",
+    "transformers",
+    "datasets",
+    "einops",
+    "mygene",
+    "awkward",
+]
+description = "Popari: a probabilistic graphical model for integrated spatial transcriptomics analysis"
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
 [tool.hatch.build.targets.sdist]
 include = [
   "Heimdall/*.py",
