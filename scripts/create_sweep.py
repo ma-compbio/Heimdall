@@ -46,7 +46,7 @@ def create_and_run_sweep(args):
 
 def main():
     args = parse_arguments()
-    data = update_yaml(args)
+    update_yaml(args)
     create_and_run_sweep(args)
 
 
