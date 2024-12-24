@@ -1,0 +1,10 @@
+type: Heimdall.fg.HyenaDNAFg
+
+args:
+  embedding_parameters:
+    type: Heimdall.utils.FlexibleTypeEmbedding
+    constructor: from_pretrained
+    args:
+      embeddings: "gene_embeddings"
+  embedding_filepath: ${data_path}/pretrained_embeddings/DNA/hyenaDNA_450k_last_genes.pt
+  d_embedding: ${model.args.d_model}
