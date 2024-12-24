@@ -14,7 +14,7 @@ authors = [
 
 dependencies = [  # TODO: check which are necessary
     "accelerate",
-    "anndata>=0.11.0rc3",
+    "anndata>=0.11.0",
     "hydra-core",
     "numpy",
     "omegaconf",
