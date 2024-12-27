@@ -11,7 +11,7 @@ from torch import Tensor
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.datasets import PairedInstanceDataset
-from Heimdall.utils import instantiate_from_config
+from Heimdall.utils import get_dtype, instantiate_from_config
 
 
 @dataclass
@@ -125,11 +125,12 @@ class ExpressionOnly(nn.Module):
 
         self.conditional_input_types = conditional_input_types
         self.vocab_size = data.sequence_length + 2
+        self.float_dtype = data.float_dtype
         _, self.d_encoded = data.adata.shape
 
     def forward(self, inputs, labels=None, conditional_tokens=None, attention_mask=None):
         _, outputs = inputs  # extract expression only
-        return outputs.to(torch.float32)  # convert to float32?
+        return outputs.to(get_dtype(self.float_dtype))  # convert to float32?
 
 
 class HeimdallTransformer(nn.Module):
