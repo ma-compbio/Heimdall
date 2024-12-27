@@ -5,13 +5,11 @@ import anndata as ad
 import awkward as ak
 import numpy as np
 from numpy.typing import NDArray
-from scipy.sparse import csr_array, issparse
 from torch import Tensor
 from torch.nn import Module
 
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
-from Heimdall.utils import deprecate
 
 
 class Fc(ABC):

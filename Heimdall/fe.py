@@ -1,18 +1,13 @@
-import warnings
 from abc import ABC, abstractmethod
-from typing import Sequence, Union
+from typing import Union
 
 import anndata as ad
-import awkward as ak
 import numpy as np
 import torch
-from anndata._warnings import ExperimentalFeatureWarning
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
-from scipy.sparse import csc_array, csr_array, issparse
-
-from Heimdall.utils import deprecate, searchsorted2d
+from scipy.sparse import csr_array, issparse
 
 
 class Fe(ABC):
