@@ -163,7 +163,7 @@ class PretrainedFg(Fg, ABC):
 
         if len(first_embedding) > self.d_embedding:
             print(
-                f"> Warning, the FG embedding dim is {first_embedding.shape} is larger than the model "
+                f"> Warning, the `Fg` embedding dim {first_embedding.shape} is larger than the model "
                 "dim {self.d_embedding}, truncation may occur.",
             )
 
@@ -210,7 +210,8 @@ class IdentityFg(Fg):
 
 
 class TorchTensorFg(PretrainedFg):
-    """Mapping of gene names to pretrained ESM2 embeddings."""
+    """Mapping of gene names to pretrained embeddings stored as PyTorch
+    tensors."""
 
     def load_embeddings(self):
         raw_gene_embedding_map = torch.load(self.embedding_filepath)

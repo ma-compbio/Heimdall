@@ -40,62 +40,22 @@ class Fc(ABC):
         self.max_input_length = max_input_length
         self.float_dtype = float_dtype
 
-    def preprocess_cells(self):
-        if not issparse(self.adata.X):
-            print(
-                "> Data was provided dense format, converting to CSR."
-                " Please consider pre-computing it to save memory.",
-            )
-
-        self.adata.X = csr_array(self.adata.X)
-
-    @deprecate
-    def old_preprocess_cells(self):
-        """Using the `fg` and `fe`, preprocess input cells, retrieve indices of
-        both gene and expression embeddings.
-
-        This function can be deterministic, or may involve random sampling.
-
-        Returns:
-            TODO: Update this Docstring
-
-        """
-
-        gene_names = self.adata.var_names
-        processed_expression_values, processed_expression_indices = self.fe[:]
-
-        gene_lists = ak.Array(
-            [gene_names[cell_indices] for cell_indices in processed_expression_indices],
-        )
-
-        cell_identity_inputs = ak.Array(
-            [self.fg[gene_list] for gene_list in gene_lists],
-        )
-
-        self.adata.obsm["cell_identity_inputs"] = ak.values_astype(cell_identity_inputs, self.float_dtype)
-        self.adata.obsm["cell_expression_inputs"] = ak.values_astype(processed_expression_values, self.float_dtype)
-
     def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray, NDArray]:
-        """Retrieve `cell_identity_inputs`, `cell_expression_inputs` and
-        `padding_mask`.
-
-        Can only be called after running `self.preprocess_cells()`.
+        """Retrieve `identity_inputs`, `expression_inputs` and `padding_mask`.
 
         Returns:
             A tuple of gene identity embedding indices and gene expression embedding indices for all cells.
 
         """
-        identity_indices, expression_inputs = self.fe.forward(cell_index)
-
-        # identity_indices = self.adata.obsm["cell_identity_inputs"][cell_index]
-        # expression_inputs = self.adata.obsm["cell_expression_inputs"][cell_index]
+        identity_indices, expression_inputs = self.fe[cell_index]
 
         gene_list = self.adata.var_names[identity_indices]  # convert to ENSEMBL Gene Names
         identity_inputs = self.fg[gene_list]  # convert the genes into fg
 
-        assert len(identity_inputs) == len(
-            expression_inputs,
-        ), "Gene identity and expression inputs do not have the same shape"
+        if len(identity_inputs) != len(expression_inputs):
+            raise ValueError(
+                "Gene identity and expression inputs do not have the same shape; `Fg` and `Fe` are incompatible.",
+            )
 
         # Padding and truncating
         identity_inputs, expression_inputs = self.tailor(
@@ -175,18 +135,6 @@ class Fc(ABC):
 
         """
 
-    @deprecate
-    def load_from_cache(
-        self,
-        cell_identity_inputs: NDArray,
-        cell_expression_inputs: NDArray,
-    ):
-        """Load processed values from cache."""
-        # TODO: add tests
-
-        self.adata.obsm["cell_identity_inputs"] = cell_identity_inputs
-        self.adata.obsm["cell_expression_inputs"] = cell_expression_inputs
-
 
 class GeneformerFc(Fc):
     """Implementation of Geneformer cell embedding."""
@@ -210,6 +158,7 @@ class GeneformerFc(Fc):
             expression_embedding_layer: # TODO fill out
 
         """
+
         embeddings = gene_embedding_layer(identity_inputs)
         return embeddings
 
@@ -227,6 +176,16 @@ class DummyFc(Fc):
         _, input_length = cell_tokenization.shape
 
         return cell_tokenization
+
+    def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray, NDArray]:
+        """Dummy `__getitem__` for model that does not need an `Fc`.
+
+        Returns:
+            A tuple of gene identity embedding indices and gene expression embedding indices for all cells.
+
+        """
+
+        return np.zeros(self.max_input_length), np.zeros(self.max_input_length), np.zeros(self.max_input_length)
 
     def limit(self, cell_tokenization: NDArray) -> NDArray:
         pass
@@ -283,4 +242,7 @@ class ScGPTFc(Fc):
         return gene_embeddings + expression_embeddings
 
 
-ScBERTFc = ScGPTFc  # TODO: is ScBERTFc actually the same as ScGPTFc?
+class ScBERTFc(ScGPTFc):
+    """Implementation of scBERT cell embedding."""
+
+    # TODO: is ScBERTFc actually the same as ScGPTFc?

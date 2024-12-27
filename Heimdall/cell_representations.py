@@ -301,8 +301,8 @@ class CellRepresentation(SpecialTokenMixin):
             self.datasets[split] = Subset(full_dataset, split_idx)
 
         # Set up data loaders
-        # dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
-        dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
+        dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
+        # dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
         self.dataloaders = {
             split: DataLoader(
                 dataset,
@@ -420,21 +420,12 @@ class CellRepresentation(SpecialTokenMixin):
                     (
                         identity_embedding_index,
                         identity_valid_mask,
-                        processed_expression_values,
-                        processed_expression_indices,
                         gene_embeddings,
                         expression_embeddings,
-                        identity_reps,
-                        expression_reps,
                     ) = pkl.load(rep_file)
 
                     self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
-                    self.fe.load_from_cache(
-                        processed_expression_values,
-                        processed_expression_indices,
-                        expression_embeddings,
-                    )
-                    self.fc.load_from_cache(identity_reps, expression_reps)
+                    self.fe.load_from_cache(expression_embeddings)
 
                     self.processed_fcfg = True
                     return
@@ -450,15 +441,10 @@ class CellRepresentation(SpecialTokenMixin):
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
-        self.fc.preprocess_cells()
-        print(f"> Finished calculating fc with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             # Gather things for caching
-            identity_reps = self.adata.obsm["cell_identity_inputs"]
-            expression_reps = self.adata.obsm["cell_expression_inputs"]
-            processed_expression_values, processed_expression_indices = self.fe[:]
             identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
             gene_embeddings = self.fg.gene_embeddings
@@ -468,12 +454,8 @@ class CellRepresentation(SpecialTokenMixin):
                 cache_representation = (
                     identity_embedding_index,
                     identity_valid_mask,
-                    processed_expression_values,
-                    processed_expression_indices,
                     gene_embeddings,
                     expression_embeddings,
-                    identity_reps,
-                    expression_reps,
                 )
                 pkl.dump(cache_representation, rep_file)
                 print(f"Finished writing cell representations at {processed_data_path}")
