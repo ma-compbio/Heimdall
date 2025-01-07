@@ -308,12 +308,17 @@ class HeimdallTrainer:
 
                     self.accelerator.backward(loss)
                     if self.accelerator.sync_gradients:
-                        self.accelerator.clip_grad_norm_(self.model.parameters(), self.cfg.trainer.grad_norm_clip)
+                        grad_norm = self.accelerator.clip_grad_norm_(
+                            self.model.parameters(),
+                            self.cfg.trainer.grad_norm_clip,
+                        )
                     self.optimizer.step()
                     self.lr_scheduler.step()
                     self.optimizer.zero_grad()
 
-                t.set_description(f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}")
+                t.set_description(
+                    f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}, grad_norm: {grad_norm:.4f}",
+                )
 
                 if is_logging:
                     log = {
@@ -321,6 +326,7 @@ class HeimdallTrainer:
                         "step": step,
                         "learning_rate": lr,
                         "epoch": epoch,
+                        "grad_norm": grad_norm,
                     }
                     if self.run_wandb and self.accelerator.is_main_process:
                         self.accelerator.log(log)
