@@ -45,6 +45,9 @@ class HeimdallTrainer:
             **accelerator_log_kwargs,
         )
 
+        if hasattr(model.encoder, "use_flash_attn") and model.encoder.use_flash_attn:
+            assert self.accelerator.mixed_precision == "bf16", "If using Flash Attention, mixed precision must be bf16"
+
         self.optimizer = self._initialize_optimizer()
         self.loss_fn = self._get_loss_function()
 
@@ -180,6 +183,21 @@ class HeimdallTrainer:
                         metrics[metric_name] = R2Score()
                     elif metric_name == "MSE":
                         metrics[metric_name] = MeanSquaredError()
+        elif task_type == "binary":
+            # num_labels = self.num_labels
+            num_labels = 2
+            for metric_name in self.cfg.tasks.args.metrics:
+                if metric_name not in metrics:
+                    if metric_name == "Accuracy":
+                        metrics[metric_name] = Accuracy(task="binary", num_labels=num_labels)
+                    elif metric_name == "Precision":
+                        metrics[metric_name] = Precision(task="binary", num_labels=num_labels, average="macro")
+                    elif metric_name == "Recall":
+                        metrics[metric_name] = Recall(task="binary", num_labels=num_labels, average="macro")
+                    elif metric_name == "F1Score":
+                        metrics[metric_name] = F1Score(task="binary", num_labels=num_labels, average="macro")
+                    elif metric_name == "MatthewsCorrCoef":
+                        metrics[metric_name] = MatthewsCorrCoef(task="binary", num_labels=num_labels)
 
         return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
@@ -274,7 +292,6 @@ class HeimdallTrainer:
                 step += 1
                 is_logging = step % log_every == 0
 
-                # breakpoint()
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
                     inputs = (batch["identity_inputs"], batch["expression_inputs"])
@@ -291,12 +308,17 @@ class HeimdallTrainer:
 
                     self.accelerator.backward(loss)
                     if self.accelerator.sync_gradients:
-                        self.accelerator.clip_grad_norm_(self.model.parameters(), self.cfg.trainer.grad_norm_clip)
+                        grad_norm = self.accelerator.clip_grad_norm_(
+                            self.model.parameters(),
+                            self.cfg.trainer.grad_norm_clip,
+                        )
                     self.optimizer.step()
                     self.lr_scheduler.step()
                     self.optimizer.zero_grad()
 
-                t.set_description(f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}")
+                t.set_description(
+                    f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}, grad_norm: {grad_norm:.4f}",
+                )
 
                 if is_logging:
                     log = {
@@ -304,6 +326,7 @@ class HeimdallTrainer:
                         "step": step,
                         "learning_rate": lr,
                         "epoch": epoch,
+                        "grad_norm": grad_norm,
                     }
                     if self.run_wandb and self.accelerator.is_main_process:
                         self.accelerator.log(log)
@@ -332,32 +355,31 @@ class HeimdallTrainer:
                     masks = masks.to(outputs.device)
                     logits, labels = logits[masks], labels[masks]
 
-                loss += self.get_loss(logits, labels).item()
+                # perform a .clone() so that the labels are not updated in-place
+                loss += self.get_loss(logits, labels.clone()).item()
 
                 # predictions = outputs["logits"] if isinstance(outputs, dict) else outputs
                 # labels = batch['labels']
 
                 # print(metrics)
                 # print("---")
-
                 for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
                     # print(metric_name)
-                    metric.update(logits, labels)
-                    # if callable(metric):
-                    #     # Custom metric
-                    #     print("entered custom")
-                    #     metric_value = metric(logits, labels)
-                    #     if isinstance(metric_value, torch.Tensor):
-                    #         metric_value = metric_value.item()
-                    #     metrics[metric_name] = metric_value
-                    # else:
-                    #     # Built-in metric
-                    #     print(metric)
-                    #     print(metric_name)
-                    #     metric.update(logits, labels)
+                    if self.cfg.tasks.args.task_type in ["multiclass"]:
+                        labels = labels.to(torch.int)
+                    if self.cfg.tasks.args.task_type in ["binary"]:
+                        # Step 1: Flatten the tensor
+                        flattened_labels = labels.flatten()
+                        flattened_logits = logits.flatten()
+                        mask = ~torch.isnan(flattened_labels)
 
+                        no_nans_flattened_labels = flattened_labels[mask]
+                        no_nans_flattened_logits = flattened_logits[mask]
+                        labels = no_nans_flattened_labels.to(torch.int)
+                        logits = no_nans_flattened_logits
+                    metric.update(logits, labels)
                 if self.cfg.trainer.fastdev:
                     break
 

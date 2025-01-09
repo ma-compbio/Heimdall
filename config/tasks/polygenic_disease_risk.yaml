@@ -9,6 +9,9 @@ args:
       test: test
   metrics:
     - Accuracy
+    - MatthewsCorrCoef
+    - F1Score
+  track_metric: MatthewsCorrCoef
   # train_split: 0.8
   # prediction_dim: 14
   shuffle: true

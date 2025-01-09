@@ -2,7 +2,7 @@ type: Heimdall.fg.Gene2VecFg
 
 args:
   embedding_parameters:
-    type: Heimdall.utils.FlexibleTypeEmbedding
+    type: Heimdall.embedding.FlexibleTypeEmbedding
     constructor: from_pretrained
     args:
       embeddings: "gene_embeddings"

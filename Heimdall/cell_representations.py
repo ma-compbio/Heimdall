@@ -13,6 +13,7 @@ import pandas as pd
 import scanpy as sc
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
+from scipy.sparse import csc_array
 from sklearn.utils import resample
 from torch.utils.data import DataLoader, Subset
 
@@ -90,6 +91,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.optimizer_cfg = config.optimizer
         self.trainer_cfg = config.trainer
         self.scheduler_cfg = config.scheduler
+        self.float_dtype = config.float_dtype
         self.adata = None
         self.processed_fcfg = False
 
@@ -189,7 +191,7 @@ class CellRepresentation(SpecialTokenMixin):
     def get_preprocessed_data_path(self):
         preprocessed_data_path = preprocessed_cfg_path = cfg = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-            cfg = DictConfig(OmegaConf.to_container(self._cfg.dataset, resolve=True))
+            cfg = DictConfig(OmegaConf.to_container(self._cfg, resolve=True))
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
                 cfg,
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
@@ -266,10 +268,19 @@ class CellRepresentation(SpecialTokenMixin):
 
         if get_value(self.dataset_preproc_cfg, "scale_data"):
             # Scale the data
+            raise NotImplementedError("Scaling the data is NOT RECOMMENDED, please set it to false")
             print("> Scaling the data...")
             sc.pp.scale(self.adata, max_value=10)
         else:
             print("> Not Scaling the data...")
+
+        if get_value(self.dataset_preproc_cfg, "get_medians"):
+            # Get medians
+            print("> Getting nonzero medians...")
+            csc_expression = csc_array(self.adata.X)
+            genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
+            gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
+            self.adata.var["medians"] = gene_medians
 
         print("> Finished Processing Anndata Object")
 
@@ -290,7 +301,8 @@ class CellRepresentation(SpecialTokenMixin):
             self.datasets[split] = Subset(full_dataset, split_idx)
 
         # Set up data loaders
-        dataloader_kwargs = {}  # TODO: we can parse additional data loader kwargs from config
+        dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
+        # dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
         self.dataloaders = {
             split: DataLoader(
                 dataset,
@@ -345,6 +357,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.adata.raw = self.adata.copy()
         self.adata = self.adata[:, valid_mask].copy()
 
+        # setting up some pointers so that they all reference the same anndata object
         self.fe.adata = self.adata
         self.fc.adata = self.adata
 
@@ -377,7 +390,14 @@ class CellRepresentation(SpecialTokenMixin):
             vocab_size=self.sequence_length + 2,
             return_name=True,
         )
-        self.fc, fc_name = instantiate_from_config(self.fc_cfg, self.fg, self.fe, self.adata, return_name=True)
+        self.fc, fc_name = instantiate_from_config(
+            self.fc_cfg,
+            self.fg,
+            self.fe,
+            self.adata,
+            float_dtype=self.float_dtype,
+            return_name=True,
+        )
 
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = DictConfig(
@@ -400,21 +420,12 @@ class CellRepresentation(SpecialTokenMixin):
                     (
                         identity_embedding_index,
                         identity_valid_mask,
-                        processed_expression_values,
-                        processed_expression_indices,
                         gene_embeddings,
                         expression_embeddings,
-                        identity_reps,
-                        expression_reps,
                     ) = pkl.load(rep_file)
 
                     self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
-                    self.fe.load_from_cache(
-                        processed_expression_values,
-                        processed_expression_indices,
-                        expression_embeddings,
-                    )
-                    self.fc.load_from_cache(identity_reps, expression_reps)
+                    self.fe.load_from_cache(expression_embeddings)
 
                     self.processed_fcfg = True
                     return
@@ -424,21 +435,16 @@ class CellRepresentation(SpecialTokenMixin):
         self.fg.preprocess_embeddings()
         print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
-        self.drop_invalid_genes()
+        self.drop_invalid_genes()  # TODO: remove this if necessary
         print("> Finished dropping invalid genes from AnnData")
 
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
-        self.fc.preprocess_cells()
-        print(f"> Finished calculating fc with {self.fc_cfg.type}")
         self.processed_fcfg = True
 
         if (self._cfg.cache_preprocessed_dataset_dir) is not None:
             # Gather things for caching
-            identity_reps = self.adata.obsm["cell_identity_inputs"]
-            expression_reps = self.adata.obsm["cell_expression_inputs"]
-            processed_expression_values, processed_expression_indices = self.fe[:]
             identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
             gene_embeddings = self.fg.gene_embeddings
@@ -448,12 +454,8 @@ class CellRepresentation(SpecialTokenMixin):
                 cache_representation = (
                     identity_embedding_index,
                     identity_valid_mask,
-                    processed_expression_values,
-                    processed_expression_indices,
                     gene_embeddings,
                     expression_embeddings,
-                    identity_reps,
-                    expression_reps,
                 )
                 pkl.dump(cache_representation, rep_file)
                 print(f"Finished writing cell representations at {processed_data_path}")

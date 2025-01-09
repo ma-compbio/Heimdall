@@ -1,9 +1,59 @@
-[project]
-name = "Heimdall"
-version = "0.0.1"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools.packages.find]
-where = ["."]
+[project]
+name = "sc-heimdall"
+dynamic = ["version"]
+
+authors = [
+  { name="Remy Liu"},
+  { name="Nicholas Ho"},
+  { name="Shahul Alam", email="alam.shahul@gmail.com" },
+]
+
+dependencies = [  # TODO: check which are necessary
+    "accelerate",
+    "anndata>=0.11.0",
+    "hydra-core",
+    "numpy",
+    "omegaconf",
+    "packaging",
+    "pandas",
+    "wandb",
+    "tqdm",
+    "scanpy",
+    "scikit-learn",
+    "scipy",
+    "torchmetrics",
+    "transformers",
+    "datasets",
+    "einops",
+    "mygene",
+    "awkward",
+]
+description = "Heimdall: A Comprehensive Paradigm for Evaluating Single-Cell Representations within Foundational Models"
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "Heimdall/*.py",
+]
+
+[tool.hatch.build.targets.wheel]
+include = [
+  "Heimdall/*.py",
+]
+
+[tool.hatch.version]
+path = "Heimdall/__about__.py"
 
 [tool.flake8]
 max-line-length = 120

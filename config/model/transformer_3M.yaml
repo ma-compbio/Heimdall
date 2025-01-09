@@ -1,0 +1,20 @@
+type: Heimdall.models.HeimdallTransformer
+name: transformer
+args:
+  d_model: 128
+  pos_enc: BERT
+  pooling: cls_pooling
+  encoder_layer_parameters:
+    type: Heimdall.flash_attention_models.FlashAttentionTransformerEncoderLayer
+    args:
+      d_model: ${model.args.d_model}
+      nhead: 4
+      activation: gelu
+      dropout: 0.1
+      dim_feedforward: 512  # 4 * d_model
+      batch_first: true
+      norm_first: true
+  encoder_parameters:
+    type: Heimdall.flash_attention_models.FlashAttentionTransformerEncoder
+    args:
+      num_layers: 6

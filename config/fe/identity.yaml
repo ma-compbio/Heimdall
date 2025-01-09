@@ -1,0 +1,6 @@
+type: Heimdall.fe.IdentityFe
+
+args:
+  embedding_parameters:
+    type: torch.nn.Module
+  d_embedding: null

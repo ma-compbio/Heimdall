@@ -6,179 +6,26 @@ import numpy as np
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.fe import BinningFe, DummyFe, SortingFe
-from Heimdall.fg import IdentityFg
 
-
-@fixture
-def mock_dataset():
-    gene_names = ["ENSG00000121410", "ENSG00000148584", "fake_gene", "ENSG00000175899"]
-
-    mock_expression = np.array(
-        [
-            [1, 4, 3, 2],
-            [2, 1, 4, 3],
-            [3, 2, 1, 4],
-            [4, 3, 2, 1],
-        ],
+def pad(tokens, pad_length, pad_value):
+    pad_widths = (0, pad_length - len(tokens))
+    padded = np.pad(
+        tokens,
+        pad_widths,
+        "constant",
+        constant_values=(pad_value),
     )
 
-    mock_dataset = ad.AnnData(X=mock_expression)
-    mock_dataset.var_names = gene_names
-
-    return mock_dataset
-
-
-@fixture
-def zero_expression_mock_dataset():
-    gene_names = ["ENSG00000121410", "ENSG00000148584", "fake_gene", "ENSG00000175899"]
-
-    mock_expression = np.array(
-        [
-            [0, 3, 2, 1],
-            [1, 0, 3, 2],
-            [2, 1, 0, 3],
-            [3, 2, 1, 0],
-        ],
-    )
-
-    mock_dataset = ad.AnnData(X=mock_expression)
-    mock_dataset.var_names = gene_names
-
-    return mock_dataset
-
-
-@fixture
-def identity_fg(mock_dataset):
-    fg_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "d_embedding": 128,
-        },
-    )
-    identity_fg = IdentityFg(mock_dataset, **fg_config)
-
-    return identity_fg
-
-
-@fixture
-def zero_expression_identity_fg(zero_expression_mock_dataset):
-    fg_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "d_embedding": 128,
-        },
-    )
-    identity_fg = IdentityFg(zero_expression_mock_dataset, **fg_config)
-
-    return identity_fg
-
-
-@fixture
-def sorting_fe(mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "d_embedding": 128,
-        },
-    )
-    sorting_fe = SortingFe(mock_dataset, **fe_config)
-
-    return sorting_fe
-
-
-@fixture
-def zero_expression_sorting_fe(zero_expression_mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "d_embedding": 128,
-        },
-    )
-    sorting_fe = SortingFe(zero_expression_mock_dataset, **fe_config)
-
-    return sorting_fe
-
-
-@fixture
-def binning_fe(mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": int(np.max(mock_dataset.X)),
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "num_bins": int(np.max(mock_dataset.X)),
-            "d_embedding": 128,
-        },
-    )
-    binning_fe = BinningFe(mock_dataset, **fe_config)
-
-    return binning_fe
-
-
-@fixture
-def zero_expression_binning_fe(zero_expression_mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": int(np.ptp(zero_expression_mock_dataset.X)),
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "num_bins": int(np.ptp(zero_expression_mock_dataset.X)),
-            "d_embedding": 128,
-        },
-    )
-    binning_fe = BinningFe(zero_expression_mock_dataset, **fe_config)
-
-    return binning_fe
+    return padded
 
 
 def test_sorting_fe(identity_fg, sorting_fe):
     identity_fg.preprocess_embeddings()
     sorting_fe.preprocess_embeddings()
 
-    output = sorting_fe.adata.obsm["processed_expression_values"]
+    # output = sorting_fe.adata.obsm["processed_expression_values"]
 
     _, num_genes = sorting_fe.adata.shape
-
-    final_output = np.asarray(ak.fill_none(ak.pad_none(output, num_genes), -1))
 
     expected = np.array(
         [
@@ -189,18 +36,19 @@ def test_sorting_fe(identity_fg, sorting_fe):
         ],
     )
 
-    assert np.allclose(expected, output)
+    for cell_index in range(len(identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = sorting_fe[cell_index]
+        assert np.allclose(expected[cell_index], cell_identity_inputs)
+
+    assert sorting_fe.pad_value == 4
+    assert sorting_fe.mask_value == 5
 
 
 def test_zero_expression_sorting_fe(zero_expression_identity_fg, zero_expression_sorting_fe):
     zero_expression_identity_fg.preprocess_embeddings()
     zero_expression_sorting_fe.preprocess_embeddings()
 
-    output = zero_expression_sorting_fe.adata.obsm["processed_expression_values"]
-
     num_genes = zero_expression_sorting_fe.num_genes
-
-    padded_output = np.asarray(ak.fill_none(ak.pad_none(output, num_genes), -1))
 
     expected = np.array(
         [
@@ -211,28 +59,33 @@ def test_zero_expression_sorting_fe(zero_expression_identity_fg, zero_expression
         ],
     )
 
+    for cell_index in range(len(zero_expression_identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = zero_expression_sorting_fe[cell_index]
+        assert np.allclose(expected[cell_index], cell_identity_inputs)
+
     padded_expected = np.array(
         [
-            [1, 2, 3, -1],
-            [2, 3, 0, -1],
-            [3, 0, 1, -1],
-            [0, 1, 2, -1],
+            [1, 2, 3, 4],
+            [2, 3, 0, 4],
+            [3, 0, 1, 4],
+            [0, 1, 2, 4],
         ],
     )
 
-    assert np.allclose(expected, output)
-    assert np.allclose(padded_expected, padded_output)
+    for cell_index in range(len(zero_expression_identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = zero_expression_sorting_fe[cell_index]
+        padded_input = pad(cell_identity_inputs, num_genes, zero_expression_sorting_fe.pad_value)
+        assert np.allclose(padded_expected[cell_index], padded_input)
+
+    assert zero_expression_sorting_fe.pad_value == 4
+    assert zero_expression_sorting_fe.mask_value == 5
 
 
 def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression_binning_fe):
     zero_expression_identity_fg.preprocess_embeddings()
     zero_expression_binning_fe.preprocess_embeddings()
 
-    output = zero_expression_binning_fe.adata.obsm["processed_expression_values"]
-
     num_genes = zero_expression_binning_fe.num_genes
-
-    padded_output = np.asarray(ak.fill_none(ak.pad_none(output, num_genes), -1))
 
     expected = np.array(
         [
@@ -243,25 +96,96 @@ def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression
         ],
     )
 
+    for cell_index in range(len(zero_expression_identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = zero_expression_binning_fe[cell_index]
+        assert np.allclose(expected[cell_index], cell_expression_inputs)
+
     padded_expected = np.array(
         [
-            [3, 2, 1, -1],
-            [1, 3, 2, -1],
-            [2, 1, 3, -1],
-            [3, 2, 1, -1],
+            [3, 2, 1, zero_expression_binning_fe.num_bins + 1],
+            [1, 3, 2, zero_expression_binning_fe.num_bins + 1],
+            [2, 1, 3, zero_expression_binning_fe.num_bins + 1],
+            [3, 2, 1, zero_expression_binning_fe.num_bins + 1],
         ],
     )
+    for cell_index in range(len(zero_expression_identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = zero_expression_binning_fe[cell_index]
+        padded_input = pad(cell_expression_inputs, num_genes, zero_expression_binning_fe.pad_value)
+        assert np.allclose(padded_expected[cell_index], padded_input)
 
-    assert np.allclose(expected, output)
-    assert np.allclose(padded_expected, padded_output)
+    assert zero_expression_binning_fe.pad_value == zero_expression_binning_fe.num_bins + 1
+    assert zero_expression_binning_fe.mask_value == zero_expression_binning_fe.num_bins + 2
 
 
 def test_binning_fe(identity_fg, binning_fe):
     identity_fg.preprocess_embeddings()
     binning_fe.preprocess_embeddings()
 
-    output = binning_fe.adata.obsm["processed_expression_values"]
-
     expected = binning_fe.adata.X
 
-    assert np.allclose(expected, output)
+    for cell_index in range(len(identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = binning_fe[cell_index]
+        assert np.allclose(expected[[cell_index], :].toarray(), cell_expression_inputs)
+
+    assert binning_fe.pad_value == binning_fe.num_bins + 1
+    assert binning_fe.mask_value == binning_fe.num_bins + 2
+
+
+def test_dummy_fe(identity_fg, dummy_fe):
+    identity_fg.preprocess_embeddings()
+    dummy_fe.preprocess_embeddings()
+
+    expected = dummy_fe.adata.X
+
+    for cell_index in range(len(identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = dummy_fe[cell_index]
+        assert np.allclose(expected[[cell_index], :].toarray(), cell_expression_inputs)
+
+    assert dummy_fe.pad_value == 4
+    assert dummy_fe.mask_value == 5
+
+
+def test_nonzero_identity_fe(zero_expression_identity_fg, nonzero_identity_fe):
+    zero_expression_identity_fg.preprocess_embeddings()
+    nonzero_identity_fe.preprocess_embeddings()
+
+    num_genes = nonzero_identity_fe.num_genes
+
+    expression_expected = np.array(
+        [
+            [3, 2, 1],
+            [1, 3, 2],
+            [2, 1, 3],
+            [3, 2, 1],
+        ],
+    )
+
+    identity_expected = np.array(
+        [
+            [1, 2, 3],
+            [0, 2, 3],
+            [0, 1, 3],
+            [0, 1, 2],
+        ],
+    )
+
+    for cell_index in range(len(zero_expression_identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = nonzero_identity_fe[cell_index]
+        assert np.allclose(identity_expected[cell_index], cell_identity_inputs)
+        assert np.allclose(expression_expected[cell_index], cell_expression_inputs)
+
+    padded_expected = np.array(
+        [
+            [3, 2, 1, 4],
+            [1, 3, 2, 4],
+            [2, 1, 3, 4],
+            [3, 2, 1, 4],
+        ],
+    )
+    for cell_index in range(len(zero_expression_identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = nonzero_identity_fe[cell_index]
+        padded_input = pad(cell_expression_inputs, num_genes, nonzero_identity_fe.pad_value)
+        assert np.allclose(padded_expected[cell_index], padded_input)
+
+    assert nonzero_identity_fe.pad_value == 4
+    assert nonzero_identity_fe.mask_value == 5

@@ -1,3 +1,7 @@
+# .env files for python-dotenv
+*.env
+
+heimdall_preprocessed/*
 .local_nvim_session
 .swp
 
