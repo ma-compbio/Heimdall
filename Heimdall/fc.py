@@ -252,3 +252,82 @@ class ScGPTFc(Fc):
 
 
 ScBERTFc = ScGPTFc  # TODO: is ScBERTFc actually the same as ScGPTFc?
+
+
+
+class ChromosomeAwareFc(Fc):
+    """Chromosome-aware implementation of cell embedding."""
+
+    def __init__(
+        self,
+        fg: Fg | None,
+        fe: Fe | None,
+        adata: ad.AnnData,
+        chroms: Optional[NDArray] = None,
+        starts: Optional[NDArray] = None,
+        max_input_length: Optional[int] = None,
+    ):
+        """
+        Args:
+            chroms: Chromosome IDs for each gene.
+            starts: Genomic start positions of genes on their chromosomes.
+        """
+        super().__init__(fg, fe, adata, max_input_length)
+        self.chroms = chroms
+        self.starts = starts
+
+    def preprocess_cells(self):
+        """Using the `fg` and `fe`, preprocess input cells with chromosome-aware sorting."""
+        gene_names = self.adata.var_names
+        processed_expression_values, processed_expression_indices = self.fe[:]
+
+        gene_lists = ak.Array(
+            [gene_names[cell_indices] for cell_indices in processed_expression_indices],
+        )
+
+        cell_identity_inputs = []
+        for cell_idx, gene_indices in enumerate(processed_expression_indices):
+            if self.chroms is not None and self.starts is not None:
+                # Perform chromosome-aware sorting
+                sorted_indices = self._chromosome_sort(gene_indices)
+                cell_identity_inputs.append(self.fg[gene_names[sorted_indices]])
+            else:
+                # Default behavior
+                cell_identity_inputs.append(self.fg[gene_lists[cell_idx]])
+
+        # Store processed values
+        self.adata.obsm["cell_identity_inputs"] = ak.Array(cell_identity_inputs)
+        self.adata.obsm["cell_expression_inputs"] = processed_expression_values
+
+    def _chromosome_sort(self, gene_indices):
+        """Sort genes by chromosome and genomic start positions."""
+        chroms = self.chroms[gene_indices]
+        starts = self.starts[gene_indices]
+
+        # Group by chromosome
+        chrom_sort_order = np.argsort(chroms)
+        sorted_indices = gene_indices[chrom_sort_order]
+        sorted_chroms = chroms[chrom_sort_order]
+        sorted_starts = starts[chrom_sort_order]
+
+        # Within each chromosome, sort by start position
+        chrom_groups = np.split(sorted_indices, np.unique(sorted_chroms, return_index=True)[1][1:])
+        sorted_sequence = []
+        for group in chrom_groups:
+            group_starts = sorted_starts[group]
+            sorted_sequence.extend(group[np.argsort(group_starts)])
+
+        return np.array(sorted_sequence)
+
+    def embed_cells(
+        self,
+        identity_inputs: Tensor,
+        gene_embedding_layer: Module | None,
+        expression_inputs: Tensor,
+        expression_embedding_layer: Module | None,
+    ) -> Tensor:
+        """Embed cells using chromosome-aware sequences."""
+        gene_embeddings = gene_embedding_layer(identity_inputs)
+        expression_embeddings = expression_embedding_layer(expression_inputs)
+
+        return gene_embeddings + expression_embeddings
