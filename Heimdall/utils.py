@@ -22,7 +22,7 @@ from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
-MAIN_KEYS = {"identity_inputs", "expression_inputs", "labels", "masks", "expression_padding"}
+MAIN_KEYS = {"identity_inputs", "expression_inputs", "labels", "masks", "expression_padding", "adjacency_matrix"}
 
 
 def hash_config(cfg: DictConfig) -> str:
