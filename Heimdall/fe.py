@@ -1,18 +1,13 @@
-import warnings
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import Union
 
 import anndata as ad
-import awkward as ak
 import numpy as np
 import torch
-from anndata._warnings import ExperimentalFeatureWarning
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
-from scipy.sparse import csc_array, csr_array, issparse
-
-from Heimdall.utils import searchsorted2d
+from scipy.sparse import csr_array, issparse
 
 
 class Fe(ABC):
@@ -41,7 +36,31 @@ class Fe(ABC):
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
         self.mask_value = vocab_size - 1 if mask_value is None else mask_value
 
-    @abstractmethod
+        if not issparse(self.adata.X):
+            print(
+                "> Data was provided dense format, converting to CSR."
+                " Please consider pre-computing it to save memory.",
+            )
+
+        self.adata.X = csr_array(self.adata.X)
+
+    def _get_inputs_from_csr(self, cell_index: int):
+        """Get expression values and gene indices from internal CSR
+        representation.
+
+        Args:
+            cell_index: cell for which to process expression values and get indices, as stored in `self.adata`.
+
+        """
+
+        expression = self.adata.X
+        start = expression.indptr[cell_index]
+        end = expression.indptr[cell_index + 1]
+        cell_expression_inputs = expression.data[start:end]
+        cell_identity_inputs = expression.indices[start:end]
+
+        return cell_identity_inputs, cell_expression_inputs
+
     def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Preprocess expression embeddings and store them for use during model
         inference.
@@ -50,40 +69,29 @@ class Fe(ABC):
         a URL to generating embeddings from scratch.
 
         Returns:
-            Sets `self.expression_embeddings`.
-            Sets the following fields of `self.adata`:
-            `.obsm['processed_expression_values']` : :class:`~numpy.ndarray` (shape `(self.adata.n_obs, -1)`)
-                Processed expression values, for later use in calculation of expression-based embeddings.
+            TODO: Update this docstring
 
         """
+        self.expression_embeddings = None
+        self.prepare_embedding_parameters()
 
-    def __getitem__(self, cell_indices: Sequence[int]) -> NDArray:
+    @abstractmethod
+    def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray]:
         """Get the indices of genes in the expression embedding array.
 
         Args:
-            cell_indices: cells for which to retrieve expression embedding indices, as stored in `self.adata`.
+            cell_index: cell for which to process expression values and get indices, as stored in `self.adata`.
 
         Returns:
             Index of value in the expression embeddings, or `pd.NA` if the gene has no mapping.
 
         """
 
-        subset = self.adata[cell_indices]
-        expression_values = subset.obsm["processed_expression_values"]
-        expression_indices = subset.obsm["processed_expression_indices"]
-        # breakpoint()
-        return expression_values, expression_indices
-
     def load_from_cache(
         self,
-        processed_expression_values: NDArray,
-        processed_expression_indices: NDArray,
         expression_embeddings: NDArray | None,
     ):
         """Load processed values from cache."""
-        # TODO: add tests
-        self.adata.obsm["processed_expression_values"] = processed_expression_values
-        self.adata.obsm["processed_expression_indices"] = processed_expression_indices
         self.expression_embeddings = expression_embeddings
         self.prepare_embedding_parameters()
 
@@ -102,7 +110,6 @@ class Fe(ABC):
                 value = torch.cat((expression_embeddings, pad_vector, mask_vector), dim=0)
             else:
                 continue
-
             self.embedding_parameters["args"][key] = value
 
 
@@ -124,44 +131,87 @@ class BinningFe(Fe):
         **fe_kwargs,
     ):
         fe_kwargs.pop("vocab_size", None)
-        vocab_size = num_bins + 2  # Accounting for mask and pad tokens
+        vocab_size = num_bins + 3  # Accounting for mask, pad tokens and empty bin (zero expr.)
         super().__init__(adata, vocab_size=vocab_size, **fe_kwargs)
         self.num_bins = num_bins
 
-    def preprocess_embeddings(self, float_dtype: str = "float32"):
-        """Compute bin identities of expression profiles in raw data."""
-        self.expression_embeddings = None
+    def _digitize(self, x: np.ndarray, bins: np.ndarray, side="both") -> np.ndarray:
+        """
+        https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/scgpt/preprocess.py#L239
+        Digitize the data into bins. This method spreads data uniformly when bins
+        have same values.
 
-        expression = self.adata.X
-        csr_expression = csr_array(expression)
-        cellwise_nonzero_expression = np.split(csr_expression.data, csr_expression.indptr[1:-1])
+        Args:
 
-        # Obtain the indices of non-zero entries for each row (cell)
-        nonzero_indices = np.split(csr_expression.indices, csr_expression.indptr[1:-1])
-        nonzero_indices = ak.Array(nonzero_indices)
+        x (:class:`np.ndarray`):
+            The data to digitize.
+        bins (:class:`np.ndarray`):
+            The bins to use for digitization, in increasing order.
+        side (:class:`str`, optional):
+            The side to use for digitization. If "one", the left side is used. If
+            "both", the left and right side are used. Default to "one".
 
-        n_bins = self.num_bins
-        if np.max(expression) == 0:
-            binned_values = csr_array(expression.shape).astype(
-                float_dtype,
-            )  # TODO: add correct typing (maybe add to config...?)
+        Returns:
 
-        quantiles = np.linspace(0, 1, n_bins)
-        bin_edges = ak.Array(
-            [np.quantile(nonzero_expression, quantiles) for nonzero_expression in cellwise_nonzero_expression],
-        )  # First axis is quantiles, second is cells
+        :class:`np.ndarray`:
+            The digitized data.
+        """
+        assert x.ndim == 1 and bins.ndim == 1
 
-        binned_values = searchsorted2d(
-            bin_edges,
-            cellwise_nonzero_expression,
-            side="left",
-        )
-        binned_values = binned_values + 1
+        left_digits = np.digitize(x, bins)
+        if side == "one":
+            return left_digits
 
-        self.adata.obsm["processed_expression_values"] = binned_values
-        self.adata.obsm["processed_expression_indices"] = nonzero_indices
+        right_digits = np.digitize(x, bins, right=True)
 
-        self.prepare_embedding_parameters()
+        rands = np.random.rand(len(x))  # uniform random numbers
+
+        digits = rands * (right_digits - left_digits) + left_digits
+        digits = np.ceil(digits).astype(np.int64)
+        return digits
+
+    def binning(self, row, n_bins) -> Union[np.ndarray, torch.Tensor]:
+        """Binning the row into n_bins.
+
+        https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/scgpt/preprocess.py#L274
+
+        """
+        dtype = row.dtype
+        return_np = False if isinstance(row, torch.Tensor) else True
+        row = row.cpu().numpy() if isinstance(row, torch.Tensor) else row
+        # TODO: use torch.quantile and torch.bucketize
+
+        if row.max() == 0:
+            return np.zeros_like(row, dtype=dtype) if return_np else torch.zeros_like(row, dtype=dtype)
+
+        if row.min() <= 0:
+            non_zero_ids = row.nonzero()
+            non_zero_row = row[non_zero_ids]
+            bins = np.quantile(non_zero_row, np.linspace(0, 1, n_bins - 1))
+            non_zero_digits = self._digitize(non_zero_row, bins)
+            binned_row = np.zeros_like(row, dtype=np.int64)
+            binned_row[non_zero_ids] = non_zero_digits
+        else:
+            bins = np.quantile(row, np.linspace(0, 1, n_bins - 1))
+            binned_row = self._digitize(row, bins)
+
+        return torch.from_numpy(binned_row) if not return_np else binned_row.astype(dtype)
+
+    def __getitem__(self, cell_index: int):
+        """Input is an adata indexed at cell [idx]
+
+        returns two vectors of cell_expression_inputs and cell_identity_inputs
+        where cell_expression_inputs is a vector of cell expression values and
+        cell_identity_inputs is a vector of corresponding gene indices
+
+        """
+
+        cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
+
+        # Bin the cell expression values
+        cell_expression_inputs_binned = self.binning(cell_expression_inputs, self.num_bins + 1)
+
+        return cell_identity_inputs, cell_expression_inputs_binned
 
 
 class NonzeroIdentityFe(Fe):
@@ -175,18 +225,8 @@ class NonzeroIdentityFe(Fe):
 
     """
 
-    def preprocess_embeddings(self, float_dtype: str = "float32"):
-        self.expression_embeddings = None
-
-        expression = self.adata.X
-        csr_expression = csr_array(expression)
-        cellwise_nonzero_expression = ak.Array(np.split(csr_expression.data, csr_expression.indptr[1:-1]))
-        cellwise_nonzero_indices = ak.Array(np.split(csr_expression.indices, csr_expression.indptr[1:-1]))
-
-        self.adata.obsm["processed_expression_values"] = cellwise_nonzero_expression.astype(float_dtype)
-        self.adata.obsm["processed_expression_indices"] = cellwise_nonzero_indices
-
-        self.prepare_embedding_parameters()
+    def __getitem__(self, cell_index: int):
+        return self._get_inputs_from_csr(cell_index)
 
 
 class DummyFe(Fe):
@@ -200,53 +240,37 @@ class DummyFe(Fe):
 
     """
 
-    def preprocess_embeddings(self, float_dtype: str = "float32"):
-        self.expression_embeddings = None
+    def __getitem__(self, cell_index: int):
+        """Input is an adata indexed at cell [idx]
 
-        expression = self.adata.X.toarray() if issparse(self.adata.X) else self.adata.X
+        returns two vectors of cell_expression_inputs and cell_identity_inputs
+        where cell_expression_inputs is a vector of cell expression values and
+        cell_identity_inputs is a vector of corresponding gene indices
 
-        self.adata.obsm["processed_expression_values"] = expression.astype(float_dtype)
-        self.adata.obsm["processed_expression_indices"] = np.tile(np.arange(self.num_genes), (self.num_cells, 1))
+        """
+        cell_expression_inputs = self.adata.X[[cell_index], :].toarray()
+        cell_identity_inputs = np.arange(self.num_genes)
 
-        self.prepare_embedding_parameters()
+        return cell_identity_inputs, cell_expression_inputs
 
 
 class SortingFe(Fe):
     """Sorting Fe."""
 
-    def preprocess_embeddings(self, float_dtype: str = "float32"):
-        """Sort genes by expression per cell.
+    def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray]:
+        """Returns two vectors of cell_expression_inputs and
+        cell_identity_inputs where cell_expression_inputs is a vector of cell
+        expression values and cell_identity_inputs is a vector of corresponding
+        gene indices."""
 
-        Uses median normalization before sorting (Geneformer style).
+        nonzero_indices, nonzero_values = self._get_inputs_from_csr(cell_index)
 
-        """
-        warnings.filterwarnings("ignore", category=ExperimentalFeatureWarning)  # Ignore warnings for Awkward Arrays
-        self.expression_embeddings = None
+        if "medians" in self.adata.var:
+            nonzero_values = nonzero_values - self.adata.var["medians"].iloc[nonzero_indices].values
 
-        expression = self.adata.X
-        csc_expression = csc_array(expression)
-        genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
+        # Sort non-zero values in descending order
+        sorted_order = np.argsort(nonzero_values)[::-1]  # Indices for sorting descending
+        cell_expression_inputs = nonzero_values[sorted_order]
+        cell_identity_inputs = nonzero_indices[sorted_order]
 
-        gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
-
-        normalized_expression = csr_array(expression)
-        normalized_expression = csr_array(normalized_expression / gene_medians)
-
-        cellwise_nonzero_expression = np.split(normalized_expression.data, normalized_expression.indptr[1:-1])
-        cellwise_nonzero_indices = np.split(normalized_expression.indices, normalized_expression.indptr[1:-1])
-
-        argsorted_expression = ak.argsort(cellwise_nonzero_expression, axis=1)[:, ::-1]
-
-        processed_expression_values = ak.Array(
-            [
-                cell_nonzero_indices[processed_cell]
-                for cell_nonzero_indices, processed_cell in zip(cellwise_nonzero_indices, argsorted_expression)
-            ],
-        )
-
-        self.adata.obsm["processed_expression_values"] = ak.values_astype(processed_expression_values, float_dtype)
-        self.adata.obsm["processed_expression_indices"] = ak.values_astype(
-            processed_expression_values,
-            np.int64,
-        )  # both are the same in this case
-        self.prepare_embedding_parameters()
+        return cell_identity_inputs, cell_expression_inputs

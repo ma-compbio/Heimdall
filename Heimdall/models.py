@@ -11,7 +11,7 @@ from torch import Tensor
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.datasets import PairedInstanceDataset
-from Heimdall.utils import instantiate_from_config
+from Heimdall.utils import get_dtype, instantiate_from_config
 
 
 @dataclass
@@ -125,12 +125,79 @@ class ExpressionOnly(nn.Module):
 
         self.conditional_input_types = conditional_input_types
         self.vocab_size = data.sequence_length + 2
+        self.float_dtype = data.float_dtype
         _, self.d_encoded = data.adata.shape
 
     def forward(self, inputs, labels=None, conditional_tokens=None, attention_mask=None):
         _, outputs = inputs  # extract expression only
+        return outputs.to(get_dtype(self.float_dtype))  # convert to float32?
 
-        return outputs
+
+class HeimdallTransformerEncoder(nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        nhead: int,
+        num_attention_heads: int,
+        hidden_dropout_prob: float,
+        use_flash_attn: bool,
+        num_encoder_layers: int,
+        hidden_act: str = "gelu",
+    ):
+        super().__init__()
+
+        self.use_flash_attn = use_flash_attn
+
+        if self.use_flash_attn:
+            try:
+                from flash_attn.models.bert import BertEncoder as FABertEncoder
+                from transformers import BertConfig
+
+                print("FlashAttention Library Successfully Loaded")
+            except ImportError:
+                print(
+                    "Warning: FlashAttention Not Installed, "
+                    "when initializing model make sure to use default Transformers",
+                )
+
+            fa_config = BertConfig(
+                hidden_size=d_model,
+                num_hidden_layers=num_encoder_layers,
+                num_attention_heads=nhead,
+                intermediate_size=d_model * 4,
+                hidden_act=hidden_act,
+                hidden_dropout_prob=hidden_dropout_prob,
+                attention_probs_dropout_prob=hidden_dropout_prob,
+                use_flash_attn=True,  # use this to toggle between flash attention and not
+            )
+            self.encoder = FABertEncoder(fa_config)
+        else:
+            # Encoder layers
+            encoder_layer = nn.TransformerEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=d_model * 4,
+                dropout=hidden_dropout_prob,
+                activation=hidden_act,
+                batch_first=True,
+                norm_first=True,  # BERT uses LayerNorm before self-attention and feedforward networks
+            )
+            self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
+
+    def forward(self, input_embeds, attention_mask):
+        # Encoder
+        if self.use_flash_attn:
+            encoder_output = self.encoder(
+                input_embeds,
+                key_padding_mask=~attention_mask,  # FA uses a flipped mask
+            )
+        else:
+            encoder_output = self.encoder(
+                input_embeds,
+                src_key_padding_mask=attention_mask,
+            )
+        return encoder_output
 
 
 class HeimdallTransformer(nn.Module):
@@ -140,9 +207,13 @@ class HeimdallTransformer(nn.Module):
         conditional_input_types: Optional[dict],
         d_model: int,
         pos_enc: str,
+        nhead: int,
+        hidden_dropout_prob: float,
+        attention_probs_dropout_prob: float,
         pooling: str,
-        encoder_layer_parameters: dict,
-        encoder_parameters: dict,
+        hidden_act: str,
+        use_flash_attn: bool,
+        num_encoder_layers: int,
     ):
         super().__init__()
         """Heimdall transformer model.
@@ -173,6 +244,7 @@ class HeimdallTransformer(nn.Module):
         self.conditional_input_types = conditional_input_types
 
         self.fc = data.fc
+        self.use_flash_attn = use_flash_attn
 
         self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
 
@@ -198,6 +270,8 @@ class HeimdallTransformer(nn.Module):
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, d_model)  # +1 cuz of CLS
         elif pos_enc == "sincos":
             raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
+        elif pos_enc == "none" or pos_enc == "NONE":
+            self.position_embeddings = None
         else:
             raise ValueError("pos_enc canonly be: BERT")
 
@@ -212,8 +286,19 @@ class HeimdallTransformer(nn.Module):
                 else:
                     raise ValueError(f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'")
 
-        encoder_layer = instantiate_from_config(encoder_layer_parameters)
-        self.transformer_encoder = instantiate_from_config(encoder_parameters, encoder_layer)
+        # encoder_layer = instantiate_from_config(encoder_layer_parameters)
+        # self.transformer_encoder = instantiate_from_config(encoder_parameters, encoder_layer)
+
+        # # Encoder
+        self.encoder = HeimdallTransformerEncoder(
+            d_model=d_model,
+            nhead=nhead,
+            num_attention_heads=num_encoder_layers,
+            hidden_dropout_prob=hidden_dropout_prob,
+            use_flash_attn=use_flash_attn,
+            hidden_act=hidden_act,
+            num_encoder_layers=num_encoder_layers,
+        )
 
         # Initialize the [CLS] token as a learnable parameter
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
@@ -288,8 +373,7 @@ class HeimdallTransformer(nn.Module):
             attention_mask = torch.cat([cls_attention, attention_mask], dim=1)  # Shape: (batch_size, seq_len + 1)
 
         # Encoder
-
-        transformer_encoder_output = self.transformer_encoder(input_embeds, src_key_padding_mask=attention_mask)
+        transformer_encoder_output = self.encoder(input_embeds, attention_mask)
         return transformer_encoder_output
 
 

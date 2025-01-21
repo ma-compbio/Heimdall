@@ -11,9 +11,9 @@ args:
       nhead: 4
       activation: gelu
       dropout: 0.1
-      dim_feedforward: 512 # 4 * d_model
-      batch_first: True
-      norm_first: True
+      dim_feedforward: 512  # 4 * d_model
+      batch_first: true
+      norm_first: true
   encoder_parameters:
     type: Heimdall.flash_attention_models.FlashAttentionTransformerEncoder
     args:

@@ -2,7 +2,7 @@ dataset_name: zheng68k
 
 preprocess_args:
   data_path: ${data_path}/cell_type_annotation/processed/zheng68k.h5ad
-  top_n_genes: 2048
+  top_n_genes: false
   normalize: false
   log_1p: false
   scale_data: false

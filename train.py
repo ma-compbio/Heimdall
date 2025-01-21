@@ -19,20 +19,7 @@ def main(config):
     # Create the model and the types of inputs that it may use
     # `type` can either be `learned`, which is integer tokens and learned nn.embeddings,
     # or `predefined`, which expects the dataset to prepare batchsize x length x hidden_dim
-
-    # TODO: parse from config?
-    # conditional_input_types = {
-    #     "conditional_tokens_1": {
-    #         "type": "learned",
-    #         "vocab_size": 1000,
-    #     },
-    #     "conditional_tokens_2": {
-    #         "type": "learned",
-    #         "vocab_size": 1000,
-    #     },
-    # }
     conditional_input_types = None
-
     float_dtype = get_dtype(config.float_dtype)
 
     model = HeimdallModel(

@@ -6,5 +6,5 @@ args:
     constructor: from_pretrained
     args:
       embeddings: "gene_embeddings"
-  embedding_filepath: ${data_path}/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt
+  embedding_filepath: ${data_path}/pretrained_embeddings/ESM2/protein_map_${dataset.preprocess_args.species}_ensembl.pt
   d_embedding: ${model.args.d_model}

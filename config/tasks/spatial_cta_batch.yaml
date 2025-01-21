@@ -4,6 +4,7 @@ args:
   metrics:
     - Accuracy
     - MatthewsCorrCoef
+  track_metric: MatthewsCorrCoef
   splits:
     type: predefined
     col: split

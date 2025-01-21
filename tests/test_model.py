@@ -13,45 +13,6 @@ from Heimdall.utils import get_dtype
 
 
 @fixture(scope="module")
-def plain_toy_data():
-    return ad.AnnData(
-        X=np.arange(3 * 5).reshape(5, 3),
-        var=pd.DataFrame(index=["ENSG00000142611", "ENSG00000157911", "ENSG00000274917"]),
-    )
-
-
-@fixture(scope="module")
-def toy_paried_data_path(pytestconfig, plain_toy_data):
-    data_path = pytestconfig.cache.mkdir("toy_data")
-
-    adata = plain_toy_data.copy()
-    zeros = sp.csr_array((adata.shape[0], adata.shape[0]))
-    for i, key in enumerate(("train", "val", "test", "task")):
-        adata.obsp[key] = zeros.copy()
-        if key != "task":
-            adata.obsp[key][i, i] = 1
-
-    path = data_path / "toy_single_adata.h5ad"
-    adata.write_h5ad(path)
-
-    return path
-
-
-@fixture(scope="module")
-def toy_single_data_path(pytestconfig, plain_toy_data):
-    data_path = pytestconfig.cache.mkdir("toy_data")
-
-    adata = plain_toy_data.copy()
-    adata.obs["split"] = "train"
-    adata.obs["class"] = 0
-
-    path = data_path / "toy_single_adata.h5ad"
-    adata.write_h5ad(path)
-
-    return path
-
-
-@fixture(scope="module")
 def paired_task_config(request, toy_paried_data_path):
     config_string = f"""
     project_name: Cell_Cell_interaction

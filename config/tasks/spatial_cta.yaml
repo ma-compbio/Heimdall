@@ -4,6 +4,7 @@ args:
   metrics:
     - Accuracy
     - MatthewsCorrCoef
+  track_metric: MatthewsCorrCoef
   train_split: 0.8
   early_stopping_patience: 6
   shuffle: True
