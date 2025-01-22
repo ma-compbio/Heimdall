@@ -8,5 +8,5 @@ args:
   hidden_act: gelu
   hidden_dropout_prob: 0.1
   attention_probs_dropout_prob: 0.1
-  use_flash_attn: False
+  use_flash_attn: false
   pooling: cls_pooling # or "mean_pooling"

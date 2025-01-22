@@ -401,6 +401,7 @@ class SeqPredHeadMixin:
 class ExpressionPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
         logits = self.decoder(encoder_output)
+        logits = logits.squeeze(1)
         return TransformerOutput(
             logits=logits,
             sequence_embeddings=logits,

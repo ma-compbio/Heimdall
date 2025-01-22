@@ -182,8 +182,10 @@ class DummyFc(Fc):
             A tuple of gene identity embedding indices and gene expression embedding indices for all cells.
 
         """
+        identity_indices, expression_inputs = self.fe[cell_index]
+        padding_mask = np.zeros(self.max_input_length)
 
-        return np.zeros(self.max_input_length), np.zeros(self.max_input_length), np.zeros(self.max_input_length)
+        return identity_indices, expression_inputs, padding_mask
 
     def limit(self, cell_tokenization: NDArray) -> NDArray:
         pass
@@ -208,8 +210,9 @@ class ScGPTFc(Fc):
         fe: Fe | None,
         adata: ad.AnnData,
         max_input_length: Optional[int] = None,
+        float_dtype: str = "float32",
     ):
-        super().__init__(fg, fe, adata, max_input_length)
+        super().__init__(fg, fe, adata, max_input_length, float_dtype)
         seed = 0  # TODO: make this configurable???
         self.rng = np.random.default_rng(seed)
 

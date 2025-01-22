@@ -343,11 +343,13 @@ class HeimdallTrainer:
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
                 inputs = (batch["identity_inputs"], batch["expression_inputs"])
+
                 outputs = self.model(
                     inputs=inputs,
                     conditional_tokens=batch.get("conditional_tokens"),
                     attention_mask=batch.get("expression_padding"),
                 )
+
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
 

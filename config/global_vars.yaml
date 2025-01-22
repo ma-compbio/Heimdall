@@ -1,6 +1,6 @@
 # global_vars.yaml
 
-data_path: '/work/magroup/scllm/datasets'
-ensembl_dir: '/work/magroup/shared/Heimdall/data/gene_mapping'
-cache_preprocessed_dataset_dir: '/work/magroup/shared/Heimdall/preprocessed_data'  # dir to save preprocessed dataset, do not cache if set to null
+data_path: '/work/magroup/shared/Heimdall/data'
+ensembl_dir: ${data_path}
+cache_preprocessed_dataset_dir: null  # dir to save preprocessed dataset, do not cache if set to null
 entity: 'Heimdall'
