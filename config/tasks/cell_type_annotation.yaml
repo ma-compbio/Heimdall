@@ -5,7 +5,7 @@ args:
     - Accuracy
     - MatthewsCorrCoef
   track_metric: MatthewsCorrCoef
-  early_stopping: True
+  early_stopping: true
   early_stopping_patience: 6
   shuffle: true
   batchsize: 32

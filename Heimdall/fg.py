@@ -99,6 +99,8 @@ class Fg(ABC):
                 pad_vector = torch.zeros(1, self.d_embedding)
                 mask_vector = torch.zeros(1, self.d_embedding)
                 value = torch.cat((gene_embeddings, pad_vector, mask_vector), dim=0)
+                self.pad_value = value.shape[0] - 2
+                self.mask_value = value.shape[0] - 1
             else:
                 continue
 

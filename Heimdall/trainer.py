@@ -312,9 +312,9 @@ class HeimdallTrainer:
                             self.model.parameters(),
                             self.cfg.trainer.grad_norm_clip,
                         )
-                    self.optimizer.step()
-                    self.lr_scheduler.step()
-                    self.optimizer.zero_grad()
+                        self.optimizer.step()
+                        self.lr_scheduler.step()
+                        self.optimizer.zero_grad()
 
                 t.set_description(
                     f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}, grad_norm: {grad_norm:.4f}",

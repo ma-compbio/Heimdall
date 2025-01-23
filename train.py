@@ -29,6 +29,8 @@ def main(config):
         conditional_input_types=conditional_input_types,
     ).to(float_dtype)
 
+    print(model)
+
     num_params = count_parameters(model)
 
     print(f"\nModel constructed:\n{model}\nNumber of trainable parameters {num_params:,}\n")
