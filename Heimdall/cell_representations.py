@@ -69,7 +69,7 @@ class SpecialTokenMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.special_tokens = {token: self.sequence_length + i for i, token in enumerate(self._SPECIAL_TOKENS)}
+        self.special_tokens = {token: self.adata.n_vars + i for i, token in enumerate(self._SPECIAL_TOKENS)}
 
 
 class CellRepresentation(SpecialTokenMixin):
@@ -206,7 +206,6 @@ class CellRepresentation(SpecialTokenMixin):
             print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
             print(f"  Preprocessing config:\n    {loaded_cfg_str}")
             self.adata = ad.read_h5ad(preprocessed_data_path)
-            self.sequence_length = len(self.adata.var)
             print(f"> Finished Processing Anndata Object:\n{self.adata}")
             return True
 
@@ -233,7 +232,7 @@ class CellRepresentation(SpecialTokenMixin):
         print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
         # convert gene names to ensembl ids
-        if (self.adata.var.index.str.startswith("ENS").sum() / len(self.adata.var.index)) < 0.9:
+        if (self.adata.var.index.str.startswith("ENS").sum() / self.adata.n_vars) < 0.9:
             self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
                 data_dir=self._cfg.ensembl_dir,
                 species=self.dataset_preproc_cfg.species,
@@ -263,8 +262,6 @@ class CellRepresentation(SpecialTokenMixin):
             self.adata = self.adata[:, self.adata.var["highly_variable"]]
         else:
             print("> No highly variable subset... using entire dataset")
-
-        self.sequence_length = len(self.adata.var)
 
         if get_value(self.dataset_preproc_cfg, "scale_data"):
             # Scale the data
@@ -431,13 +428,13 @@ class CellRepresentation(SpecialTokenMixin):
         self.fg, fg_name = instantiate_from_config(
             self.fg_cfg,
             self.adata,
-            vocab_size=self.sequence_length + 2,
+            vocab_size=self.adata.n_vars + 2,
             return_name=True,
         )
         self.fe, fe_name = instantiate_from_config(
             self.fe_cfg,
             self.adata,
-            vocab_size=self.sequence_length + 2,
+            vocab_size=self.adata.n_vars + 2,
             return_name=True,
         )
         self.fc, fc_name = instantiate_from_config(

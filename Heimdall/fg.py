@@ -32,7 +32,6 @@ class Fg(ABC):
         frozen: bool = False,
     ):
         self.adata = adata
-        _, self.num_genes = adata.shape
         self.d_embedding = d_embedding
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
@@ -91,7 +90,7 @@ class Fg(ABC):
 
         for key, value in args.items():
             if value == "max_seq_length":
-                value = len(self.adata.var)
+                value = self.adata.n_vars
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
@@ -203,8 +202,8 @@ class IdentityFg(Fg):
 
     def preprocess_embeddings(self, float_dtype: str = "float32"):
         self.gene_embeddings = None
-        self.adata.var["identity_embedding_index"] = np.arange(self.num_genes)
-        self.adata.var["identity_valid_mask"] = np.full(self.num_genes, True)
+        self.adata.var["identity_embedding_index"] = np.arange(self.adata.n_vars)
+        self.adata.var["identity_valid_mask"] = np.full(self.adata.n_vars, True)
 
         self.prepare_embedding_parameters()
 

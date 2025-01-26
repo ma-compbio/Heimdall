@@ -48,7 +48,7 @@ def test_zero_expression_sorting_fe(zero_expression_identity_fg, zero_expression
     zero_expression_identity_fg.preprocess_embeddings()
     zero_expression_sorting_fe.preprocess_embeddings()
 
-    num_genes = zero_expression_sorting_fe.num_genes
+    num_genes = zero_expression_sorting_fe.adata.n_vars
 
     expected = np.array(
         [
@@ -85,7 +85,7 @@ def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression
     zero_expression_identity_fg.preprocess_embeddings()
     zero_expression_binning_fe.preprocess_embeddings()
 
-    num_genes = zero_expression_binning_fe.num_genes
+    num_genes = zero_expression_binning_fe.adata.n_vars
 
     expected = np.array(
         [
@@ -149,7 +149,7 @@ def test_nonzero_identity_fe(zero_expression_identity_fg, nonzero_identity_fe):
     zero_expression_identity_fg.preprocess_embeddings()
     nonzero_identity_fe.preprocess_embeddings()
 
-    num_genes = nonzero_identity_fe.num_genes
+    num_genes = nonzero_identity_fe.adata.n_vars
 
     expression_expected = np.array(
         [

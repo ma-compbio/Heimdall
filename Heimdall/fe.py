@@ -29,7 +29,6 @@ class Fe(ABC):
         mask_value: int = None,
     ):
         self.adata = adata
-        self.num_cells, self.num_genes = adata.shape
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
         self.vocab_size = vocab_size
@@ -100,7 +99,7 @@ class Fe(ABC):
         args = self.embedding_parameters.get("args", {})
         for key, value in args.items():
             if value == "max_seq_length":
-                value = len(self.adata.var)
+                value = self.adata.n_vars
             elif value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "expression_embeddings":
@@ -249,7 +248,7 @@ class DummyFe(Fe):
 
         """
         cell_expression_inputs = self.adata.X[[cell_index], :].toarray()
-        cell_identity_inputs = np.arange(self.num_genes)
+        cell_identity_inputs = np.arange(self.adata.n_vars)
 
         return cell_identity_inputs, cell_expression_inputs
 
