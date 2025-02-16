@@ -7,3 +7,4 @@ args:
       num_embeddings: "max_seq_length"
       embedding_dim: ${fe.args.d_embedding}
   d_embedding: ${model.args.d_model}
+  drop_zeros: True

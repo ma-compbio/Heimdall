@@ -9,3 +9,4 @@ args:
   num_bins: 10 # Number of bins
   d_embedding: ${model.args.d_model}
   pad_value: 0
+  drop_zeros: True

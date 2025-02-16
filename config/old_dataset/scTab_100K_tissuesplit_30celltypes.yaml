@@ -1,0 +1,9 @@
+dataset_name: "sctab_tissue_split_100K"
+
+preprocess_args:
+  data_path: "${data_path}/sctab/tissue_split_1mil/blood_brain_100k_subset.h5ad"
+  top_n_genes: false
+  normalize: true
+  log_1p: true
+  scale_data: false
+  species: 'human'

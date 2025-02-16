@@ -4,3 +4,4 @@ args:
   embedding_parameters:
     type: torch.nn.Module  # Should throw an error if called
   d_embedding: null # `null` indicates that this config doesn't use expression embeddings
+  drop_zeros: True

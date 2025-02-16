@@ -1,4 +1,4 @@
-type: Heimdall.fg.HyenaDNAFg
+type: Heimdall.fg.GenePTFg
 
 args:
   embedding_parameters:
@@ -6,6 +6,6 @@ args:
     constructor: from_pretrained
     args:
       embeddings: "gene_embeddings"
-  embedding_filepath: ${data_path}/pretrained_embeddings/DNA/hyenaDNA_450k_last_genes.pt
+  embedding_filepath: ${data_path}/pca_embeds/new_genept_embeds.pt
   d_embedding: ${model.args.d_model}
-  drop_zeros: True
+  frozen: True

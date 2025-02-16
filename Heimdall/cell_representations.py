@@ -302,7 +302,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         # Set up data loaders
         dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
-        # dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
+        dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
         self.dataloaders = {
             split: DataLoader(
                 dataset,

@@ -27,6 +27,7 @@ class Fe(ABC):
         d_embedding: int,
         pad_value: int = None,
         mask_value: int = None,
+        drop_zeros: bool = True,
     ):
         self.adata = adata
         self.num_cells, self.num_genes = adata.shape
@@ -35,14 +36,14 @@ class Fe(ABC):
         self.vocab_size = vocab_size
         self.pad_value = vocab_size - 2 if pad_value is None else pad_value
         self.mask_value = vocab_size - 1 if mask_value is None else mask_value
+        self.drop_zeros = drop_zeros
 
         if not issparse(self.adata.X):
             print(
                 "> Data was provided dense format, converting to CSR."
                 " Please consider pre-computing it to save memory.",
             )
-
-        self.adata.X = csr_array(self.adata.X)
+            self.adata.X = csr_array(self.adata.X)
 
     def _get_inputs_from_csr(self, cell_index: int):
         """Get expression values and gene indices from internal CSR
@@ -53,11 +54,15 @@ class Fe(ABC):
 
         """
 
-        expression = self.adata.X
-        start = expression.indptr[cell_index]
-        end = expression.indptr[cell_index + 1]
-        cell_expression_inputs = expression.data[start:end]
-        cell_identity_inputs = expression.indices[start:end]
+        if self.drop_zeros is True:
+            expression = self.adata.X
+            start = expression.indptr[cell_index]
+            end = expression.indptr[cell_index + 1]
+            cell_expression_inputs = expression.data[start:end]
+            cell_identity_inputs = expression.indices[start:end]
+        else:
+            cell_expression_inputs = self.adata.X[[cell_index], :].toarray().flatten()
+            cell_identity_inputs = np.arange(self.adata.shape[1])
 
         return cell_identity_inputs, cell_expression_inputs
 
@@ -249,7 +254,7 @@ class DummyFe(Fe):
 
         """
         cell_expression_inputs = self.adata.X[[cell_index], :].toarray()
-        cell_identity_inputs = np.arange(self.num_genes)
+        cell_identity_inputs = np.arange(self.adata.shape[1])
 
         return cell_identity_inputs, cell_expression_inputs
 

@@ -1,18 +1,18 @@
 args:
   task_type: multiclass
-  label_col_name: high_level_annotation
+  label_col_name: cell_type
   metrics:
     - Accuracy
     - MatthewsCorrCoef
   track_metric: MatthewsCorrCoef
   splits:
     type: predefined
-    col: Merfish_Merscope_Split
+    col: split
     keys_:
       train: train
       val: val
       test: test
-  early_stopping_patience: 2
+  early_stopping_patience: 5
   early_stopping: true
   shuffle: True
   batchsize: 32
@@ -20,5 +20,5 @@ args:
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
   head_config:
-    type: Heimdall.models.ExpressionOnlyCellPredHead
+    type: Heimdall.models.LinearCellPredHead
     args: null

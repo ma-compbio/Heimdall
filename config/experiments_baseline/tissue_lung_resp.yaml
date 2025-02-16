@@ -5,8 +5,8 @@
 ####
 defaults:
   - override /model: expression_only # the chosen model
-  - override /dataset: spatial_cta # dataset for the relevant task
-  - override /tasks: spatial_cta_baseline # dataset for the relevant task
+  - override /dataset: tissue_lung_resp # dataset for the relevant task
+  - override /tasks: tissue_lung_resp # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
@@ -20,12 +20,20 @@ defaults:
 ####
 
 
-project_name: 'spatial_cta' #project name for WandB
-run_name: '${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize} '  ## what is set for WandB
+project_name: 'tissue_lung_resp' #project name for WandB
+run_name: ${fg.type}_${fe.type}_${fc.type}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}  ## what is set for WandB
 work_dir: 'work_dir'  ## set your custom working directory
 
 
 seed: 55
+
+tasks:
+  args:
+    dataset_config:
+      type: Heimdall.datasets.SingleInstanceDataset
+    head_config:
+      type: Heimdall.models.ExpressionOnlyCellPredHead
+      args: null
 
 optimizer:
   args:

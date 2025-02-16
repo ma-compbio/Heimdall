@@ -7,14 +7,14 @@ args:
   track_metric: MatthewsCorrCoef
   splits:
     type: predefined
-    col: split_tissue
+    col: split
     keys_:
       train: train
       val: val
       test: test
-  early_stopping_patience: 2
-  shuffle: true
+  early_stopping_patience: 5
   early_stopping: true
+  shuffle: True
   batchsize: 32
   epochs: 50
   dataset_config:

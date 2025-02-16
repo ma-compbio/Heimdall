@@ -7,3 +7,4 @@ args:
       in_features: 1 # Replace later
       out_features: ${fe.args.d_embedding}
   d_embedding: ${model.args.d_model}
+  drop_zeros: True

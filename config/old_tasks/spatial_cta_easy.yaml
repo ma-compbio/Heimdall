@@ -12,7 +12,7 @@ args:
       train: train
       val: val
       test: test
-  early_stopping_patience: 55
+  early_stopping_patience: 5
   early_stopping: true
   shuffle: True
   batchsize: 32

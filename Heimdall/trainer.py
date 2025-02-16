@@ -107,6 +107,8 @@ class HeimdallTrainer:
             return torch.nn.BCEWithLogitsLoss()
         elif self.cfg.loss.name == "MaskedBCEWithLogitsLoss":
             return Heimdall.losses.MaskedBCEWithLogitsLoss()
+        elif self.cfg.loss.name == "CrossEntropyFocalLoss":
+            return Heimdall.losses.CrossEntropyFocalLoss()
         elif self.cfg.loss.name == "MSELoss":
             return nn.MSELoss()
         else:
@@ -273,6 +275,8 @@ class HeimdallTrainer:
             loss = self.loss_fn(logits, labels)
         elif self.cfg.loss.name.endswith("BCEWithLogitsLoss"):
             loss = self.loss_fn(logits, labels)
+        elif self.cfg.loss.name.endswith("CrossEntropyFocalLoss"):
+            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "CrossEntropyLoss":
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "MSELoss":

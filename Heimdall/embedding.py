@@ -97,3 +97,63 @@ class TwoLayerNN(nn.Module):
 
     def forward(self, inputs: torch.Tensor):
         return self.linear2(self.nonlinear(self.linear1(inputs.type(self.dtype).unsqueeze(-1))))
+
+
+# https://github.com/biomap-research/scFoundation/blob/main/model/pretrainmodels/mae_autobin.py#L18-L77
+class AutoDiscretizationEmbedding2(nn.Module):
+    def __init__(self, dim, bin_num, bin_alpha, mask_token_id = None, pad_token_id = None):
+        super().__init__()
+        
+        self.dim = dim
+        self.bin_num = bin_num
+        self.bin_alpha = bin_alpha
+        
+        self.mlp = nn.Linear(1, self.bin_num)
+        self.mlp2 = nn.Linear(self.bin_num, self.bin_num)
+        self.LeakyReLU = nn.LeakyReLU(0.1)
+        self.Softmax = nn.Softmax(dim=-1)
+        self.emb = nn.Embedding(self.bin_num, self.dim)
+        
+        self.emb_mask = nn.Embedding(1, self.dim)
+        self.emb_pad = nn.Embedding(1, self.dim)
+        
+        self.bin_num_idx = torch.tensor(range(self.bin_num))
+        self.mask_token_id = mask_token_id
+        self.pad_token_id = pad_token_id
+        # print('self.bin_num_idx',self.bin_num_idx, self.bin_num_idx.shape)
+
+        self.tensor0 = torch.tensor(0, dtype=torch.long)
+
+    def forward(self, x, output_weight=False):
+        x_mask_idx = (x==self.mask_token_id).nonzero()
+        x_pad_idx = (x==self.pad_token_id).nonzero()
+        # print("x_mask",x_mask_idx.shape,x_mask_idx)
+        
+        x = self.mlp(x) # [B,N,1] -> [B,N,H]
+        x = self.LeakyReLU(x) # [B,N,H]
+        x_crosslayer = self.mlp2(x) # [B,N,H]
+        x = self.bin_alpha * x + x_crosslayer # [B,N,H]
+        weight = self.Softmax(x) # [B, N, H]
+        # print('weight', weight.shape, weight, torch.sum(weight, 2))
+        
+        bin_num_idx = self.bin_num_idx.to(x.device) # [H,]
+        # print('bin_num_idx', bin_num_idx.shape)
+        
+        token_emb = self.emb(bin_num_idx) # [H, D]
+        # print('token_emb', token_emb.shape)
+        x = torch.matmul(weight, token_emb) #[B, N, D]
+    
+        # print("x_emb",x.shape,x)
+        
+        tensor0 = torch.tensor(0, dtype=torch.long, device=x.device)
+
+        mask_token_emb = self.emb_mask(tensor0).to(x.device).type(x.dtype)
+        # print(mask_token_emb.dtype)
+        # print("x", x.dtype)
+        x[x_mask_idx[:,0],x_mask_idx[:,1],:] = mask_token_emb.repeat(x_mask_idx.shape[0],1)
+        # print("x_emb",x.shape,x)
+
+        pad_token_emb = self.emb_pad(tensor0).to(x.device).type(x.dtype)
+        x[x_pad_idx[:,0],x_pad_idx[:,1],:] = pad_token_emb.repeat(x_pad_idx.shape[0],1)
+
+        return x

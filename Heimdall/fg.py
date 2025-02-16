@@ -225,18 +225,24 @@ class TorchTensorFg(PretrainedFg):
         return raw_gene_embedding_map
 
 
-class Gene2VecFg(PretrainedFg):
-    """Mapping of gene names to pretrained Gene2Vec embeddings."""
+# class Gene2VecFg(PretrainedFg):
+#     """Mapping of gene names to pretrained Gene2Vec embeddings."""
 
-    def load_embeddings(self):
-        raw_gene_embedding_dataframe = pd.read_csv(self.embedding_filepath, sep=r"\s+", header=None, index_col=0)
-        raw_gene_embedding_map = {
-            gene_name: raw_gene_embedding_dataframe.loc[gene_name].values
-            for gene_name in raw_gene_embedding_dataframe.index
-        }
+#     def load_embeddings(self):
+#         raw_gene_embedding_dataframe = pd.read_csv(self.embedding_filepath, sep=r"\s+", header=None, index_col=0)
+#         raw_gene_embedding_map = {
+#             gene_name: raw_gene_embedding_dataframe.loc[gene_name].values
+#             for gene_name in raw_gene_embedding_dataframe.index
+#         }
 
-        return raw_gene_embedding_map
+#         return raw_gene_embedding_map
 
+
+class Gene2VecFg(TorchTensorFg):
+    """Mapping of gene names to pretrained Gene2VecFg embeddings."""
+
+class GenePTFg(TorchTensorFg):
+    """Mapping of gene names to pretrained Gene2VecFg embeddings."""
 
 class ESM2Fg(TorchTensorFg):
     """Mapping of gene names to pretrained ESM2 embeddings."""

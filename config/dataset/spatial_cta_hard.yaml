@@ -1,4 +1,4 @@
-dataset_name: "spatial_cta"
+dataset_name: "spatial_cta_merfish_starmapplus"
 
 preprocess_args:
   data_path: "${data_path}/spatial_cta/spatial_cta_easy_hard_splits.h5ad"
