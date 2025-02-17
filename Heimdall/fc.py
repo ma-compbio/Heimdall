@@ -240,7 +240,7 @@ class ScGPTFc(Fc):
         return gene_embeddings + expression_embeddings
 
 
-<<<<<<< HEAD
+
 ScBERTFc = ScGPTFc  # TODO: is ScBERTFc actually the same as ScGPTFc?
 
 
@@ -321,9 +321,8 @@ class ChromosomeAwareFc(Fc):
         expression_embeddings = expression_embedding_layer(expression_inputs)
 
         return gene_embeddings + expression_embeddings
-=======
+
 class ScBERTFc(ScGPTFc):
     """Implementation of scBERT cell embedding."""
 
     # TODO: is ScBERTFc actually the same as ScGPTFc?
->>>>>>> c850a83c66a633ba987b0eb5cc91138b39a7e7cd

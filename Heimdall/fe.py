@@ -7,7 +7,7 @@ import torch
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
-from scipy.sparse import csr_array, issparse
+from scipy.sparse import csr_array, issparse, csr_matrix
 
 
 class Fe(ABC):
@@ -42,7 +42,9 @@ class Fe(ABC):
                 " Please consider pre-computing it to save memory.",
             )
 
-        self.adata.X = csr_array(self.adata.X)
+        #self.adata.X = csr_array(self.adata.X)
+        if not isinstance(self.adata.X, (csr_array, csr_matrix)):
+            self.adata.X = csr_array(self.adata.X)
 
     def _get_inputs_from_csr(self, cell_index: int):
         """Get expression values and gene indices from internal CSR
