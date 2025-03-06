@@ -125,8 +125,9 @@ class AutoDiscretizationEmbedding2(nn.Module):
         self.tensor0 = torch.tensor(0, dtype=torch.long)
 
     def forward(self, x, output_weight=False):
-        x_mask_idx = (x==self.mask_token_id).nonzero()
-        x_pad_idx = (x==self.pad_token_id).nonzero()
+        x = x.unsqueeze(-1)
+        # x_mask_idx = (x==self.mask_token_id).nonzero()
+        # x_pad_idx = (x==self.pad_token_id).nonzero()
         # print("x_mask",x_mask_idx.shape,x_mask_idx)
         
         x = self.mlp(x) # [B,N,1] -> [B,N,H]
@@ -145,15 +146,15 @@ class AutoDiscretizationEmbedding2(nn.Module):
     
         # print("x_emb",x.shape,x)
         
-        tensor0 = torch.tensor(0, dtype=torch.long, device=x.device)
+        # tensor0 = torch.tensor(0, dtype=torch.long, device=x.device)
 
-        mask_token_emb = self.emb_mask(tensor0).to(x.device).type(x.dtype)
+        # mask_token_emb = self.emb_mask(tensor0).to(x.device).type(x.dtype)
         # print(mask_token_emb.dtype)
         # print("x", x.dtype)
-        x[x_mask_idx[:,0],x_mask_idx[:,1],:] = mask_token_emb.repeat(x_mask_idx.shape[0],1)
+        # x[x_mask_idx[:,0],x_mask_idx[:,1],:] = mask_token_emb.repeat(x_mask_idx.shape[0],1)
         # print("x_emb",x.shape,x)
 
-        pad_token_emb = self.emb_pad(tensor0).to(x.device).type(x.dtype)
-        x[x_pad_idx[:,0],x_pad_idx[:,1],:] = pad_token_emb.repeat(x_pad_idx.shape[0],1)
+        # pad_token_emb = self.emb_pad(tensor0).to(x.device).type(x.dtype)
+        # x[x_pad_idx[:,0],x_pad_idx[:,1],:] = pad_token_emb.repeat(x_pad_idx.shape[0],1)
 
         return x

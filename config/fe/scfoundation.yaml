@@ -4,7 +4,7 @@ args:
   embedding_parameters:
     type: Heimdall.embedding.AutoDiscretizationEmbedding2
     args:
-      dim: 1 # Replace later
+      dim: ${model.args.d_model} # Replace later
       bin_num: 100
       bin_alpha: 1
       mask_token_id: null
