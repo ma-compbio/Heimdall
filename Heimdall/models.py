@@ -308,11 +308,12 @@ class CellPredHeadMixin:
 
 class SeqPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
+        cls_emb = encoder_output[:, 0, :]
         logits = self.decoder(encoder_output[:, 1:, :])
         return TransformerOutput(
             logits=logits,
             sequence_embeddings=encoder_output,
-            cls_embeddings=encoder_output[:, 0, :],
+            cls_embeddings=cls_emb,
         )
 
 
