@@ -256,6 +256,7 @@ class HeimdallTrainer:
                 break
 
             # Training for the current epoch
+            epoch = 0
             self.train_epoch(epoch)
 
         if self.run_wandb and self.accelerator.is_main_process:

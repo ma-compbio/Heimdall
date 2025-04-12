@@ -13,6 +13,7 @@ import pandas as pd
 import scanpy as sc
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
+from scipy import sparse
 from scipy.sparse import csc_array
 from sklearn.utils import resample
 from torch.utils.data import DataLoader, Subset
@@ -239,10 +240,29 @@ class CellRepresentation(SpecialTokenMixin):
                 species=self.dataset_preproc_cfg.species,
             )
 
+        if sparse.issparse(self.adata.X):
+            print("> Converting sparse matrix to dense... normalization preprocessing")
+            self.adata.X = self.adata.X.toarray()
+        else:
+            print("> Matrix is already dense.")
+
         if get_value(self.dataset_preproc_cfg, "normalize"):
-            # Normalizing based on target sum
             print("> Normalizing anndata...")
+
+            # Store mask of NaNs
+            nan_mask = np.isnan(self.adata.X)
+
+            # Temporarily fill NaNs with 0 (so they don't affect normalization)
+            X_temp = self.adata.X.copy()
+            X_temp[nan_mask] = 0
+
+            # Temporarily assign filled data to adata.X
+            self.adata.X = X_temp
             sc.pp.normalize_total(self.adata, target_sum=1e4)
+
+            # Restore NaNs
+            self.adata.X[nan_mask] = np.nan
+
             assert (
                 self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
             ), "Normalize and Log1P both need to be TRUE"
@@ -250,11 +270,36 @@ class CellRepresentation(SpecialTokenMixin):
             print("> Skipping Normalizing anndata...")
 
         if get_value(self.dataset_preproc_cfg, "log_1p"):
-            # log Transform step
             print("> Log Transforming anndata...")
-            sc.pp.log1p(self.adata)
+
+            # Store mask of NaNs
+            nan_mask = np.isnan(self.adata.X)
+
+            # Log1p only on valid values
+            X_temp = np.log1p(self.adata.X.copy())
+            X_temp[nan_mask] = np.nan
+
+            # Assign back
+            self.adata.X = X_temp
         else:
             print("> Skipping Log Transforming anndata..")
+
+        # if get_value(self.dataset_preproc_cfg, "normalize"):
+        #     # Normalizing based on target sum
+        #     print("> Normalizing anndata...")
+        #     sc.pp.normalize_total(self.adata, target_sum=1e4)
+        #     assert (
+        #         self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
+        #     ), "Normalize and Log1P both need to be TRUE"
+        # else:
+        #     print("> Skipping Normalizing anndata...")
+
+        # if get_value(self.dataset_preproc_cfg, "log_1p"):
+        #     # log Transform step
+        #     print("> Log Transforming anndata...")
+        #     sc.pp.log1p(self.adata)
+        # else:
+        #     print("> Skipping Log Transforming anndata..")
 
         if get_value(self.dataset_preproc_cfg, "top_n_genes") and self.dataset_preproc_cfg["top_n_genes"] != "false":
             # Identify highly variable genes

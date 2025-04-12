@@ -105,6 +105,7 @@ class Fc(ABC):
     ) -> NDArray | ak.Array:
         cell_tokenization = np.stack([gene_tokenization, expression_tokenization], axis=0)
         _, input_length = cell_tokenization.shape
+
         if input_length > self.max_input_length:
             return self.limit(cell_tokenization)
         return self.pad(cell_tokenization)
@@ -217,9 +218,30 @@ class ScGPTFc(Fc):
         self.rng = np.random.default_rng(seed)
 
     def limit(self, cell_tokenization: NDArray) -> NDArray:
-        _, input_length = cell_tokenization.shape
-        sample_indices = self.rng.choice(input_length, self.max_input_length, replace=False)
-        return cell_tokenization[:, sample_indices]
+        # Shape: (2, N)
+        expression_values = cell_tokenization[1]
+        input_length = expression_values.shape[0]
+
+        # Separate indices
+        nonzero_indices = np.where(expression_values != 0)[0]
+        zero_indices = np.where(expression_values == 0)[0]
+
+        # First: sample nonzero expression tokens
+        num_nonzero_to_sample = min(len(nonzero_indices), self.max_input_length)
+        selected_nonzero = self.rng.choice(nonzero_indices, num_nonzero_to_sample, replace=False)
+
+        # If needed: sample zero-expression tokens to fill up
+        num_remaining = self.max_input_length - num_nonzero_to_sample
+        if num_remaining > 0:
+            selected_zero = self.rng.choice(zero_indices, num_remaining, replace=False)
+            final_indices = np.concatenate([selected_nonzero, selected_zero])
+        else:
+            final_indices = selected_nonzero
+
+        # Optionally shuffle to avoid position bias, but we dont need to because the gene ids are the position
+        # self.rng.shuffle(final_indices)
+
+        return cell_tokenization[:, final_indices]
 
     def embed_cells(
         self,
