@@ -241,8 +241,10 @@ class TorchTensorFg(PretrainedFg):
 class Gene2VecFg(TorchTensorFg):
     """Mapping of gene names to pretrained Gene2VecFg embeddings."""
 
+
 class GenePTFg(TorchTensorFg):
     """Mapping of gene names to pretrained Gene2VecFg embeddings."""
+
 
 class ESM2Fg(TorchTensorFg):
     """Mapping of gene names to pretrained ESM2 embeddings."""

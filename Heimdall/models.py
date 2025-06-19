@@ -144,7 +144,7 @@ class HeimdallSimpleLinearEncoder(nn.Module):
     def forward(self, input_embeds, attention_mask):
 
         # Encoder
-        linear_transform = self.encoder(input_embeds)
+        # linear_transform = self.encoder(input_embeds)
 
         # take the average of the encoder outputs across the sequence length dimension
         # encoder_output = torch.mean(linear_transform, dim=1)

@@ -1,6 +1,5 @@
 """Heimdall trainer."""
 
-import os
 import random
 from pathlib import Path
 
@@ -361,7 +360,11 @@ class HeimdallTrainer:
                         self.step += 1
 
                 t.set_description(
-                    f"Epoch: {epoch}, Step {self.step}, Loss: {loss.item():.4f}, LR: {lr:.1e}, grad_norm: {grad_norm:.4f}",
+                    f"Epoch: {epoch} "
+                    "Step {self.step} "
+                    "Loss: {loss.item():.4f} "
+                    "LR: {lr:.1e} "
+                    "grad_norm: {grad_norm:.4f} ",
                 )
 
                 if is_logging:
@@ -381,11 +384,11 @@ class HeimdallTrainer:
     # Add these methods to the HeimdallTrainer class
     def save_adata_umap(self, best_test_embed, best_val_embed):
 
-        ## only do this for predefined ones
+        # only do this for predefined ones
         if self.cfg.tasks.args.splits.type != "predefined":
             return
 
-        ## pull the adata from the
+        # pull the adata from the
         test_adata = self.data.adata[
             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
         ].copy()

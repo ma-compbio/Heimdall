@@ -1,6 +1,6 @@
-from torch import Tensor, nn
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
+from torch import Tensor, nn
 
 
 class MaskedLossMixin:
@@ -41,16 +41,15 @@ class MaskedBCEWithLogitsLoss(MaskedLossMixin, nn.BCEWithLogitsLoss):
     """BCEWithLogitsLoss evaluated on unmasked entires."""
 
 
-
 class CrossEntropyFocalLoss(torch.nn.Module):
-    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction="mean"):
         """
         Args:
             alpha (float or list): Balancing factor for each class. If a single float, applies to class 1.
             gamma (float): Modulating factor to down-weight easy samples.
             reduction (str): 'none', 'mean', or 'sum'.
         """
-        super(CrossEntropyFocalLoss, self).__init__()
+        super().__init__()
         raise NotImplementedError("This class is not implemented correctly yet.")
         self.alpha = alpha
         self.gamma = gamma
@@ -64,12 +63,12 @@ class CrossEntropyFocalLoss(torch.nn.Module):
         Returns:
             Focal loss value.
         """
-        ce_loss = F.cross_entropy(inputs, targets, reduction='none')  # Standard cross-entropy loss
+        ce_loss = F.cross_entropy(inputs, targets, reduction="none")  # Standard cross-entropy loss
         p_t = torch.exp(-ce_loss)  # Compute p_t = exp(-CE) (probability of the true class)
         focal_loss = (self.alpha * (1 - p_t) ** self.gamma) * ce_loss  # Apply focal loss formula
 
-        if self.reduction == 'mean':
+        if self.reduction == "mean":
             return focal_loss.mean()
-        elif self.reduction == 'sum':
+        elif self.reduction == "sum":
             return focal_loss.sum()
         return focal_loss  # If reduction='none'

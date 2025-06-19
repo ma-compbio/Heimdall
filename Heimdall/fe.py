@@ -243,7 +243,6 @@ class BinningFe(Fe):
         cell_identity_inputs is a vector of corresponding gene indices
 
         """
-
         cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
 
         # Bin the cell expression values

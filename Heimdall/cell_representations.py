@@ -253,11 +253,11 @@ class CellRepresentation(SpecialTokenMixin):
             nan_mask = np.isnan(self.adata.X)
 
             # Temporarily fill NaNs with 0 (so they don't affect normalization)
-            X_temp = self.adata.X.copy()
-            X_temp[nan_mask] = 0
+            normalized_expression = self.adata.X.copy()
+            normalized_expression[nan_mask] = 0
 
             # Temporarily assign filled data to adata.X
-            self.adata.X = X_temp
+            self.adata.X = normalized_expression
             sc.pp.normalize_total(self.adata, target_sum=1e4)
 
             # Restore NaNs
@@ -276,11 +276,11 @@ class CellRepresentation(SpecialTokenMixin):
             nan_mask = np.isnan(self.adata.X)
 
             # Log1p only on valid values
-            X_temp = np.log1p(self.adata.X.copy())
-            X_temp[nan_mask] = np.nan
+            normalized_expression = np.log1p(self.adata.X.copy())
+            normalized_expression[nan_mask] = np.nan
 
             # Assign back
-            self.adata.X = X_temp
+            self.adata.X = normalized_expression
         else:
             print("> Skipping Log Transforming anndata..")
 

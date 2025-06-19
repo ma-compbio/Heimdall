@@ -231,7 +231,6 @@ class ScGPTFc(Fc):
     def limit(self, cell_tokenization: NDArray) -> NDArray:
         # Shape: (2, N)
         expression_values = cell_tokenization[1]
-        input_length = expression_values.shape[0]
 
         # Separate indices
         nonzero_indices = np.where(expression_values != 0)[0]
