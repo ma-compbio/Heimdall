@@ -383,11 +383,6 @@ class HeimdallTrainer:
 
     # Add these methods to the HeimdallTrainer class
     def save_adata_umap(self, best_test_embed, best_val_embed):
-
-        # only do this for predefined ones
-        if self.cfg.tasks.args.splits.type != "predefined":
-            return
-
         # pull the adata from the
         test_adata = self.data.adata[
             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
