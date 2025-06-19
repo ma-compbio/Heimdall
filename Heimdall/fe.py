@@ -203,7 +203,8 @@ class BinningFe(Fe):
     #     return torch.from_numpy(binned_row) if not return_np else binned_row.astype(dtype)
 
     def binning(self, row, n_bins) -> Union[np.ndarray, torch.Tensor]:
-        """Binning the row into n_bins, placing zeros into bin 0, preserving NaNs."""
+        """Binning the row into n_bins, placing zeros into bin 0, preserving
+        NaNs."""
         dtype = row.dtype
         return_np = not isinstance(row, torch.Tensor)
         row = row.cpu().numpy() if isinstance(row, torch.Tensor) else row
@@ -233,8 +234,6 @@ class BinningFe(Fe):
         binned[nan_mask] = np.nan  # Preserve NaNs
 
         return torch.from_numpy(binned).to(dtype) if not return_np else binned.astype(dtype)
-
-
 
     def __getitem__(self, cell_index: int):
         """Input is an adata indexed at cell [idx]
@@ -288,7 +287,7 @@ class DummyFe(Fe):
 
         """
         cell_expression_inputs = self.adata.X[[cell_index], :].toarray()
-        cell_identity_inputs = np.arange(self.adata.shape[1])
+        cell_identity_inputs = np.arange(self.num_genes)
 
         return cell_identity_inputs, cell_expression_inputs
 
@@ -312,4 +311,65 @@ class SortingFe(Fe):
         cell_expression_inputs = nonzero_values[sorted_order]
         cell_identity_inputs = nonzero_indices[sorted_order]
 
+        return cell_identity_inputs, cell_expression_inputs
+
+
+class WeightedSamplingFe(Fe):
+    """Weighted Sampling Fe based on gene expression.
+
+    Args:
+        adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+        d_embedding: dimensionality of embedding for each expression entity
+        embedding_parameters: parameters for the embedding, including sampling size
+        vocab_size: vocabulary size for embedding
+        pad_value: value used for padding
+        sample_size: number of genes to sample per cell
+
+    """
+
+    def __init__(
+        self,
+        adata,
+        embedding_parameters,
+        d_embedding: int,
+        vocab_size: int,
+        pad_value: int = None,
+        sample_size: int = 1024,
+    ):
+        super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
+        self.sample_size = sample_size
+
+    def preprocess_embeddings(self):
+        """Preprocess and create weighted sampling embeddings."""
+        self.expression_embeddings = None
+
+        # Convert expression matrix to sparse format for efficient processing
+        expression = self.adata.X
+        csr_expression = csr_array(expression)
+
+        # Compute log-normalized weights for sampling
+        log_expression = np.log1p(csr_expression.data)  # log(1 + x)
+        cellwise_nonzero_expression = np.split(log_expression, csr_expression.indptr[1:-1])
+        row_sums = [np.sum(expr) for expr in cellwise_nonzero_expression]
+        cellwise_weights = [expr / row_sum for expr, row_sum in zip(cellwise_nonzero_expression, row_sums)]
+
+        # Sample gene indices based on weights
+        nonzero_indices = np.split(csr_expression.indices, csr_expression.indptr[1:-1])
+        sampled_indices = []
+        for weights, indices in zip(cellwise_weights, nonzero_indices):
+            sampled = np.random.choice(
+                indices,
+                size=self.sample_size,
+                p=weights,
+                replace=True,  # Sample with replacement
+            )
+            sampled_indices.append(sampled)
+
+        # Store sampled gene indices and expression values
+        self.adata.obsm["processed_expression_indices"] = ak.Array(sampled_indices)
+        self.adata.obsm["processed_expression_values"] = ak.Array(
+            [csr_expression[idx].toarray().flatten() for idx in sampled_indices],
+        )
+
+        self.replace_placeholders()
         return cell_identity_inputs, cell_expression_inputs

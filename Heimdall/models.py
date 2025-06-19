@@ -131,8 +131,8 @@ class ExpressionOnly(nn.Module):
     def forward(self, inputs, labels=None, conditional_tokens=None, attention_mask=None):
         _, outputs = inputs  # extract expression only
         return outputs.to(get_dtype(self.float_dtype))  # convert to float32?
-    
-    
+
+
 class HeimdallSimpleLinearEncoder(nn.Module):
     def __init__(
         self,
@@ -145,7 +145,7 @@ class HeimdallSimpleLinearEncoder(nn.Module):
 
         # Encoder
         linear_transform = self.encoder(input_embeds)
-        
+
         # take the average of the encoder outputs across the sequence length dimension
         # encoder_output = torch.mean(linear_transform, dim=1)
         valid_mask = ~attention_mask
@@ -165,9 +165,8 @@ class HeimdallSimpleLinearEncoder(nn.Module):
 
         # Compute the average, taking into account only the valid values
         masked_avg = sum_embeds / valid_counts
-                
-        return masked_avg
 
+        return masked_avg
 
 
 class HeimdallLinear(nn.Module):
@@ -188,12 +187,13 @@ class HeimdallLinear(nn.Module):
             conditional_input_types: Conditional input types specification.
 
         Example ``conditional_input_types``:
+
         """
         self.d_encoded = d_model
         self.conditional_input_types = conditional_input_types
 
         self.fc = data.fc
-        
+
         assert pooling == "mean_pooling"
         assert pos_enc == "NONE"
 
@@ -290,9 +290,6 @@ class HeimdallLinear(nn.Module):
         return transformer_encoder_output
 
 
-
-
-
 class HeimdallTransformerEncoder(nn.Module):
 
     def __init__(
@@ -358,7 +355,6 @@ class HeimdallTransformerEncoder(nn.Module):
                 src_key_padding_mask=attention_mask,
             )
         return encoder_output
-
 
 
 class HeimdallTransformer(nn.Module):
@@ -568,8 +564,8 @@ class ExpressionPredHeadMixin:
             sequence_embeddings=logits,
             cls_embeddings=logits,
         )
-        
-        
+
+
 class SeqHeadPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
         logits = self.decoder(encoder_output)
