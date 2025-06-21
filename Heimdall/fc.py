@@ -128,6 +128,7 @@ class Fc(ABC):
         gene_embedding_layer: Module | None,
         expression_inputs: Tensor,
         expression_embedding_layer: Module | None,
+        metadata_embedding_layer: Module | None,
     ) -> Tensor:
         """Embed cell batch using the embedding layers.
 
@@ -158,6 +159,7 @@ class GeneformerFc(Fc):
         gene_embedding_layer: Module | None,
         expression_inputs: Tensor,
         expression_embedding_layer: Module | None,
+        metadata_embedding_layer: Module | None,
     ) -> Tensor:
         """Geneformer cell embedding function.
 
@@ -208,6 +210,7 @@ class DummyFc(Fc):
         gene_embedding_layer: Module | None,
         expression_inputs: Tensor,
         expression_embedding_layer: Module | None,
+        metadata_embedding_layer: Module | None,
     ) -> Tensor:
 
         pass
@@ -259,6 +262,7 @@ class ScGPTFc(Fc):
         gene_embedding_layer: Module | None,
         expression_inputs: Tensor,
         expression_embedding_layer: Module | None,
+        metadata_embedding_layer: Module | None,
     ) -> Tensor:
         """ScGPT cell embedding callback.
 
@@ -289,8 +293,10 @@ class ChromosomeAwareFc(Fc):
         fg: Fg | None,
         fe: Fe | None,
         adata: ad.AnnData,
-        chroms: Optional[NDArray] = None,
-        starts: Optional[NDArray] = None,
+        gene_metadata_filepath: str | Path,
+        species: str,
+        # chroms: Optional[NDArray] = None,
+        # starts: Optional[NDArray] = None,
         max_input_length: Optional[int] = None,
     ):
         """
@@ -299,52 +305,145 @@ class ChromosomeAwareFc(Fc):
             starts: Genomic start positions of genes on their chromosomes.
         """
         super().__init__(fg, fe, adata, max_input_length)
-        self.chroms = chroms
-        self.starts = starts
 
-    def preprocess_cells(self):
-        """Using the `fg` and `fe`, preprocess input cells with chromosome-aware
-        sorting."""
-        gene_names = self.adata.var_names
-        processed_expression_values, processed_expression_indices = self.fe[:]
+        # https://github.com/snap-stanford/UCE/blob/8227a65cdd021b9186ef86671d2aef5c895c8e4b/data_proc/data_utils.py#L155
+        # TODO: load chromosome one-hot encoding and start positions for all genes
 
-        gene_lists = ak.Array(
-            [gene_names[cell_indices] for cell_indices in processed_expression_indices],
+        self.gene_metadata = pd.read_csv(gene_metadata_filepath)
+        self.species = species
+
+        self.gene_metadata["spec_chrom"] = pd.Categorical(
+            self.gene_metadata["species"] + "_" + self.gene_metadata["chromosome"],
         )
 
-        cell_identity_inputs = []
-        for cell_idx, gene_indices in enumerate(processed_expression_indices):
-            if self.chroms is not None and self.starts is not None:
-                # Perform chromosome-aware sorting
-                sorted_indices = self._chromosome_sort(gene_indices)
-                cell_identity_inputs.append(self.fg[gene_names[sorted_indices]])
-            else:
-                # Default behavior
-                cell_identity_inputs.append(self.fg[gene_lists[cell_idx]])
+        spec_chrom = gene_to_chrom_pos[gene_to_chrom_pos["species"] == species].set_index("gene_symbol")
+        gene_chrom = spec_chrom.loc[[k.upper() for k in self.adata.var_names]]
 
-        # Store processed values
-        self.adata.obsm["cell_identity_inputs"] = ak.Array(cell_identity_inputs)
-        self.adata.obsm["cell_expression_inputs"] = processed_expression_values
+        dataset_chroms = gene_chrom["spec_chrom"].cat.codes  # now this is correctely indexed by species and chromosome
+        print("Max Code:", max(dataset_chroms))
+        dataset_pos = gene_chrom["start"].values
 
-    def _chromosome_sort(self, gene_indices):
-        """Sort genes by chromosome and genomic start positions."""
-        chroms = self.chroms[gene_indices]
-        starts = self.starts[gene_indices]
+        self.chroms = dataset_chroms
+        self.starts = dataset_pos
 
-        # Group by chromosome
-        chrom_sort_order = np.argsort(chroms)
-        sorted_indices = gene_indices[chrom_sort_order]
-        sorted_chroms = chroms[chrom_sort_order]
-        sorted_starts = starts[chrom_sort_order]
+        self.placeholder_id = -1
+        self.chrom_token_right_idx = 0
+        # TODO: revise preprocess_emebddings so that it takes in information from the `Fc` that way, we can be include chromosome tokens and other tokens in the `gene_embeddings` and `expression_embeddings`
+        # nn.Embedding()
 
-        # Within each chromosome, sort by start position
-        chrom_groups = np.split(sorted_indices, np.unique(sorted_chroms, return_index=True)[1][1:])
-        sorted_sequence = []
-        for group in chrom_groups:
-            group_starts = sorted_starts[group]
-            sorted_sequence.extend(group[np.argsort(group_starts)])
+    # def preprocess_cells(self):
+    #     """Using the `fg` and `fe`, preprocess input cells with chromosome-aware
+    #     sorting."""
+    #     gene_names = self.adata.var_names
+    #     processed_expression_values, processed_expression_indices = self.fe[:]
 
-        return np.array(sorted_sequence)
+    #     gene_lists = ak.Array(
+    #         [gene_names[cell_indices] for cell_indices in processed_expression_indices],
+    #     )
+
+    #     cell_identity_inputs = []
+    #     for cell_idx, gene_indices in enumerate(processed_expression_indices):
+    #         if self.chroms is not None and self.starts is not None:
+    #             # Perform chromosome-aware sorting
+    #             sorted_indices = self._chromosome_sort(gene_indices)
+    #             cell_identity_inputs.append(self.fg[gene_names[sorted_indices]])
+    #         else:
+    #             # Default behavior
+    #             cell_identity_inputs.append(self.fg[gene_lists[cell_idx]])
+
+    #     # Store processed values
+    #     self.adata.obsm["cell_identity_inputs"] = ak.Array(cell_identity_inputs)
+    #     self.adata.obsm["cell_expression_inputs"] = processed_expression_values
+
+    # def _chromosome_sort(self, gene_indices):
+    #     """Sort genes by chromosome and genomic start positions."""
+    #     chroms = self.chroms[gene_indices]
+    #     starts = self.starts[gene_indices]
+
+    #     # Group by chromosome
+    #     chrom_sort_order = np.argsort(chroms)
+    #     sorted_indices = gene_indices[chrom_sort_order]
+    #     sorted_chroms = chroms[chrom_sort_order]
+    #     sorted_starts = starts[chrom_sort_order]
+
+    #     # Within each chromosome, sort by start position
+    #     chrom_groups = np.split(sorted_indices, np.unique(sorted_chroms, return_index=True)[1][1:])
+    #     sorted_sequence = []
+    #     for group in chrom_groups:
+    #         group_starts = sorted_starts[group]
+    #         sorted_sequence.extend(group[np.argsort(group_starts)])
+
+    #     return np.array(sorted_sequence)
+
+    def tailor(
+        self,
+        gene_tokenization,
+        expression_tokenization,
+    ) -> NDArray | ak.Array:
+
+        # first, drop any NaN values here
+        # Assuming gene_tokenization is a pandas Series and expression_tokenization is a numpy array
+        valid_mask = ~np.isnan(expression_tokenization)
+
+        gene_tokenization = gene_tokenization[valid_mask]
+        expression_tokenization = expression_tokenization[valid_mask]
+
+        choosen_chrom = self.chroms[gene_tokenization]
+
+        chrom_sort = np.argsort(choosen_chrom)
+
+        gene_tokenization = gene_tokenization[chrom_sort]
+        expression_tokenization = expression_tokenization[chrom_sort]
+
+        new_chrom = self.chroms[gene_tokenization]
+        choosen_starts = self.starts[gene_tokenization]
+
+        grouped_gene_tokenization = np.full((self.max_input_length), self.fg.pad_value)
+        grouped_expression_tokenization = np.full((self.max_input_length), self.fe.pad_value)
+
+        sequence_index = 0
+
+        self.unique_chromosomes = np.unique(new_chrom)
+        np.random.shuffle(self.unique_chromosomes)
+
+        for chromosome in unique_chromosomes:
+            grouped_gene_tokenization[sequence_index] = self.placeholder_id
+            grouped_expression_tokenization[sequence_index] = self.placeholder_id
+            # ordered_choice_idx[i] = int(chrom) + args.CHROM_TOKEN_OFFSET # token of this chromosome # i = 1 next token is a chrom open
+
+            sequence_index += 1
+            # now sort the genes by start order within the chroms
+            (chromosome_index,) = np.where(new_chrom == chromosome)
+            num_chromosome_genes = len(chromosome_index)
+
+            sort_by_start = np.argsort(
+                choosen_starts[chromosome_index],
+            )  # start chromosome_indexations for this chromsome
+
+            chromosome_genes = gene_tokenization[chromosome_index[sort_by_start]]
+            chromosome_expression = expression_tokenization[chromosome_index[sort_by_start]]
+
+            grouped_gene_tokenization[sequence_index : (sequence_index + num_chromosome_genes)] = chromosome_genes
+            grouped_expression_tokenization[sequence_index : (sequence_index + num_chromosome_genes)] = (
+                chromosome_expression
+            )
+
+            sequence_index += num_chromosome_genes
+
+            grouped_gene_tokenization[sequence_index] = self.placeholder_id
+            grouped_expression_tokenization[sequence_index] = self.placeholder_id
+            # ordered_choice_idx[i] = args.chrom_token_right_idx # add the chrom sep again
+
+            sequence_index += 1  # add the closing token again
+
+        cell_tokenization = np.stack([grouped_gene_tokenization, grouped_expression_tokenization], axis=0)
+        # cell_tokenization = np.stack([gene_tokenization, expression_tokenization], axis=0)
+
+        _, input_length = cell_tokenization.shape
+
+        if input_length > self.max_input_length:
+            return self.limit(cell_tokenization)
+        return self.pad(cell_tokenization)
 
     def embed_cells(
         self,
@@ -352,12 +451,27 @@ class ChromosomeAwareFc(Fc):
         gene_embedding_layer: Module | None,
         expression_inputs: Tensor,
         expression_embedding_layer: Module | None,
+        metadata_embedding_layer: Module | None,
     ) -> Tensor:
         """Embed cells using chromosome-aware sequences."""
-        gene_embeddings = gene_embedding_layer(identity_inputs)
-        expression_embeddings = expression_embedding_layer(expression_inputs)
 
-        return gene_embeddings + expression_embeddings
+        chromosome_token_mask = expression_inputs == self.placeholder_id
+        expression_inputs[chromosome_token_mask] = 0
+        gene_embeddings = gene_embedding_layer(identity_inputs)
+        # expression_embeddings = expression_embedding_layer(expression_inputs) # TODO: want to use bins with this, but currently ignoring
+
+        # Fix the chromosome tokens after retrieving the expression embeddings
+        placeholder_position = 0
+        for unique_chromosome in self.unique_chromosomes:
+            gene_embeddings[chromosome_token_mask[placeholder_position]] = metadata_embedding_layer(
+                unique_chromosome + 1,
+            )
+            gene_embeddings[chromosome_token_mask[placeholder_position + 1]] = metadata_embedding_layer(
+                self.chrom_token_right_idx,
+            )
+            placeholder_position += 2
+
+        return expression_embeddings
 
 
 class ScBERTFc(ScGPTFc):

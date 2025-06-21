@@ -328,47 +328,59 @@ class WeightedSamplingFe(Fe):
 
     def __init__(
         self,
-        adata,
-        embedding_parameters,
-        d_embedding: int,
-        vocab_size: int,
-        pad_value: int = None,
-        sample_size: int = 1024,
+        adata: ad.AnnData,
+        sample_size: int,
+        **fe_kwargs,
     ):
-        super().__init__(adata, embedding_parameters, d_embedding, vocab_size, pad_value)
+        super().__init__(adata, vocab_size=vocab_size, **fe_kwargs)
         self.sample_size = sample_size
 
-    def preprocess_embeddings(self):
-        """Preprocess and create weighted sampling embeddings."""
-        self.expression_embeddings = None
+    # def preprocess_embeddings(self):
+    #     """Preprocess and create weighted sampling embeddings."""
+    #     self.expression_embeddings = None
 
-        # Convert expression matrix to sparse format for efficient processing
-        expression = self.adata.X
-        csr_expression = csr_array(expression)
+    #     # Convert expression matrix to sparse format for efficient processing
+    #     expression = self.adata.X
+    #     csr_expression = csr_array(expression)
 
-        # Compute log-normalized weights for sampling
-        log_expression = np.log1p(csr_expression.data)  # log(1 + x)
-        cellwise_nonzero_expression = np.split(log_expression, csr_expression.indptr[1:-1])
-        row_sums = [np.sum(expr) for expr in cellwise_nonzero_expression]
-        cellwise_weights = [expr / row_sum for expr, row_sum in zip(cellwise_nonzero_expression, row_sums)]
+    #     # Compute log-normalized weights for sampling
+    #     log_expression = np.log1p(csr_expression.data)  # log(1 + x)
+    #     cellwise_nonzero_expression = np.split(log_expression, csr_expression.indptr[1:-1])
+    #     row_sums = [np.sum(expr) for expr in cellwise_nonzero_expression]
+    #     cellwise_weights = [expr / row_sum for expr, row_sum in zip(cellwise_nonzero_expression, row_sums)]
 
-        # Sample gene indices based on weights
-        nonzero_indices = np.split(csr_expression.indices, csr_expression.indptr[1:-1])
-        sampled_indices = []
-        for weights, indices in zip(cellwise_weights, nonzero_indices):
-            sampled = np.random.choice(
-                indices,
-                size=self.sample_size,
-                p=weights,
-                replace=True,  # Sample with replacement
-            )
-            sampled_indices.append(sampled)
+    #     # Sample gene indices based on weights
+    #     nonzero_indices = np.split(csr_expression.indices, csr_expression.indptr[1:-1])
+    #     sampled_indices = []
+    #     for weights, indices in zip(cellwise_weights, nonzero_indices):
+    #         sampled = np.random.choice(
+    #             indices,
+    #             size=self.sample_size,
+    #             p=weights,
+    #             replace=True,  # Sample with replacement
+    #         )
+    #         sampled_indices.append(sampled)
 
-        # Store sampled gene indices and expression values
-        self.adata.obsm["processed_expression_indices"] = ak.Array(sampled_indices)
-        self.adata.obsm["processed_expression_values"] = ak.Array(
-            [csr_expression[idx].toarray().flatten() for idx in sampled_indices],
+    #     # Store sampled gene indices and expression values
+    #     self.adata.obsm["processed_expression_indices"] = ak.Array(sampled_indices)
+    #     self.adata.obsm["processed_expression_values"] = ak.Array(
+    #         [csr_expression[idx].toarray().flatten() for idx in sampled_indices],
+    #     )
+
+    #     self.replace_placeholders()
+    #     return cell_identity_inputs, cell_expression_inputs
+
+    def __getitem__(self, cell_index: int):
+        cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
+
+        weights = np.log1p(cell_expression_inputs)
+        weights /= np.sum(weights)
+
+        resampled_gene_indices = np.random.choice(
+            cell_identity_inputs,
+            size=self.sample_size,
+            p=weights,
+            replace=True,
         )
 
-        self.replace_placeholders()
-        return cell_identity_inputs, cell_expression_inputs
+        return resampled_gene_indices, resampled_gene_indices

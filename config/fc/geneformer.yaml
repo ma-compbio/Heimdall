@@ -2,3 +2,6 @@ type: Heimdall.fc.GeneformerFc
 
 args:
   max_input_length: 2048
+  num_metadata_tokens: 0
+  embedding_parameters:
+    type: torch.nn.Module  # Should throw an error if called
