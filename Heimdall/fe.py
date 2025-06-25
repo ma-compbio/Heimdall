@@ -40,7 +40,7 @@ class Fe(ABC):
 
         if not issparse(self.adata.X):
             print(
-                "> Data was provided dense format, converting to CSR."
+                "> Data was provided in dense format, converting to CSR."
                 " Please consider pre-computing it to save memory.",
             )
             self.adata.X = csr_array(self.adata.X)
