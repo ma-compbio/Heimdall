@@ -305,7 +305,7 @@ class CellRepresentation(SpecialTokenMixin):
             # Identify highly variable genes
             print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
             sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
-            self.adata = self.adata[:, self.adata.var["highly_variable"]]
+            self.adata = self.adata[:, self.adata.var["highly_variable"]].copy()
         else:
             print("> No highly variable subset... using entire dataset")
 
@@ -326,8 +326,6 @@ class CellRepresentation(SpecialTokenMixin):
             genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
             gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
             self.adata.var["medians"] = gene_medians
-
-        print("> Finished Processing Anndata Object")
 
         if preprocessed_data_path is not None:
             self.anndata_to_cache(preprocessed_data_path)
