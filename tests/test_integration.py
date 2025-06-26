@@ -21,7 +21,18 @@ def test_default_hydra_train():
     with hydra.initialize(version_base=None, config_path="../config"):
         config = hydra.compose(
             config_name="config",
-            overrides=["+experiments=cta_pancreas", f"user={os.environ['HYDRA_USER']}"],
+            overrides=[
+                # "+experiments_dev=classification_experiment_dev",
+                "+experiments=spatial_cancer_split1",
+                # "user=lane-nick"
+                "model=transformer",
+                "fg=identity",
+                "fe=sorting",
+                "fc=geneformer",
+                "seed=55",
+                "project_name=demo",
+                # f"user={os.environ['HYDRA_USER']}"
+            ],
         )
         print(OmegaConf.to_yaml(config))
 
