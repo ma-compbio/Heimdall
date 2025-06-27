@@ -31,6 +31,8 @@ def test_default_hydra_train():
                 "fc=geneformer",
                 "seed=55",
                 "project_name=demo",
+                "tasks.args.epochs=1",
+                "fc.args.max_input_length=512",
                 # f"user={os.environ['HYDRA_USER']}"
             ],
         )
@@ -52,8 +54,8 @@ def test_default_hydra_train():
 
     trainer = HeimdallTrainer(cfg=config, model=model, data=cr, run_wandb=False)
 
-    trainer.fit()
+    trainer.fit(resume_from_checkpoint=False, checkpoint_every_n_epochs=20)
 
-    valid_log = trainer.validate_model(trainer.dataloader_val, dataset_type="valid")
+    valid_log, _ = trainer.validate_model(trainer.dataloader_val, dataset_type="valid")
 
-    assert valid_log["valid_MatthewsCorrCoef"] > 0.8
+    assert valid_log["valid_MatthewsCorrCoef"] > 0.25

@@ -361,10 +361,10 @@ class HeimdallTrainer:
 
                 t.set_description(
                     f"Epoch: {epoch} "
-                    "Step {self.step} "
-                    "Loss: {loss.item():.4f} "
-                    "LR: {lr:.1e} "
-                    "grad_norm: {grad_norm:.4f} ",
+                    f"Step {self.step} "
+                    f"Loss: {loss.item():.4f} "
+                    f"LR: {lr:.1e} "
+                    f"grad_norm: {grad_norm:.4f} ",
                 )
 
                 if is_logging:
