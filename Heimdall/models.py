@@ -236,7 +236,9 @@ class HeimdallLinear(nn.Module):
         #         elif spec["type"] == "predefined":
         #             self.conditional_embeddings[name] = None  # no need to specify anything, loads in directly
         #         else:
-        #             raise ValueError(f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'")
+        #             raise ValueError(
+        #                 f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'",
+        #             )
 
         # encoder_layer = instantiate_from_config(encoder_layer_parameters)
         # self.transformer_encoder = instantiate_from_config(encoder_parameters, encoder_layer)
@@ -444,7 +446,9 @@ class HeimdallTransformer(nn.Module):
         #         elif spec["type"] == "predefined":
         #             self.conditional_embeddings[name] = None  # no need to specify anything, loads in directly
         #         else:
-        #             raise ValueError(f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'")
+        #             raise ValueError(
+        #                 f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'",
+        #             )
 
         # encoder_layer = instantiate_from_config(encoder_layer_parameters)
         # self.transformer_encoder = instantiate_from_config(encoder_parameters, encoder_layer)

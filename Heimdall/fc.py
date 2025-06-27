@@ -341,7 +341,9 @@ class UCEFc(Fc):
         try:
             gene_chrom = spec_chrom.loc[[k.upper() for k in self.adata.var_names]]
         except KeyError as e:
-            raise ValueError("Input AnnData cannot contain gene names that are unmapped in the chromosome metadata.")
+            raise ValueError(
+                "Input AnnData cannot contain gene names that are unmapped in the chromosome metadata.",
+            ) from e
 
         dataset_chroms = gene_chrom["spec_chrom"].cat.codes  # now this is correctly indexed by species and chromosome
         print("Max Code:", max(dataset_chroms))
@@ -393,7 +395,8 @@ class UCEFc(Fc):
         for chromosome in self.unique_chromosomes:
             grouped_gene_tokenization[sequence_index] = self.placeholder_id
             grouped_expression_tokenization[sequence_index] = self.placeholder_id
-            # ordered_choice_idx[i] = int(chrom) + args.CHROM_TOKEN_OFFSET # token of this chromosome # i = 1 next token is a chrom open
+            # ordered_choice_idx[i] = int(chrom) + args.CHROM_TOKEN_OFFSET
+            # token of this chromosome # i = 1 next token is a chrom open
 
             sequence_index += 1
             # now sort the genes by start order within the chroms
@@ -442,7 +445,8 @@ class UCEFc(Fc):
         chromosome_token_mask = expression_inputs == self.placeholder_id
         expression_inputs[chromosome_token_mask] = 0
         gene_embeddings = gene_embedding_layer(identity_inputs)
-        # expression_embeddings = expression_embedding_layer(expression_inputs) # TODO: want to use bins with this, but currently ignoring
+        # expression_embeddings = expression_embedding_layer(expression_inputs)
+        # TODO: want to use bins with this, but currently ignoring
 
         # Fix the chromosome tokens after retrieving the expression embeddings
         placeholder_position = 0
