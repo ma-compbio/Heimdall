@@ -342,11 +342,13 @@ class WeightedSamplingFe(Fe):
     def __getitem__(self, cell_index: int):
         cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
 
-        weights = np.log1p(cell_expression_inputs)
+        nan_mask = np.isnan(cell_expression_inputs)
+
+        weights = np.log1p(cell_expression_inputs[~nan_mask])
         weights /= np.sum(weights)
 
         resampled_gene_indices = self.rng.choice(
-            cell_identity_inputs,
+            cell_identity_inputs[~nan_mask],
             size=self.sample_size,
             p=weights,
             replace=True,
