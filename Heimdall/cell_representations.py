@@ -23,6 +23,7 @@ from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
 from Heimdall.utils import (
+    convert_to_ensembl_ids,
     get_cached_paths,
     get_value,
     heimdall_collate_fn,
@@ -172,21 +173,22 @@ class CellRepresentation(SpecialTokenMixin):
             - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
 
         """
-        symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
-            data_dir=data_dir,
-            genes=self.adata.var.index.tolist(),
-            species=species,
-        )
+        # symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
+        #     data_dir=data_dir,
+        #     genes=self.adata.var.index.tolist(),
+        #     species=species,
+        # )
 
-        self.adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
+        # self.adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
 
-        self.adata.var["gene_symbol"] = self.adata.var.index
-        self.adata.var["gene_ensembl"] = self.adata.var["gene_symbol"].map(
-            symbol_to_ensembl_mapping.mapping_combined.get,
-        )
-        self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
-        self.adata.var.index.name = "index"
+        # self.adata.var["gene_symbol"] = self.adata.var.index
+        # self.adata.var["gene_ensembl"] = self.adata.var["gene_symbol"].map(
+        #     symbol_to_ensembl_mapping.mapping_combined.get,
+        # )
+        # self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
+        # self.adata.var.index.name = "index"
 
+        _, symbol_to_ensembl_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
         return self.adata, symbol_to_ensembl_mapping
 
     def get_preprocessed_data_path(self):
