@@ -28,7 +28,6 @@ from Heimdall.utils import (
     get_value,
     heimdall_collate_fn,
     instantiate_from_config,
-    symbol_to_ensembl_from_ensembl,
 )
 
 

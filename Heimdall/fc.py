@@ -15,7 +15,6 @@ from torch.nn import Module
 
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
-from Heimdall.utils import symbol_to_ensembl_from_ensembl
 
 
 class Fc(ABC):
