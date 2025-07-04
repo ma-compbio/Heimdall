@@ -189,3 +189,28 @@ def test_nonzero_identity_fe(zero_expression_identity_fg, nonzero_identity_fe):
 
     assert nonzero_identity_fe.pad_value == 4
     assert nonzero_identity_fe.mask_value == 5
+
+
+def test_weighted_sampling_fe(identity_fg, weighted_sampling_fe):
+    identity_fg.preprocess_embeddings()
+    weighted_sampling_fe.preprocess_embeddings()
+
+    # output = weighted_sampling_fe.adata.obsm["processed_expression_values"]
+
+    _, num_genes = weighted_sampling_fe.adata.shape
+
+    expected = np.array(
+        [
+            [1, 1, 0, 0, 2],
+            [2, 2, 2, 1, 2],
+            [2, 0, 2, 0, 2],
+            [0, 2, 1, 0, 0],
+        ],
+    )
+
+    for cell_index in range(len(identity_fg.adata)):
+        cell_identity_inputs, cell_expression_inputs = weighted_sampling_fe[cell_index]
+        assert np.allclose(expected[cell_index], cell_identity_inputs)
+
+    assert weighted_sampling_fe.pad_value == 4
+    assert weighted_sampling_fe.mask_value == 5

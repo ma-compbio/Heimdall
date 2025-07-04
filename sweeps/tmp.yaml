@@ -1,20 +1,14 @@
 command:
-- accelerate
-- launch
-- --mixed_precision=bf16
-- ${program}
-- ${args_no_hyphens}
-- model=transformer_2layer
-- fg=esm2proj
-- fg.args.frozen=FALSE
-- fe=nonzero_2nn
-- fc=scgpt
-- model.args.pos_enc=NONE
-- fc.args.max_input_length=1024
-- +experiments=spatial_cta_batch
-- tasks=spatial_cta_easy
-- user=lane-nick
-- fe.args.drop_zeros=false
+  - python
+  - ${program}
+  - ${args_no_hyphens}
+  - model=expression_only
+  - fg=dummy
+  - fe=dummy
+  - fc=dummy
+  - fc.args.max_input_length=
+  - +experiments_baseline=new_sctab_split1
+  - user=lane-nick
 method: grid
 metric:
   goal: maximize
@@ -22,11 +16,11 @@ metric:
 parameters:
   optimizer.args.lr:
     values:
-    - 1e-2
-    - 1e-3
-    - 3e-4
+      - 1e-2
+      - 1e-3
+      - 3e-4
   tasks.args.batchsize:
     values:
-    - 32
-    - 64
+      - 32
+      - 64
 program: train.py

@@ -1,4 +1,5 @@
 type: Heimdall.fe.BinningFe
+name: Heimdall.fe.BinningFe
 
 args:
   embedding_parameters:

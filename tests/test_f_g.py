@@ -6,7 +6,7 @@ import pytest
 from omegaconf import OmegaConf
 from pytest import fixture
 
-from Heimdall.fg import ESM2Fg, Gene2VecFg, IdentityFg
+from Heimdall.fg import CSVFg, IdentityFg, TorchTensorFg
 
 
 @fixture
@@ -54,7 +54,7 @@ def test_identity_fg(mock_dataset):
     assert identity_fg.mask_value == 5
 
 
-def test_esm2_fg(mock_dataset):
+def test_torch_tensor_fg(mock_dataset):
     config = OmegaConf.create(
         {
             "embedding_parameters": {
@@ -79,7 +79,7 @@ def test_esm2_fg(mock_dataset):
 
     expected_valid_values = [0.04376760497689247, 0.1535314917564392, 0.11875522881746292]
 
-    esm2_fg = ESM2Fg(mock_dataset, **config)
+    esm2_fg = TorchTensorFg(mock_dataset, **config)
     esm2_fg.preprocess_embeddings()
 
     try:
@@ -91,11 +91,11 @@ def test_esm2_fg(mock_dataset):
     embeddings = esm2_fg.gene_embeddings[embedding_indices]
     assert np.allclose(embeddings[:, 0], expected_valid_values)
 
-    assert esm2_fg.pad_value == 4
-    assert esm2_fg.mask_value == 5
+    assert esm2_fg.pad_value == 3
+    assert esm2_fg.mask_value == 4
 
 
-def test_gene2vec_fg(mock_dataset):
+def test_csv_fg(mock_dataset):
     config = OmegaConf.create(
         {
             "embedding_parameters": {
@@ -119,7 +119,7 @@ def test_gene2vec_fg(mock_dataset):
     valid_gene_mask = [gene_name != "fake_gene" for gene_name in gene_names]
     expected_valid_values = [0.09901640564203262, -0.02311580441892147, 0.33965930342674255]
 
-    gene2vec_fg = Gene2VecFg(mock_dataset, **config)
+    gene2vec_fg = CSVFg(mock_dataset, **config)
     gene2vec_fg.preprocess_embeddings()
 
     try:
@@ -130,5 +130,5 @@ def test_gene2vec_fg(mock_dataset):
     embedding_indices = gene2vec_fg[gene_names[valid_gene_mask]]
     embeddings = gene2vec_fg.gene_embeddings[embedding_indices]
     assert np.allclose(embeddings[:, 0], expected_valid_values)
-    assert gene2vec_fg.pad_value == 4
-    assert gene2vec_fg.mask_value == 5
+    assert gene2vec_fg.pad_value == 3
+    assert gene2vec_fg.mask_value == 4

@@ -13,6 +13,7 @@ import pandas as pd
 import scanpy as sc
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
+from scipy import sparse
 from scipy.sparse import csc_array
 from sklearn.utils import resample
 from torch.utils.data import DataLoader, Subset
@@ -22,11 +23,11 @@ from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
 from Heimdall.utils import (
+    convert_to_ensembl_ids,
     get_cached_paths,
     get_value,
     heimdall_collate_fn,
     instantiate_from_config,
-    symbol_to_ensembl_from_ensembl,
 )
 
 
@@ -171,21 +172,22 @@ class CellRepresentation(SpecialTokenMixin):
             - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
 
         """
-        symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
-            data_dir=data_dir,
-            genes=self.adata.var.index.tolist(),
-            species=species,
-        )
+        # symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
+        #     data_dir=data_dir,
+        #     genes=self.adata.var.index.tolist(),
+        #     species=species,
+        # )
 
-        self.adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
+        # self.adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
 
-        self.adata.var["gene_symbol"] = self.adata.var.index
-        self.adata.var["gene_ensembl"] = self.adata.var["gene_symbol"].map(
-            symbol_to_ensembl_mapping.mapping_combined.get,
-        )
-        self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
-        self.adata.var.index.name = "index"
+        # self.adata.var["gene_symbol"] = self.adata.var.index
+        # self.adata.var["gene_ensembl"] = self.adata.var["gene_symbol"].map(
+        #     symbol_to_ensembl_mapping.mapping_combined.get,
+        # )
+        # self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
+        # self.adata.var.index.name = "index"
 
+        _, symbol_to_ensembl_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
         return self.adata, symbol_to_ensembl_mapping
 
     def get_preprocessed_data_path(self):
@@ -239,10 +241,29 @@ class CellRepresentation(SpecialTokenMixin):
                 species=self.dataset_preproc_cfg.species,
             )
 
+        if sparse.issparse(self.adata.X):
+            print("> Converting sparse matrix to dense... normalization preprocessing")
+            self.adata.X = self.adata.X.toarray()
+        else:
+            print("> Matrix is already dense.")
+
         if get_value(self.dataset_preproc_cfg, "normalize"):
-            # Normalizing based on target sum
             print("> Normalizing anndata...")
+
+            # Store mask of NaNs
+            nan_mask = np.isnan(self.adata.X)
+
+            # Temporarily fill NaNs with 0 (so they don't affect normalization)
+            normalized_expression = self.adata.X.copy()
+            normalized_expression[nan_mask] = 0
+
+            # Temporarily assign filled data to adata.X
+            self.adata.X = normalized_expression
             sc.pp.normalize_total(self.adata, target_sum=1e4)
+
+            # Restore NaNs
+            self.adata.X[nan_mask] = np.nan
+
             assert (
                 self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
             ), "Normalize and Log1P both need to be TRUE"
@@ -250,17 +271,42 @@ class CellRepresentation(SpecialTokenMixin):
             print("> Skipping Normalizing anndata...")
 
         if get_value(self.dataset_preproc_cfg, "log_1p"):
-            # log Transform step
             print("> Log Transforming anndata...")
-            sc.pp.log1p(self.adata)
+
+            # Store mask of NaNs
+            nan_mask = np.isnan(self.adata.X)
+
+            # Log1p only on valid values
+            normalized_expression = np.log1p(self.adata.X.copy())
+            normalized_expression[nan_mask] = np.nan
+
+            # Assign back
+            self.adata.X = normalized_expression
         else:
             print("> Skipping Log Transforming anndata..")
+
+        # if get_value(self.dataset_preproc_cfg, "normalize"):
+        #     # Normalizing based on target sum
+        #     print("> Normalizing anndata...")
+        #     sc.pp.normalize_total(self.adata, target_sum=1e4)
+        #     assert (
+        #         self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
+        #     ), "Normalize and Log1P both need to be TRUE"
+        # else:
+        #     print("> Skipping Normalizing anndata...")
+
+        # if get_value(self.dataset_preproc_cfg, "log_1p"):
+        #     # log Transform step
+        #     print("> Log Transforming anndata...")
+        #     sc.pp.log1p(self.adata)
+        # else:
+        #     print("> Skipping Log Transforming anndata..")
 
         if get_value(self.dataset_preproc_cfg, "top_n_genes") and self.dataset_preproc_cfg["top_n_genes"] != "false":
             # Identify highly variable genes
             print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
             sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
-            self.adata = self.adata[:, self.adata.var["highly_variable"]]
+            self.adata = self.adata[:, self.adata.var["highly_variable"]].copy()
         else:
             print("> No highly variable subset... using entire dataset")
 
@@ -281,8 +327,6 @@ class CellRepresentation(SpecialTokenMixin):
             genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
             gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
             self.adata.var["medians"] = gene_medians
-
-        print("> Finished Processing Anndata Object")
 
         if preprocessed_data_path is not None:
             self.anndata_to_cache(preprocessed_data_path)
@@ -357,10 +401,6 @@ class CellRepresentation(SpecialTokenMixin):
         self.adata.raw = self.adata.copy()
         self.adata = self.adata[:, valid_mask].copy()
 
-        # setting up some pointers so that they all reference the same anndata object
-        self.fe.adata = self.adata
-        self.fc.adata = self.adata
-
         preprocessed_data_path, *_ = self.get_preprocessed_data_path()
         if preprocessed_data_path is not None:
             self.anndata_to_cache(preprocessed_data_path)
@@ -374,30 +414,9 @@ class CellRepresentation(SpecialTokenMixin):
         them and save them.
 
         """
-
         self.fg: Fg
         self.fe: Fe
         self.fc: Fc
-        self.fg, fg_name = instantiate_from_config(
-            self.fg_cfg,
-            self.adata,
-            vocab_size=self.sequence_length + 2,
-            return_name=True,
-        )
-        self.fe, fe_name = instantiate_from_config(
-            self.fe_cfg,
-            self.adata,
-            vocab_size=self.sequence_length + 2,
-            return_name=True,
-        )
-        self.fc, fc_name = instantiate_from_config(
-            self.fc_cfg,
-            self.fg,
-            self.fe,
-            self.adata,
-            float_dtype=self.float_dtype,
-            return_name=True,
-        )
 
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
             cfg = DictConfig(
@@ -432,14 +451,42 @@ class CellRepresentation(SpecialTokenMixin):
 
             OmegaConf.save(cfg, processed_cfg_path)
 
+        self.fg, fg_name = instantiate_from_config(
+            self.fg_cfg,
+            self.adata,
+            vocab_size=self.sequence_length + 2,
+            return_name=True,
+        )
+        if cache_dir is not None and processed_data_path.is_file():
+            self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
+
         self.fg.preprocess_embeddings()
         print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
         self.drop_invalid_genes()  # TODO: remove this if necessary
         print("> Finished dropping invalid genes from AnnData")
 
+        self.fe, fe_name = instantiate_from_config(
+            self.fe_cfg,
+            self.adata,
+            vocab_size=self.sequence_length + 2,
+            return_name=True,
+        )
+
+        if cache_dir is not None and processed_data_path.is_file():
+            self.fe.load_from_cache(expression_embeddings)
+
         self.fe.preprocess_embeddings()
         print(f"> Finished calculating fe with {self.fe_cfg.type}")
+
+        self.fc, fc_name = instantiate_from_config(
+            self.fc_cfg,
+            self.fg,
+            self.fe,
+            self.adata,
+            float_dtype=self.float_dtype,
+            return_name=True,
+        )
 
         self.processed_fcfg = True
 

@@ -1,4 +1,5 @@
 type: Heimdall.fe.SortingFe
+name: Heimdall.fe.SortingFe
 
 args:
   embedding_parameters:

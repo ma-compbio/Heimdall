@@ -2,3 +2,6 @@ type: Heimdall.fc.ScGPTFc
 
 args:
   max_input_length: 1200
+  num_metadata_tokens: 0
+  embedding_parameters:
+    type: torch.nn.Module  # Should throw an error if called

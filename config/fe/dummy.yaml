@@ -1,4 +1,5 @@
 type: Heimdall.fe.DummyFe
+name: Heimdall.fe.DummyFe
 
 args:
   embedding_parameters:

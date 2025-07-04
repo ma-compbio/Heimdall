@@ -1,4 +1,5 @@
 type: Heimdall.fe.NonzeroIdentityFe
+name: Heimdall.fe.NonzeroIdentityFe
 
 args:
   embedding_parameters:

@@ -30,21 +30,13 @@ def paired_task_config(request, toy_paried_data_path):
       args:
         d_model: 128
         pos_enc: BERT
-        pooling: cls_pooling
-        encoder_layer_parameters:
-          type: torch.nn.TransformerEncoderLayer
-          args:
-            d_model: 128
-            nhead: 2
-            activation: gelu
-            dropout: 0.1
-            dim_feedforward: 512
-            batch_first: True
-            norm_first: True
-        encoder_parameters:
-          type: torch.nn.TransformerEncoder
-          args:
-            num_layers: 2
+        num_encoder_layers: 6
+        nhead: 4
+        hidden_act: gelu
+        hidden_dropout_prob: 0.1
+        attention_probs_dropout_prob: 0.1
+        use_flash_attn: false
+        pooling: cls_pooling # or "mean_pooling"
     dataset:
       dataset_name: zeng_merfish_ccc_subset
       preprocess_args:
@@ -104,6 +96,9 @@ def paired_task_config(request, toy_paried_data_path):
       type: Heimdall.fc.GeneformerFc
       args:
         max_input_length: 2048
+        num_metadata_tokens: 0
+        embedding_parameters:
+          type: torch.nn.Module  # Should throw an error if called
     fe:
       type: Heimdall.fe.SortingFe
       args:
@@ -196,6 +191,10 @@ def single_task_config(toy_single_data_path):
         foreach: false
     fc:
       type: Heimdall.fc.DummyFc
+      args:
+        num_metadata_tokens: 0
+        embedding_parameters:
+          type: torch.nn.Module  # Should throw an error if called
     fe:
       type: Heimdall.fe.DummyFe
       args:

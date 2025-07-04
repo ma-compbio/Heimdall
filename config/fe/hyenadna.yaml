@@ -1,4 +1,5 @@
 type: Heimdall.fg.HyenaDNAFg
+name: Heimdall.fg.HyenaDNAFg
 
 args:
   embedding_parameters:

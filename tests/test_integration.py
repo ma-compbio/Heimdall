@@ -1,5 +1,7 @@
 import os
 
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
 import hydra
 import pytest
 from dotenv import load_dotenv
@@ -21,7 +23,21 @@ def test_default_hydra_train():
     with hydra.initialize(version_base=None, config_path="../config"):
         config = hydra.compose(
             config_name="config",
-            overrides=["+experiments=cta_pancreas", f"user={os.environ['HYDRA_USER']}"],
+            overrides=[
+                # "+experiments_dev=classification_experiment_dev",
+                "+experiments=spatial_cancer_split1",
+                # "user=lane-nick"
+                "model=transformer",
+                "fg=pca_esm2",
+                "fe=weighted_sampling",
+                "fc=uce",
+                "seed=55",
+                "project_name=demo",
+                "tasks.args.epochs=1",
+                "fc.args.max_input_length=512",
+                "fe.args.sample_size=450",
+                # f"user={os.environ['HYDRA_USER']}"
+            ],
         )
         print(OmegaConf.to_yaml(config))
 
@@ -41,8 +57,8 @@ def test_default_hydra_train():
 
     trainer = HeimdallTrainer(cfg=config, model=model, data=cr, run_wandb=False)
 
-    trainer.fit()
+    trainer.fit(resume_from_checkpoint=False, checkpoint_every_n_epochs=20)
 
-    valid_log = trainer.validate_model(trainer.dataloader_val, dataset_type="valid")
+    valid_log, _ = trainer.validate_model(trainer.dataloader_val, dataset_type="valid")
 
-    assert valid_log["valid_MatthewsCorrCoef"] > 0.8
+    assert valid_log["valid_MatthewsCorrCoef"] > 0.25

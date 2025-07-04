@@ -1,0 +1,13 @@
+type: Heimdall.fc.UCEFc
+
+args:
+  max_input_length: 1200
+  species: ${dataset.preprocess_args.species}
+  num_metadata_tokens: 100
+  gene_metadata_filepath: ${data_path}/gene_metadata/species_chrom.csv
+  ensembl_dir: ${data_path}
+  embedding_parameters:
+    type: Heimdall.embedding.GaussianInitEmbedding
+    args:
+      num_embeddings: ${fc.args.num_metadata_tokens}
+      embedding_dim: ${fg.args.d_embedding}

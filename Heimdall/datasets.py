@@ -140,7 +140,12 @@ class SingleInstanceDataset(Dataset):
         if "splits" not in dataset_task_cfg:  # no predefined splits specified
             pass
 
-        elif (split_type := dataset_task_cfg.splits.type) == "predefined":
+        splits = dataset_task_cfg.get("splits", None)
+        if splits is None:
+            return
+
+        split_type = splits.get("type", None)
+        if split_type == "predefined":
             self.splits = {}
             if hasattr(dataset_task_cfg.splits, "col"):
                 split_col = adata.obs[dataset_task_cfg.splits.col]

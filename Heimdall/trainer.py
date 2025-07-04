@@ -1,10 +1,16 @@
 """Heimdall trainer."""
 
+import random
+from pathlib import Path
+
+import numpy as np
 import psutil
+import scanpy as sc
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
 from accelerate.utils import set_seed
+from anndata import AnnData
 from omegaconf import OmegaConf
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
@@ -57,6 +63,7 @@ class HeimdallTrainer:
 
         self._initialize_wandb()
         self._initialize_lr_scheduler()
+        self.step = 0
 
         (
             self.model,
@@ -203,9 +210,15 @@ class HeimdallTrainer:
 
         return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
-    def fit(self):
-        """This is the main trainer.fit() function that is called for
-        training."""
+    def fit(self, resume_from_checkpoint=True, checkpoint_every_n_epochs=1):
+        """Train the model with automatic checkpointing and resumption."""
+        # Initialize checkpointing
+        self.initialize_checkpointing()
+
+        # Try to resume from checkpoint if requested
+        start_epoch = 0
+        if resume_from_checkpoint:
+            start_epoch = self.load_checkpoint()
 
         # If the tracked parameter is specified
         track_metric = None
@@ -224,48 +237,72 @@ class HeimdallTrainer:
         early_stopping_patience = self.cfg.tasks.args.get("early_stopping_patience", 5)
         patience_counter = 0
 
-        for epoch in range(self.cfg.tasks.args.epochs):
+        best_val_embed = None
+        best_test_embed = None
+        best_epoch = 0
+
+        for epoch in range(start_epoch, self.cfg.tasks.args.epochs):
             # Validation and test evaluation
-            valid_log = self.validate_model(self.dataloader_val, dataset_type="valid")
-            test_log = self.validate_model(self.dataloader_test, dataset_type="test")
+            valid_log, val_embed = self.validate_model(self.dataloader_val, dataset_type="valid")
+            test_log, test_embed = self.validate_model(self.dataloader_test, dataset_type="test")
 
             # Track the best metric if specified
             if track_metric:
                 val_metric = valid_log.get(f"valid_{track_metric}", float("-inf"))
                 if val_metric > best_metric[f"best_val_{track_metric}"]:
+
+                    best_val_embed = val_embed
+                    best_test_embed = test_embed
+                    best_epoch = epoch
+
                     best_metric[f"best_val_{track_metric}"] = val_metric
-                    print(f"New best validation {track_metric}: {val_metric}")
+                    self.print_r0(f"New best validation {track_metric}: {val_metric}")
                     best_metric["reported_epoch"] = epoch  # log the epoch for convenience
                     for metric in self.cfg.tasks.args.metrics:
                         best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
-                        # print(f"Corresponding test {metric}: {best_metric[f'reported_test_{metric}']}")
                     patience_counter = 0  # Reset patience counter since we have a new best
+
+                    # Save checkpoint for best model
+                    self.save_checkpoint(epoch)
+                    self.print_r0(f"> Saved best model checkpoint at epoch {epoch}")
                 else:
                     patience_counter += 1
                     if early_stopping:
-                        print(
+                        self.print_r0(
                             f"No improvement in validation {track_metric}. "
                             f"Patience counter: {patience_counter}/{early_stopping_patience}",
                         )
 
             # Check early stopping condition
             if early_stopping and patience_counter >= early_stopping_patience:
-                print(
+                self.print_r0(
                     f"Early stopping triggered. No improvement in {track_metric} for {early_stopping_patience} epochs.",
                 )
                 break
 
-            # Training for the current epoch
+            # Train for one epoch
             self.train_epoch(epoch)
+
+            # Save checkpoint at regular intervals if requested
+            if (epoch + 1) % checkpoint_every_n_epochs == 0:
+                self.save_checkpoint(epoch)
+                self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
+
+        # # Save final checkpoint ## no need to save the final checkpoint
+        # self.save_checkpoint(epoch)
+        # self.print_r0(f"> Saved final checkpoint at epoch {epoch}")
 
         if self.run_wandb and self.accelerator.is_main_process:
             if track_metric:  # logging the best val score and the tracked test scores
-                self.accelerator.log(best_metric)
-
+                self.accelerator.log(best_metric, step=self.step)
             self.accelerator.end_training()
 
+        if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
+            self.save_adata_umap(best_test_embed, best_val_embed)
+            self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
+
         if self.accelerator.is_main_process:
-            print("> Model has finished Training")
+            self.print_r0("> Model has finished Training")
 
     def get_loss(self, logits, labels, masks=None):
         if masks is not None:
@@ -298,6 +335,7 @@ class HeimdallTrainer:
 
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
+
                     inputs = (batch["identity_inputs"], batch["expression_inputs"])
                     outputs = self.model(
                         inputs=inputs,
@@ -319,30 +357,202 @@ class HeimdallTrainer:
                         self.optimizer.step()
                         self.lr_scheduler.step()
                         self.optimizer.zero_grad()
+                        self.step += 1
 
                 t.set_description(
-                    f"Epoch: {epoch}, Step {step}, Loss: {loss.item():.4f}, LR: {lr:.1e}, grad_norm: {grad_norm:.4f}",
+                    f"Epoch: {epoch} "
+                    f"Step {self.step} "
+                    f"Loss: {loss.item():.4f} "
+                    f"LR: {lr:.1e} "
+                    f"grad_norm: {grad_norm:.4f} ",
                 )
 
                 if is_logging:
                     log = {
                         "train_loss": loss.item(),
-                        "step": step,
+                        "global_step": self.step,
                         "learning_rate": lr,
                         "epoch": epoch,
                         "grad_norm": grad_norm,
                     }
                     if self.run_wandb and self.accelerator.is_main_process:
-                        self.accelerator.log(log)
+                        self.accelerator.log(log, step=self.step)
 
                 if self.cfg.trainer.fastdev:
                     break
+
+    # Add these methods to the HeimdallTrainer class
+    def save_adata_umap(self, best_test_embed, best_val_embed):
+        # pull the adata from the
+        test_adata = self.data.adata[
+            self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
+        ].copy()
+        val_adata = self.data.adata[
+            self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
+        ].copy()
+
+        # breakpoint()
+        test_adata.obsm["heimdall_latents"] = best_test_embed
+        val_adata.obsm["heimdall_latents"] = best_val_embed
+
+        sc.pp.neighbors(test_adata, use_rep="heimdall_latents")
+        sc.tl.leiden(test_adata)
+        sc.tl.umap(test_adata)
+
+        sc.pp.neighbors(val_adata, use_rep="heimdall_latents")
+        sc.tl.leiden(val_adata)
+        sc.tl.umap(val_adata)
+
+        AnnData.write(test_adata, self.results_folder / "test_adata.h5ad")
+        AnnData.write(val_adata, self.results_folder / "val_adata.h5ad")
+
+    def initialize_checkpointing(self, results_folder_path=None):
+        """Initialize checkpoint directory."""
+        if results_folder_path is None:
+            self.results_folder = Path(self.cfg.work_dir)
+        else:
+            self.results_folder = Path(results_folder_path)
+
+        # Create directory if it doesn't exist
+        if self.accelerator.is_main_process:
+            self.results_folder.mkdir(parents=True, exist_ok=True)
+            self.print_r0(f"> Checkpoint directory initialized at {self.results_folder}")
+
+    def save_checkpoint(self, epoch):
+        """Save model checkpoint at the given epoch."""
+        # Only save on the main process
+        if not self.accelerator.is_main_process:
+            return
+
+        # Ensure results folder exists
+        if not hasattr(self, "results_folder"):
+            self.initialize_checkpointing()
+
+        # Calculate current step based on epoch
+        # step = len(self.dataloader_train) * epoch
+
+        # Prepare the data to save
+        data = {
+            "epoch": epoch,
+            "step": self.step,
+            "model": self.accelerator.get_state_dict(self.model),
+            "optimizer": self.optimizer.state_dict(),
+            "scaler": self.accelerator.scaler.state_dict() if (self.accelerator.scaler is not None) else None,
+            "lr_scheduler": self.lr_scheduler.state_dict(),
+            "python_rng_state": random.getstate(),
+            "numpy_rng_state": np.random.get_state(),
+            "torch_rng_state": torch.random.get_rng_state(),
+            "cuda_rng_state_all": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+            "version": 1.0,
+        }
+
+        # Save checkpoint
+        checkpoint_path = self.results_folder / f"model-{epoch}.pt"
+        torch.save(data, str(checkpoint_path))
+        self.print_r0(f"> Saved checkpoint to {checkpoint_path}")
+
+        # Overwrite 'milestone.txt' with the new milestone
+        milestone_file = self.results_folder / "milestone.txt"
+        with open(milestone_file, "w") as f:
+            f.write(str(epoch))
+        self.print_r0(f"> Updated milestone.txt to milestone {epoch}")
+
+        config_path = self.results_folder / "config.txt"
+        with open(config_path, "w") as f:
+            f.write(OmegaConf.to_yaml(self.cfg))
+
+    def load_checkpoint(self, specific_milestone=None):
+        """Load a checkpoint based on milestone.txt or a specific milestone
+        number."""
+        # Ensure results folder is initialized
+        if not hasattr(self, "results_folder"):
+            self.initialize_checkpointing()
+
+        if not self.results_folder.exists():
+            self.print_r0(f"> Results folder {self.results_folder} does not exist. Starting from scratch.")
+            return 0
+
+        # Determine which milestone to load
+        if specific_milestone is not None:
+            milestone = specific_milestone
+        else:
+            milestone_file = self.results_folder / "milestone.txt"
+            if not milestone_file.exists():
+                self.print_r0("> No milestone.txt found. Starting from scratch.")
+                return 0
+
+            # Read the milestone number
+            with open(milestone_file) as f:
+                milestone_str = f.read().strip()
+                if not milestone_str.isdigit():
+                    self.print_r0("milestone.txt is invalid. Starting from scratch.")
+                    return 0
+                milestone = int(milestone_str)
+
+        # Load the checkpoint
+        load_path = self.results_folder / f"model-{milestone}.pt"
+        if not load_path.exists():
+            self.print_r0(f"> Checkpoint file {load_path} does not exist. Starting from scratch.")
+            return 0
+
+        self.print_r0(f"> Loading checkpoint from {load_path}")
+
+        # Load the data
+        device = self.accelerator.device
+        data = torch.load(str(load_path), map_location=device, weights_only=False)
+
+        # Unwrap model and restore parameters
+        model = self.accelerator.unwrap_model(self.model)
+        model.load_state_dict(data["model"])
+
+        # Restore optimizer and scheduler states
+        self.optimizer.load_state_dict(data["optimizer"])
+        if (data["scaler"] is not None) and (self.accelerator.scaler is not None):
+            self.accelerator.scaler.load_state_dict(data["scaler"])
+        self.lr_scheduler.load_state_dict(data["lr_scheduler"])
+
+        # Restore random states
+        random.setstate(data["python_rng_state"])
+        np.random.set_state(data["numpy_rng_state"])
+
+        # Handle torch RNG state
+        torch_rng_state = data["torch_rng_state"]
+        if isinstance(torch_rng_state, torch.Tensor) and torch_rng_state.device.type != "cpu":
+            torch_rng_state = torch_rng_state.cpu()
+        torch.random.set_rng_state(torch_rng_state)
+
+        # Handle CUDA RNG states
+        if data["cuda_rng_state_all"] is not None and torch.cuda.is_available():
+            num_visible_devices = torch.cuda.device_count()
+            if len(data["cuda_rng_state_all"]) != num_visible_devices:
+                self.print_r0(
+                    "Warning: Number of visible CUDA devices does not match the number of saved CUDA RNG states. "
+                    "Skipping CUDA RNG state restoration.",
+                )
+            else:
+                new_cuda_states = []
+                for state in data["cuda_rng_state_all"]:
+                    if isinstance(state, torch.Tensor) and state.device.type != "cpu":
+                        state = state.cpu()
+                    new_cuda_states.append(state)
+                torch.cuda.set_rng_state_all(new_cuda_states)
+
+        epoch = data["epoch"]
+        self.step = data["step"]
+        # step = data.get("step", epoch * len(self.dataloader_train))
+
+        if "version" in data:
+            self.print_r0(f"> Checkpoint version: {data['version']}")
+        self.print_r0(f"> Resumed from epoch {epoch}, step {self.step}")
+
+        return epoch + 1  # Return the next epoch to start from
 
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
         # print(metrics)
         loss = 0
+        encoded_list = []
 
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
@@ -356,6 +566,9 @@ class HeimdallTrainer:
 
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
+
+                if self.cfg.model.name != "logistic_regression":
+                    encoded_list.append(outputs.cls_embeddings.detach().cpu().numpy())
 
                 if (masks := batch.get("masks")) is not None:
                     masks = masks.to(outputs.device)
@@ -389,6 +602,10 @@ class HeimdallTrainer:
                 if self.cfg.trainer.fastdev:
                     break
 
+        all_encoded = None
+        if self.cfg.model.name != "logistic_regression":
+            all_encoded = np.concatenate(encoded_list, axis=0)
+
         loss = loss / len(dataloader)
         if self.accelerator.num_processes > 1:
             loss = self.accelerator.gather(torch.tensor(loss)).mean().item()
@@ -411,9 +628,9 @@ class HeimdallTrainer:
         log["Process_mem_rss"] = rss
 
         if self.run_wandb and self.accelerator.is_main_process:
-            self.accelerator.log(log)
+            self.accelerator.log(log, step=self.step)
 
         if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
 
-        return log
+        return log, all_encoded

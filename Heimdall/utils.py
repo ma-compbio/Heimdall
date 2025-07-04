@@ -394,6 +394,38 @@ def _load_ensembl_table(
     return symbol_to_ensembl
 
 
+def convert_to_ensembl_ids(adata, data_dir, species="human"):
+    """Converts gene symbols in the anndata object to Ensembl IDs using a
+    provided mapping.
+
+    Args:
+        - adata: anndata object with gene symbols as var index
+        - data_dir: directory where the data is stored
+        - species: species name (default is "human")
+
+    Returns:
+        - data: anndata object with Ensembl IDs as var index
+        - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
+
+    """
+    symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
+        data_dir=data_dir,
+        genes=adata.var.index.tolist(),
+        species=species,
+    )
+
+    adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
+
+    adata.var["gene_symbol"] = adata.var.index
+    adata.var["gene_ensembl"] = adata.var["gene_symbol"].map(
+        symbol_to_ensembl_mapping.mapping_combined.get,
+    )
+    adata.var.index = adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
+    adata.var.index.name = "index"
+
+    return adata, symbol_to_ensembl_mapping
+
+
 def sample_without_replacement(
     rng: Generator,
     max_index: int,
