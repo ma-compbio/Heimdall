@@ -384,6 +384,8 @@ def _load_ensembl_table(
             f"Unknown species {species!r}, available options are {sorted(ENSEMBL_URL_MAP)}",
         ) from e
 
+    print(species)
+    print(Path(data_dir))
     data_dir = Path(data_dir).resolve() / "gene_mapping" / "ensembl" / species
     data_dir.mkdir(parents=True, exist_ok=True)
     print(f"Mapping data directory: {data_dir}")

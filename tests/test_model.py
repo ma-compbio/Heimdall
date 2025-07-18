@@ -1,15 +1,20 @@
+import os
+
 import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
 import torch
+from dotenv import load_dotenv
 from omegaconf import OmegaConf
 from pytest import fixture
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.models import HeimdallModel
 from Heimdall.utils import get_dtype
+
+load_dotenv()
 
 
 @fixture(scope="module")
@@ -20,8 +25,8 @@ def paired_task_config(request, toy_paried_data_path):
     work_dir: work_dir
     seed: 42
     float_dtype: 'float32'
-    data_path: null
-    ensembl_dir: null
+    data_path: {os.environ['DATA_PATH']}
+    ensembl_dir: {os.environ['DATA_PATH']}
     cache_preprocessed_dataset_dir: null
     entity: Heimdall
     model:
@@ -134,8 +139,8 @@ def single_task_config(toy_single_data_path):
     work_dir: work_dir
     seed: 42
     float_dtype: 'float32'
-    data_path: null
-    ensembl_dir: null
+    data_path: {os.environ['DATA_PATH']}
+    ensembl_dir: {os.environ['DATA_PATH']}
     cache_preprocessed_dataset_dir: null
     entity: Heimdall
     model:
