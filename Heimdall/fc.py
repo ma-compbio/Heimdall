@@ -372,17 +372,17 @@ class UCEFc(Fc):
         # Assuming gene_tokenization is a pandas Series and expression_tokenization is a numpy array
         valid_mask = ~np.isnan(expression_tokenization)
 
-        gene_tokenization = gene_tokenization[valid_mask]
+        gene_tokenization = gene_tokenization[valid_mask].to_numpy()
         expression_tokenization = expression_tokenization[valid_mask]
 
-        choosen_chrom = self.chroms[gene_tokenization]
+        choosen_chrom = self.chroms.iloc[gene_tokenization]
 
         chrom_sort = np.argsort(choosen_chrom)
 
         gene_tokenization = gene_tokenization[chrom_sort]
         expression_tokenization = expression_tokenization[chrom_sort]
 
-        new_chrom = self.chroms[gene_tokenization]
+        new_chrom = self.chroms.iloc[gene_tokenization]
         choosen_starts = self.starts[gene_tokenization]
 
         unique_chromosomes = np.unique(new_chrom)
