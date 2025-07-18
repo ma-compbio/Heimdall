@@ -187,8 +187,8 @@ class CellRepresentation(SpecialTokenMixin):
         # self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
         # self.adata.var.index.name = "index"
 
-        _, symbol_to_ensembl_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
-        return self.adata, symbol_to_ensembl_mapping
+        _, gene_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
+        return self.adata, gene_mapping
 
     def get_preprocessed_data_path(self):
         preprocessed_data_path = preprocessed_cfg_path = cfg = None
@@ -236,7 +236,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         # convert gene names to ensembl ids
         print("> Converting gene names to Ensembl IDs...")
-        self.adata, symbol_to_ensembl_mapping = self.convert_to_ensembl_ids(
+        self.adata, _ = self.convert_to_ensembl_ids(
             data_dir=self._cfg.ensembl_dir,
             species=self.dataset_preproc_cfg.species,
         )
@@ -248,7 +248,7 @@ class CellRepresentation(SpecialTokenMixin):
             print("> Matrix is already dense.")
 
         if get_value(self.dataset_preproc_cfg, "normalize"):
-            print("> Normalizing anndata...")
+            print("> Normalizing AnnData...")
 
             # Store mask of NaNs
             nan_mask = np.isnan(self.adata.X)
