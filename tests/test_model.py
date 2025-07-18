@@ -201,11 +201,12 @@ def single_task_config(toy_single_data_path):
         embedding_parameters:
           type: torch.nn.Module  # Should throw an error if called
     fe:
-      type: Heimdall.fe.DummyFe
+      type: Heimdall.fe.IdentityFe
       args:
         embedding_parameters:
           type: torch.nn.Module
         d_embedding: null
+        drop_zeros: False
     fg:
       name: IdentityFg
       type: Heimdall.fg.IdentityFg
