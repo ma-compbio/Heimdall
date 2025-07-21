@@ -67,7 +67,7 @@ def test_symbol_to_ensembl(request):
 
     def check_result(res):
         print(res.mapping_full)
-        assert res.genes == genes
+        assert res.identifiers == genes
         for g in genes:
             if gene_table_symbol_to_ensembl[g] is None:
                 assert g not in res.mapping_full
@@ -80,4 +80,4 @@ def test_symbol_to_ensembl(request):
         print("Success!\n")
 
     check_result(symbol_to_ensembl(genes, species=species))
-    check_result(symbol_to_ensembl_from_ensembl(data_dir=cache_data_dir, genes=genes, species=species))
+    check_result(symbol_to_ensembl_from_ensembl(data_dir=cache_data_dir, symbols=genes, species=species))
