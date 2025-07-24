@@ -7,6 +7,6 @@ args:
     args:
       num_embeddings: "vocab_size" # this is the number of bins
       embedding_dim: ${fe.args.d_embedding}
-  sample_size: 450 ## also the number of bins
+  sample_size: 950 ## also the number of bins
   d_embedding: ${model.args.d_model}
   drop_zeros: True

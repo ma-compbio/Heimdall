@@ -4,6 +4,7 @@ args:
   metrics:
     - Accuracy
     - MatthewsCorrCoef
+    - ConfusionMatrix
   track_metric: MatthewsCorrCoef
   splits:
     type: predefined

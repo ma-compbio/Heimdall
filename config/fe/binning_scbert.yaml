@@ -1,5 +1,5 @@
-type: Heimdall.fe.BinningFe
-name: Heimdall.fe.BinningFe
+type: Heimdall.fe.ScBERTBinningFe
+name: Heimdall.fe.ScBERTBinningFe
 
 args:
   embedding_parameters:

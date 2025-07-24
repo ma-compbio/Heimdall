@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 from omegaconf import OmegaConf
 from pytest import fixture
 from scipy.sparse import csr_array
-
-from Heimdall.fc import GeneformerFc, ScGPTFc, UCEFc
+from Heimdall.fc import ChromSortRandomSampleFc
+from Heimdall.fc import GeneformerFc, ScGPTFc, UCEFc, SortingWeightedResampleFc, SortingTruncateFc, SortingRandomSampleFc
 from Heimdall.fe import BinningFe, IdentityFe, SortingFe, WeightedSamplingFe
 from Heimdall.fg import IdentityFg
 from Heimdall.utils import convert_to_ensembl_ids, instantiate_from_config
@@ -131,6 +131,48 @@ def zero_expression_mock_dataset(gene_names):
     return mock_dataset
 
 
+@fixture(scope="module")
+def chrom_mock_dataset(valid_gene_names, tmp_path_factory):
+    """
+    4 cells × len(valid_gene_names) genes.
+    Here we hard-code chr/start for the three demo genes.
+    """
+    X = csr_array(
+        np.array(
+            [
+                [1, 4, 2],  # cell 0
+                [2, 1, 3],  # cell 1
+                [3, 2, 4],  # cell 2
+                [4, 3, 1],  # cell 3
+            ]
+        )
+    )
+
+    adata = ad.AnnData(X=X)
+    adata.var_names = valid_gene_names
+    adata.var["gene_symbol"] = valid_gene_names
+    convert_to_ensembl_ids(adata, data_dir=os.environ["DATA_PATH"])
+
+    # Hard-coded chromosome / start info for those genes
+    chrom_map  = {"A1BG": "1", "A1CF": "1", "A2M": "2"}
+    start_map  = {"A1BG": 100,  "A1CF": 200,  "A2M": 150}
+
+    meta = pd.DataFrame(
+        {
+            "gene_symbol": valid_gene_names,
+            "species": ["human"] * len(valid_gene_names),
+            "chromosome": [chrom_map[g] for g in valid_gene_names],
+            "start":      [start_map[g] for g in valid_gene_names],
+        }
+    )
+    tmp_dir = tmp_path_factory.mktemp("gene_meta")
+    meta_path = tmp_dir / "gene_meta.csv"
+    meta.to_csv(meta_path, index=False)
+
+    return adata, meta_path
+
+
+
 @fixture
 def identity_fg(mock_dataset):
     fg_config = OmegaConf.create(
@@ -189,6 +231,45 @@ def zero_expression_identity_fg(zero_expression_mock_dataset):
     identity_fg = IdentityFg(zero_expression_mock_dataset, **fg_config)
 
     return identity_fg
+
+@fixture 
+def identity_fe(mock_dataset_all_valid_genes):
+    fe_config = OmegaConf.create(
+        {
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "embedding_dim": 128,
+                },
+            },
+            "vocab_size": 6,
+            "d_embedding": 128,
+        },
+    )
+    identity_fe = IdentityFe(mock_dataset_all_valid_genes, **fe_config)
+
+    return identity_fe
+
+@fixture
+def zero_expression_identity_fe(zero_expression_mock_dataset):
+    fe_config = OmegaConf.create(
+        {
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "embedding_dim": 128,
+                },
+            },
+            "vocab_size": 6,
+            "d_embedding": 128,
+        },
+    )
+    identity_fe = IdentityFe(zero_expression_mock_dataset, **fe_config)
+
+    return identity_fe
+
 
 
 @fixture
@@ -252,25 +333,6 @@ def binning_fe(mock_dataset):
     return binning_fe
 
 
-@fixture
-def identity_fe(zero_expression_mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "vocab_size": 6,
-            "embedding_parameters": {
-                "type": "Heimdall.embedding.TwoLayerNN",
-                "args": {
-                    "in_features": 1,
-                    "out_features": 128,
-                },
-            },
-            "d_embedding": 128,
-        },
-    )
-    identity_fe = IdentityFe(zero_expression_mock_dataset, **fe_config)
-
-    return identity_fe
-
 
 @fixture
 def zero_expression_binning_fe(zero_expression_mock_dataset):
@@ -312,6 +374,93 @@ def weighted_sampling_fe(mock_dataset_all_valid_genes):
     weighted_sampling_fe = WeightedSamplingFe(mock_dataset_all_valid_genes, **fe_config)
 
     return weighted_sampling_fe
+
+
+@fixture
+def sorting_truncate_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_fe):
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 2,
+            "num_metadata_tokens": 0,
+            "embedding_parameters": {
+                "type": "torch.nn.Module",
+            },
+        },
+    )
+
+    identity_fg_all_valid_genes.preprocess_embeddings()
+    identity_fe.preprocess_embeddings()
+
+    sorting_truncate_fc = SortingTruncateFc(
+            identity_fg_all_valid_genes,
+            identity_fe,
+            mock_dataset_all_valid_genes,
+            **fc_config,
+    )
+
+    metadata_embeddings = instantiate_from_config(sorting_truncate_fc.embedding_parameters)
+
+    return sorting_truncate_fc
+
+
+
+
+@fixture
+def sorting_random_sample_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_fe):
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 2,
+            "num_metadata_tokens": 0,
+            "embedding_parameters": {
+                "type": "torch.nn.Module",
+            },
+        },
+    )
+
+    identity_fg_all_valid_genes.preprocess_embeddings()
+    identity_fe.preprocess_embeddings()
+
+    sorting_random_sample_fc = SortingRandomSampleFc(
+            identity_fg_all_valid_genes,
+            identity_fe,
+            mock_dataset_all_valid_genes,
+            **fc_config,
+    )
+
+    metadata_embeddings = instantiate_from_config(sorting_random_sample_fc.embedding_parameters)
+
+    return sorting_random_sample_fc
+
+
+
+
+
+@fixture
+def sorting_weighted_resample_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_fe):
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 2,
+            "sample_size": 2,
+            "num_metadata_tokens": 0,
+            "embedding_parameters": {
+                "type": "torch.nn.Module",
+            },
+        },
+    )
+
+    identity_fg_all_valid_genes.preprocess_embeddings()
+    identity_fe.preprocess_embeddings()
+
+    sorting_weighted_resample_fc = SortingWeightedResampleFc(
+            identity_fg_all_valid_genes,
+            identity_fe,
+            mock_dataset_all_valid_genes,
+            **fc_config,
+    )
+
+    metadata_embeddings = instantiate_from_config(sorting_weighted_resample_fc.embedding_parameters)
+
+    return sorting_weighted_resample_fc
 
 
 @fixture
@@ -364,6 +513,45 @@ def scgpt_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_exp
     metadata_embeddings = instantiate_from_config(scgpt_fc.embedding_parameters)
 
     return scgpt_fc
+
+
+@fixture
+def chrom_sort_random_sample_fc(chrom_mock_dataset,
+                                identity_fg_all_valid_genes,
+                                identity_fe):
+    if "DATA_PATH" not in os.environ:
+        pytest.skip(".env file must specify DATA_PATH for ChromSortRandomSampleFc test.")
+    
+    adata, meta_path = chrom_mock_dataset
+
+
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 6,   # make it smaller than full chrom seq so limit() runs
+            "num_metadata_tokens": 0,
+            "gene_metadata_filepath": str(meta_path),
+            "ensembl_dir": os.environ["DATA_PATH"],
+            "species": "human",
+            "embedding_parameters": { "type": "torch.nn.Module" },
+        }
+    )
+
+    # FG only (no FE needed)
+    identity_fg_all_valid_genes.preprocess_embeddings()
+    identity_fe.preprocess_embeddings()
+
+    fc = ChromSortRandomSampleFc(
+        fg=identity_fg_all_valid_genes,
+        fe=identity_fe,
+        adata=adata,
+        **fc_config,
+    )
+
+    # deterministic sampling
+    fc.rng = np.random.default_rng(0)
+
+    return fc
+
 
 
 @fixture

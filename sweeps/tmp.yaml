@@ -1,14 +1,20 @@
 command:
-  - python
-  - ${program}
-  - ${args_no_hyphens}
-  - model=expression_only
-  - fg=dummy
-  - fe=dummy
-  - fc=dummy
-  - fc.args.max_input_length=
-  - +experiments_baseline=new_sctab_split1
-  - user=lane-nick
+- accelerate
+- launch
+- --mixed_precision=bf16
+- ${program}
+- ${args_no_hyphens}
+- model=transformer_flash
+- fg=identity
+- fg.args.frozen=TRUE
+- fe=sorting
+- fc=geneformer
+- model.args.pos_enc=BERT
+- fc.args.max_input_length=512
+- +experiments=spatial_cancer_split1
+- user=ehaber
+- seed=60
+- project_name=geneformer_overlap35_runs
 method: grid
 metric:
   goal: maximize
@@ -16,11 +22,11 @@ metric:
 parameters:
   optimizer.args.lr:
     values:
-      - 1e-2
-      - 1e-3
-      - 3e-4
+    - 1e-2
+    - 1e-3
+    - 3e-4
   tasks.args.batchsize:
     values:
-      - 32
-      - 64
+    - 32
+    - 64
 program: train.py
