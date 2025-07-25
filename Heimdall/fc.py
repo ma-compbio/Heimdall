@@ -571,7 +571,7 @@ class ChromSortRandomSampleFc(Fc):
         super().__init__(fg, fe, adata, embedding_parameters, **fc_kwargs)
         seed = 0  # TODO: make this configurable???
         self.rng = np.random.default_rng(seed)
-        
+        self.sample_size = sample_size 
         # https://github.com/snap-stanford/UCE/blob/8227a65cdd021b9186ef86671d2aef5c895c8e4b/data_proc/data_utils.py#L155
         # TODO: load chromosome one-hot encoding and start positions for all genes
 
@@ -761,7 +761,7 @@ class ChromSortTruncateFc(Fc):
         super().__init__(fg, fe, adata, embedding_parameters, **fc_kwargs)
         seed = 0  # TODO: make this configurable???
         self.rng = np.random.default_rng(seed)
-  
+        self.sample_size = sample_size 
         # https://github.com/snap-stanford/UCE/blob/8227a65cdd021b9186ef86671d2aef5c895c8e4b/data_proc/data_utils.py#L155
         # TODO: load chromosome one-hot encoding and start positions for all genes
 
@@ -1000,7 +1000,7 @@ class ChromSortWeightedResampleFc(Fc):
                 replace=True,
                 p=weights,
         )
-        return gene_tokenization[selected], expression_tokenization[selected]
+        return gene_tokenization[chosen], expression_tokenization[chosen]
 
 
     def tailor(

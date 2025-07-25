@@ -528,6 +528,7 @@ def chrom_sort_random_sample_fc(chrom_mock_dataset,
     fc_config = OmegaConf.create(
         {
             "max_input_length": 6,   # make it smaller than full chrom seq so limit() runs
+            "sample_size": 2,
             "num_metadata_tokens": 0,
             "gene_metadata_filepath": str(meta_path),
             "ensembl_dir": os.environ["DATA_PATH"],
@@ -605,6 +606,7 @@ def chrom_sort_truncate_fc(chrom_mock_dataset,
     fc_config = OmegaConf.create(
         {
             "max_input_length": 6,   # make it smaller than full chrom seq so limit() runs
+            "sample_size": 2,
             "num_metadata_tokens": 0,
             "gene_metadata_filepath": str(meta_path),
             "ensembl_dir": os.environ["DATA_PATH"],
