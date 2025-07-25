@@ -579,6 +579,7 @@ class ChromSortRandomSampleFc(Fc):
         self.ensembl_dir = ensembl_dir
         self.species = species
 
+        self.gene_metadata["chromosome"] = self.gene_metadata["chromosome"].astype(str)
         self.gene_metadata["spec_chrom"] = pd.Categorical(
             self.gene_metadata["species"] + "_" + self.gene_metadata["chromosome"],
         )
@@ -606,26 +607,25 @@ class ChromSortRandomSampleFc(Fc):
 
         self.chrom_token_offset = 1
 
-    def limit(self, cell_tokenization: NDArray) -> NDArray:
-        expression_values = cell_tokenization[1]
-
+    def limit(self, gene_tokenization: NDArray, expression_tokenization: NDArray) -> tuple[NDArray, NDArray]:
         #separate indices
-        nonzero_indices = np.where(expression_values != 0)[0]
-        zero_indices = np.where(expression_values == 0)[0]
+        nonzero_indices = np.where(expression_tokenization != 0)[0]
+        zero_indices = np.where(expression_tokenization == 0)[0]
 
-        #First: sample nonzero expression tokens
-        num_nonzero_to_sample = min(len(nonzero_indices), self.max_input_length)
-        selected_nonzero = self.rng.choice(nonzero_indices, num_nonzero_to_sample, replace=False)
+        num_nonzero_to_sample = min(len(nonzero_indices), self.sample_size)
+        selected_nonzero = self.rng.choice(nonzero_indices, non_nonzero_to_sample, replace=False)
 
-        #If needed: sample zero_expression tokens to fill up
-        num_remaining = self.max_input_length - num_nonzero_to_sample
-        if num_remaining > 0:
-            selected_zero = self.rng.choice(zero_indices, num_remaining, replace=False)
-            final_indices = np.concatenate([selected_nonzero, selected_zero])
+        remaining = self.sample_size - num_nonzero_to_sample
+
+        if remaining > 0 and len(zero_indices) > 0:
+            selected_zero = self.rng.choice(zero_indices, min(remaining, len(zero_indices)),replace=False)
+            selected = np.concatenate([selected_nonzero, selected_zero])
+            #final_indices = np.concatenate([selected_nonzero, selected_zero])
         else:
-            final_indices = selected_nonzero
-
-        return cell_tokenization[:, final_indices]
+            #final_indices = selected_nonzero
+            selected = selected_nonzero
+        
+        return gene_tokenization[selected], expression_tokenization[selected]
 
     def tailor(
         self,
@@ -639,7 +639,14 @@ class ChromSortRandomSampleFc(Fc):
 
         gene_tokenization = gene_tokenization[valid_mask].to_numpy()
         expression_tokenization = expression_tokenization[valid_mask]
+        
+        #apply random sampling to limit gene count
+        gene_tokenization, expression_tokenization = self.limit(
+                gene_tokenization=gene_tokenization,
+                expression_tokenization=expression_tokenization,
+        )
 
+        #chromosome grouping + sequence construction
         choosen_chrom = self.chroms.iloc[gene_tokenization]
 
         chrom_sort = np.argsort(choosen_chrom)
@@ -696,10 +703,10 @@ class ChromSortRandomSampleFc(Fc):
         cell_tokenization = np.stack([grouped_gene_tokenization, grouped_expression_tokenization], axis=0)
         # cell_tokenization = np.stack([gene_tokenization, expression_tokenization], axis=0)
 
-        _, input_length = cell_tokenization.shape
+        #_, input_length = cell_tokenization.shape
 
-        if input_length > self.max_input_length:
-            return self.limit(cell_tokenization)
+        #if input_length > self.max_input_length:
+         #   return self.limit(cell_tokenization)
         return self.pad(cell_tokenization)
 
     def embed_cells(
@@ -763,7 +770,7 @@ class ChromSortTruncateFc(Fc):
         self.species = species
 
         self.gene_metadata["spec_chrom"] = pd.Categorical(
-            self.gene_metadata["species"] + "_" + self.gene_metadata["chromosome"],
+            self.gene_metadata["species"] + "_" + self.gene_metadata["chromosome"].astype(str),
         )
         spec_chrom = self.gene_metadata[self.gene_metadata["species"] == self.species].set_index("gene_symbol")
 
@@ -790,9 +797,24 @@ class ChromSortTruncateFc(Fc):
         self.chrom_token_offset = 1
 
     
-    def limit(self, cell_tokenization: NDArray) -> NDArray:
-        return cell_tokenization[:, : self.max_input_length]
+    def limit(self, gene_tokenization:NDArray, expression_tokenization: NDArray) -> tuple[NDArray, NDArray]:
+        nonzero_mask = expression_tokenization != 0
+        nonzero_indices = np.where(nonzero_mask)[0]
+        zero_indices = np.where(~nonzero_mask)[0]
+        
+        num_nonzero = min(len(nonzero_indices), self.sample_size)
+        selected_nonzero = nonzero_indices[:num_nonzero]
+        
+        remaining = self.sample_size - num_nonzero
+        if remaining > 0:
+            selected_zero = zero_indices[:remaining]
+            selected = np.concatenate([selected_nonzero, selected_zero])
+        else:
+            selected = selected_nonzero
 
+        return gene_tokenization[selected], expression_tokenization[selected]        
+        
+        
 
     def tailor(
         self,
@@ -806,7 +828,12 @@ class ChromSortTruncateFc(Fc):
 
         gene_tokenization = gene_tokenization[valid_mask].to_numpy()
         expression_tokenization = expression_tokenization[valid_mask]
-
+        
+        if len(gene_tokenization) > self.sample_size:
+            gene_tokenization, expression_tokenization = self.limit(
+            gene_tokenization,
+            expression_tokenization,
+        )
         choosen_chrom = self.chroms.iloc[gene_tokenization]
 
         chrom_sort = np.argsort(choosen_chrom)
@@ -863,10 +890,6 @@ class ChromSortTruncateFc(Fc):
         cell_tokenization = np.stack([grouped_gene_tokenization, grouped_expression_tokenization], axis=0)
         # cell_tokenization = np.stack([gene_tokenization, expression_tokenization], axis=0)
 
-        _, input_length = cell_tokenization.shape
-
-        if input_length > self.max_input_length:
-            return self.limit(cell_tokenization)
         return self.pad(cell_tokenization)
 
 
@@ -898,7 +921,7 @@ class ChromSortTruncateFc(Fc):
 
 
 
-class ChromSortWeightedResample(Fc):
+class ChromSortWeightedResampleFc(Fc):
     """Chromosome-aware implementation of cell embedding."""
 
     def __init__(
@@ -910,6 +933,7 @@ class ChromSortWeightedResample(Fc):
         gene_metadata_filepath: str | Path,
         ensembl_dir: str | Path,
         species: str,
+        sample_size: int,
         # chroms: Optional[NDArray] = None,
         # starts: Optional[NDArray] = None,
         **fc_kwargs,
@@ -922,7 +946,7 @@ class ChromSortWeightedResample(Fc):
         super().__init__(fg, fe, adata, embedding_parameters, **fc_kwargs)
         seed = 0  # TODO: make this configurable???
         self.rng = np.random.default_rng(seed)
-
+        self.sample_size = sample_size
         # https://github.com/snap-stanford/UCE/blob/8227a65cdd021b9186ef86671d2aef5c895c8e4b/data_proc/data_utils.py#L155
         # TODO: load chromosome one-hot encoding and start positions for all genes
 
@@ -931,7 +955,7 @@ class ChromSortWeightedResample(Fc):
         self.species = species
 
         self.gene_metadata["spec_chrom"] = pd.Categorical(
-            self.gene_metadata["species"] + "_" + self.gene_metadata["chromosome"],
+            self.gene_metadata["species"] + "_" + self.gene_metadata["chromosome"].astype(str)
         )
         spec_chrom = self.gene_metadata[self.gene_metadata["species"] == self.species].set_index("gene_symbol")
 
@@ -957,26 +981,26 @@ class ChromSortWeightedResample(Fc):
 
         self.chrom_token_offset = 1
 
-    def limit(self, cell_tokenization: NDArray) -> NDArray:
-        expression_values = cell_tokenization[1]
+    def limit(self, gene_tokenization: NDArray, expression_tokenization: NDArray) -> tuple[NDArray, NDArray]:
+        
+        nonzero_mask = expression_tokenization != 0
+        nonzero_indices = np.where(nonzero_mask)[0]
 
-        #separate indices
-        nonzero_indices = np.where(expression_values != 0)[0]
-        zero_indices = np.where(expression_values == 0)[0]
-
+        #nonzero_indices = np.where(expression_values != 0)[0]
+        #zero_indices = np.where(expression_values == 0)[0]
+ 
         #log1p weights
-        weights = np.log1p(expression_values[nonzero_indices])
+        weights = np.log1p(expression_tokenization[nonzero_indices])
         weights /= weights.sum()
 
         #draw with replacement
         chosen = self.rng.choice(
                 nonzero_indices,
-                size=self.max_input_length,
+                size=self.sample_size,
                 replace=True,
                 p=weights,
         )
-
-        return cell_tokenization[:, chosen]
+        return gene_tokenization[selected], expression_tokenization[selected]
 
 
     def tailor(
@@ -991,6 +1015,11 @@ class ChromSortWeightedResample(Fc):
 
         gene_tokenization = gene_tokenization[valid_mask].to_numpy()
         expression_tokenization = expression_tokenization[valid_mask]
+
+        gene_tokenization, expression_tokenization = self.limit(
+                gene_tokenization=gene_tokenization,
+                expression_tokenization=expression_tokenization
+        )
 
         choosen_chrom = self.chroms.iloc[gene_tokenization]
 
@@ -1048,10 +1077,6 @@ class ChromSortWeightedResample(Fc):
         cell_tokenization = np.stack([grouped_gene_tokenization, grouped_expression_tokenization], axis=0)
         # cell_tokenization = np.stack([gene_tokenization, expression_tokenization], axis=0)
 
-        _, input_length = cell_tokenization.shape
-
-        if input_length > self.max_input_length:
-            return self.limit(cell_tokenization)
         return self.pad(cell_tokenization)
 
 

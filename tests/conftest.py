@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from omegaconf import OmegaConf
 from pytest import fixture
 from scipy.sparse import csr_array
-from Heimdall.fc import ChromSortRandomSampleFc
+from Heimdall.fc import ChromSortRandomSampleFc, ChromSortWeightedResampleFc, ChromSortTruncateFc
 from Heimdall.fc import GeneformerFc, ScGPTFc, UCEFc, SortingWeightedResampleFc, SortingTruncateFc, SortingRandomSampleFc
 from Heimdall.fe import BinningFe, IdentityFe, SortingFe, WeightedSamplingFe
 from Heimdall.fg import IdentityFg
@@ -536,11 +536,88 @@ def chrom_sort_random_sample_fc(chrom_mock_dataset,
         }
     )
 
-    # FG only (no FE needed)
+    # FG only 
     identity_fg_all_valid_genes.preprocess_embeddings()
     identity_fe.preprocess_embeddings()
 
     fc = ChromSortRandomSampleFc(
+        fg=identity_fg_all_valid_genes,
+        fe=identity_fe,
+        adata=adata,
+        **fc_config,
+    )
+
+    # deterministic sampling
+    fc.rng = np.random.default_rng(0)
+
+    return fc
+
+
+@fixture
+def chrom_sort_weighted_resample_fc(chrom_mock_dataset,
+                                identity_fg_all_valid_genes,
+                                identity_fe):
+    if "DATA_PATH" not in os.environ:
+        pytest.skip(".env file must specify DATA_PATH for ChromSortRandomSampleFc test.")
+
+    adata, meta_path = chrom_mock_dataset
+
+
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 6,   # make it smaller than full chrom seq so limit() runs
+            "sample_size": 2,
+            "num_metadata_tokens": 0,
+            "gene_metadata_filepath": str(meta_path),
+            "ensembl_dir": os.environ["DATA_PATH"],
+            "species": "human",
+            "embedding_parameters": { "type": "torch.nn.Module" },
+        }
+    )
+
+    # FG only 
+    identity_fg_all_valid_genes.preprocess_embeddings()
+    identity_fe.preprocess_embeddings()
+
+    fc = ChromSortWeightedResampleFc(
+        fg=identity_fg_all_valid_genes,
+        fe=identity_fe,
+        adata=adata,
+        **fc_config,
+    )
+
+    # deterministic sampling
+    fc.rng = np.random.default_rng(0)
+
+    return fc
+
+
+@fixture
+def chrom_sort_truncate_fc(chrom_mock_dataset,
+                                identity_fg_all_valid_genes,
+                                identity_fe):
+    if "DATA_PATH" not in os.environ:
+        pytest.skip(".env file must specify DATA_PATH for ChromSortRandomSampleFc test.")
+
+    adata, meta_path = chrom_mock_dataset
+
+
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 6,   # make it smaller than full chrom seq so limit() runs
+            "num_metadata_tokens": 0,
+            "gene_metadata_filepath": str(meta_path),
+            "ensembl_dir": os.environ["DATA_PATH"],
+            "species": "human",
+            "embedding_parameters": { "type": "torch.nn.Module" },
+        }
+    )
+
+    # FG only 
+    identity_fg_all_valid_genes.preprocess_embeddings()
+    identity_fe.preprocess_embeddings()
+
+    fc = ChromSortTruncateFc(
         fg=identity_fg_all_valid_genes,
         fe=identity_fe,
         adata=adata,
