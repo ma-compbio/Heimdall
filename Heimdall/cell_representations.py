@@ -96,6 +96,9 @@ class CellRepresentation(SpecialTokenMixin):
         self.adata = None
         self.processed_fcfg = False
 
+        seed = 0  # TODO: make this configurable???
+        self.rng = np.random.default_rng(seed)
+
         if auto_setup:
             self.preprocess_anndata()
             self.tokenize_cells()
@@ -455,6 +458,7 @@ class CellRepresentation(SpecialTokenMixin):
             self.fg_cfg,
             self.adata,
             vocab_size=self.sequence_length + 2,
+            rng=self.rng,
             return_name=True,
         )
         if cache_dir is not None and processed_data_path.is_file():
@@ -470,6 +474,7 @@ class CellRepresentation(SpecialTokenMixin):
             self.fe_cfg,
             self.adata,
             vocab_size=self.sequence_length + 2,
+            rng=self.rng,
             return_name=True,
         )
 
@@ -485,6 +490,7 @@ class CellRepresentation(SpecialTokenMixin):
             self.fe,
             self.adata,
             float_dtype=self.float_dtype,
+            rng=self.rng,
             return_name=True,
         )
 
