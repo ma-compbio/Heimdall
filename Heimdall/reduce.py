@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 
-import anndata as ad
-import numpy as np
-from numpy.typing import NDArray
+import torch
 from torch import Tensor
 from torch.nn import Module
 

@@ -4,11 +4,9 @@ from typing import Optional
 import anndata as ad
 import numpy as np
 import pandas as pd
-import torch
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
-from torch.nn import Module
 
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg

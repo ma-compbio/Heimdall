@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 
-import anndata as ad
 import numpy as np
 from numpy.typing import NDArray
 
