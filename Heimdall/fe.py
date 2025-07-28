@@ -17,6 +17,7 @@ class Fe(ABC):
 
     Args:
         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+        vocab_size: total number of possible expression tokens and special tokens
         d_embedding: dimensionality of embedding for each expression entity
 
     """
