@@ -9,6 +9,8 @@ from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from scipy.sparse import csr_matrix, issparse
 
+from Heimdall.utils import _get_inputs_from_csr
+
 
 class Fe(ABC):
     """Abstraction for expression-based embedding.
@@ -53,18 +55,7 @@ class Fe(ABC):
             cell_index: cell for which to process expression values and get indices, as stored in `self.adata`.
 
         """
-
-        if self.drop_zeros is True:
-            expression = self.adata.X
-            start = expression.indptr[cell_index]
-            end = expression.indptr[cell_index + 1]
-            cell_expression_inputs = expression.data[start:end]
-            cell_identity_inputs = expression.indices[start:end]
-        else:
-            cell_expression_inputs = self.adata.X[[cell_index], :].toarray().flatten()
-            cell_identity_inputs = np.arange(self.adata.shape[1])
-
-        return cell_identity_inputs, cell_expression_inputs
+        return _get_inputs_from_csr(self.adata, cell_index=cell_index, drop_zeros=self.drop_zeros)
 
     def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Preprocess expression embeddings and store them for use during model
@@ -262,95 +253,92 @@ class IdentityFe(Fe):
 
     """
 
+    # def __init__(
+    #     self,
+    #     adata: ad.AnnData,
+    #     vocab_size: int,
+    #     **fe_kwargs,
+    # ):
+    #     self.adata = adata
+    #     self.num_cells, self.num_genes = adata.shape
+    #     self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
+    #     self.d_embedding = d_embedding
+    #     self.vocab_size = vocab_size
+    #     self.pad_value = vocab_size - 2 if pad_value is None else pad_value
+    #     self.mask_value = vocab_size - 1 if mask_value is None else mask_value
+    #     self.drop_zeros = drop_zeros
+
+    #     if not issparse(self.adata.X):
+    #         print(
+    #             "> Data was provided in dense format, converting to CSR."
+    #             " Please consider pre-computing it to save memory.",
+    #         )
+    #         self.adata.X = csr_matrix(self.adata.X)
+
     def __getitem__(self, cell_index: int):
         return self._get_inputs_from_csr(cell_index)
 
 
-# class DummyFe(Fe):
-#     """Directly pass the continuous values. Does not remove zero expression
-#     elements.
+# class SortingFe(Fe):
+#     """Sorting Fe."""
 #
-#     Args:
-#         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
-#         d_embedding: dimensionality of embedding for each expression entity
-#         embedding_parameters: dimensionality of embedding for each expression entity
+#     def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray]:
+#         """Returns two vectors of cell_expression_inputs and
+#         cell_identity_inputs where cell_expression_inputs is a vector of cell
+#         expression values and cell_identity_inputs is a vector of corresponding
+#         gene indices."""
 #
-#     """
+#         cell_indices, cell_values = self._get_inputs_from_csr(cell_index)
 #
-#     def __getitem__(self, cell_index: int):
-#         """Input is an adata indexed at cell [idx]
+#         if "medians" in self.adata.var:
+#             cell_values = cell_values - self.adata.var["medians"].iloc[cell_indices].values
 #
-#         returns two vectors of cell_expression_inputs and cell_identity_inputs
-#         where cell_expression_inputs is a vector of cell expression values and
-#         cell_identity_inputs is a vector of corresponding gene indices
-#
-#         """
-#         cell_expression_inputs = self.adata.X[[cell_index], :].toarray()
-#         cell_identity_inputs = np.arange(self.adata.shape[1])
+#         # Sort non-zero values in descending order
+#         sorted_order = np.argsort(cell_values)[::-1]  # Indices for sorting descending
+#         cell_expression_inputs = cell_values[sorted_order]
+#         cell_identity_inputs = cell_indices[sorted_order]
 #
 #         return cell_identity_inputs, cell_expression_inputs
 
 
-class SortingFe(Fe):
-    """Sorting Fe."""
-
-    def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray]:
-        """Returns two vectors of cell_expression_inputs and
-        cell_identity_inputs where cell_expression_inputs is a vector of cell
-        expression values and cell_identity_inputs is a vector of corresponding
-        gene indices."""
-
-        cell_indices, cell_values = self._get_inputs_from_csr(cell_index)
-
-        if "medians" in self.adata.var:
-            cell_values = cell_values - self.adata.var["medians"].iloc[cell_indices].values
-
-        # Sort non-zero values in descending order
-        sorted_order = np.argsort(cell_values)[::-1]  # Indices for sorting descending
-        cell_expression_inputs = cell_values[sorted_order]
-        cell_identity_inputs = cell_indices[sorted_order]
-
-        return cell_identity_inputs, cell_expression_inputs
-
-
-class WeightedSamplingFe(Fe):
-    """Weighted Sampling Fe based on gene expression.
-
-    Args:
-        adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
-        d_embedding: dimensionality of embedding for each expression entity
-        embedding_parameters: parameters for the embedding, including sampling size
-        vocab_size: vocabulary size for embedding
-        pad_value: value used for padding
-        sample_size: number of genes to sample per cell
-
-    """
-
-    def __init__(
-        self,
-        adata: ad.AnnData,
-        sample_size: int,
-        **fe_kwargs,
-    ):
-        super().__init__(adata, **fe_kwargs)
-        self.sample_size = sample_size
-
-        seed = 0  # TODO: make this configurable???
-        self.rng = np.random.default_rng(seed)
-
-    def __getitem__(self, cell_index: int):
-        cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
-
-        nan_mask = np.isnan(cell_expression_inputs)
-
-        weights = np.log1p(cell_expression_inputs[~nan_mask])
-        weights /= np.sum(weights)
-
-        resampled_gene_indices = self.rng.choice(
-            cell_identity_inputs[~nan_mask],
-            size=self.sample_size,
-            p=weights,
-            replace=True,
-        )
-
-        return resampled_gene_indices, resampled_gene_indices
+# class WeightedSamplingFe(Fe):
+#     """Weighted Sampling Fe based on gene expression.
+#
+#     Args:
+#         adata: input AnnData-formatted dataset, with gene names in the `.var` dataframe.
+#         d_embedding: dimensionality of embedding for each expression entity
+#         embedding_parameters: parameters for the embedding, including sampling size
+#         vocab_size: vocabulary size for embedding
+#         pad_value: value used for padding
+#         sample_size: number of genes to sample per cell
+#
+#     """
+#
+#     def __init__(
+#         self,
+#         adata: ad.AnnData,
+#         sample_size: int,
+#         **fe_kwargs,
+#     ):
+#         super().__init__(adata, **fe_kwargs)
+#         self.sample_size = sample_size
+#
+#         seed = 0  # TODO: make this configurable???
+#         self.rng = np.random.default_rng(seed)
+#
+#     def __getitem__(self, cell_index: int):
+#         cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
+#
+#         nan_mask = np.isnan(cell_expression_inputs)
+#
+#         weights = np.log1p(cell_expression_inputs[~nan_mask])
+#         weights /= np.sum(weights)
+#
+#         resampled_gene_indices = self.rng.choice(
+#             cell_identity_inputs[~nan_mask],
+#             size=self.sample_size,
+#             p=weights,
+#             replace=True,
+#         )
+#
+#         return resampled_gene_indices, resampled_gene_indices

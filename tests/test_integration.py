@@ -29,13 +29,13 @@ def test_default_hydra_train():
                 # "user=lane-nick"
                 "model=transformer",
                 "fg=pca_esm2",
-                "fe=weighted_sampling",
+                "fe=identity",
                 "fc=uce",
                 "seed=55",
                 "project_name=demo",
                 "tasks.args.epochs=1",
                 "fc.args.max_input_length=512",
-                "fe.args.sample_size=450",
+                "fc.args.sample_size=450",
                 # f"user={os.environ['HYDRA_USER']}"
             ],
         )

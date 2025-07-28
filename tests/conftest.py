@@ -10,7 +10,7 @@ from pytest import fixture
 from scipy.sparse import csr_array
 
 from Heimdall.fc import GeneformerFc, ScGPTFc, UCEFc
-from Heimdall.fe import BinningFe, IdentityFe, SortingFe, WeightedSamplingFe
+from Heimdall.fe import BinningFe, IdentityFe
 from Heimdall.fg import IdentityFg
 from Heimdall.utils import convert_to_ensembl_ids, instantiate_from_config
 
@@ -253,10 +253,10 @@ def binning_fe(mock_dataset):
 
 
 @fixture
-def identity_fe(zero_expression_mock_dataset):
+def identity_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": 6,
+            "vocab_size": int(np.max(mock_dataset.X)) + 3,
             "embedding_parameters": {
                 "type": "Heimdall.embedding.TwoLayerNN",
                 "args": {
@@ -267,7 +267,47 @@ def identity_fe(zero_expression_mock_dataset):
             "d_embedding": 128,
         },
     )
+    identity_fe = IdentityFe(mock_dataset, **fe_config)
+
+    return identity_fe
+
+
+@fixture
+def zero_expression_identity_fe(zero_expression_mock_dataset):
+    fe_config = OmegaConf.create(
+        {
+            "vocab_size": int(np.max(zero_expression_mock_dataset.X)) + 3,
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "embedding_dim": 128,
+                },
+            },
+            "d_embedding": 128,
+        },
+    )
     identity_fe = IdentityFe(zero_expression_mock_dataset, **fe_config)
+
+    return identity_fe
+
+
+@fixture
+def identity_fe_all_valid_genes(mock_dataset_all_valid_genes):
+    fe_config = OmegaConf.create(
+        {
+            "vocab_size": int(np.max(mock_dataset_all_valid_genes.X)) + 3,
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "args": {
+                    "num_embeddings": "vocab_size",
+                    "embedding_dim": 128,
+                },
+            },
+            "d_embedding": 128,
+        },
+    )
+    identity_fe = IdentityFe(mock_dataset_all_valid_genes, **fe_config)
 
     return identity_fe
 
@@ -315,7 +355,7 @@ def weighted_sampling_fe(mock_dataset_all_valid_genes):
 
 
 @fixture
-def geneformer_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_expression_sorting_fe):
+def geneformer_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_expression_identity_fe):
     fc_config = OmegaConf.create(
         {
             "max_input_length": 4,
@@ -326,11 +366,11 @@ def geneformer_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zer
         },
     )
     zero_expression_identity_fg.preprocess_embeddings()
-    zero_expression_sorting_fe.preprocess_embeddings()
+    zero_expression_identity_fe.preprocess_embeddings()
 
     geneformer_fc = GeneformerFc(
         zero_expression_identity_fg,
-        zero_expression_sorting_fe,
+        zero_expression_identity_fe,
         zero_expression_mock_dataset,
         **fc_config,
     )
@@ -367,7 +407,7 @@ def scgpt_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_exp
 
 
 @fixture
-def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, weighted_sampling_fe):
+def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_fe_all_valid_genes):
     if "DATA_PATH" not in os.environ:
         pytest.skip(".env file must specify DATA_PATH for UCE `Fc` test.")
 
@@ -386,6 +426,7 @@ def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, weighted_s
                     "embedding_dim": 128,
                 },
             },
+            "sample_size": 5,
         },
     )
     identity_fg_all_valid_genes.preprocess_embeddings()
@@ -394,11 +435,11 @@ def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, weighted_s
     mock_dataset_all_valid_genes.raw = mock_dataset_all_valid_genes.copy()
     mock_dataset_all_valid_genes = mock_dataset_all_valid_genes[:, valid_mask].copy()
 
-    weighted_sampling_fe.preprocess_embeddings()
+    identity_fe_all_valid_genes.preprocess_embeddings()
 
     uce_fc = UCEFc(
         identity_fg_all_valid_genes,
-        weighted_sampling_fe,
+        identity_fe_all_valid_genes,
         mock_dataset_all_valid_genes,
         **fc_config,
     )

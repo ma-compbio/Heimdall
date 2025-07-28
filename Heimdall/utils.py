@@ -10,6 +10,7 @@ from pathlib import Path
 from pprint import pformat
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+import anndata as ad
 import awkward as ak
 import mygene
 import numpy as np
@@ -512,3 +513,24 @@ def get_dtype(dtype_name: str, backend: str = "torch"):
     dtype, module_name, dtype_name = get_name(f"{backend}.{dtype_name}")
 
     return dtype
+
+
+def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
+    """Get expression values and gene indices from internal CSR representation.
+
+    Args:
+        cell_index: cell for which to process expression values and get indices, as stored in `adata`.
+
+    """
+
+    if drop_zeros is True:
+        expression = adata.X
+        start = expression.indptr[cell_index]
+        end = expression.indptr[cell_index + 1]
+        cell_expression_inputs = expression.data[start:end]
+        cell_identity_inputs = expression.indices[start:end]
+    else:
+        cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()
+        cell_identity_inputs = np.arange(adata.shape[1])
+
+    return cell_identity_inputs, cell_expression_inputs

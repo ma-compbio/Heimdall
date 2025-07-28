@@ -268,7 +268,7 @@ class HeimdallLinear(nn.Module):
         """
         identity_inputs, expression_inputs = inputs
 
-        input_embeds = self.fc.embed_cells(
+        input_embeds = self.fc.reduce(
             identity_inputs,
             self.gene_embeddings,
             expression_inputs,
@@ -484,7 +484,7 @@ class HeimdallTransformer(nn.Module):
         """
         identity_inputs, expression_inputs = inputs
 
-        input_embeds = self.fc.embed_cells(
+        input_embeds = self.fc.reduce(
             identity_inputs,
             self.gene_embeddings,
             expression_inputs,
