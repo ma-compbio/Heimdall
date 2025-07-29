@@ -60,7 +60,7 @@ def test_scgpt_fc_preprocess_cells_and_getitem(zero_expression_mock_dataset, scg
     for cell_index in range(len(zero_expression_mock_dataset)):
         identity_inputs, expression_inputs, padding_mask = scgpt_fc[cell_index]
 
-        sample_indices = rng.choice(raw_seq_length, scgpt_fc.max_input_length, replace=False)
+        sample_indices = rng.choice(raw_seq_length, raw_seq_length, replace=False)
         assert np.allclose(identity_expected[[cell_index], sample_indices], identity_inputs)
         assert np.allclose(expression_expected[[cell_index], sample_indices], expression_inputs)
         assert len(identity_inputs) == scgpt_fc.max_input_length

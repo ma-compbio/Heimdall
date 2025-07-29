@@ -58,19 +58,25 @@ class RandomOrder(Order):
         (zero_indices,) = np.where(expression_inputs == 0)
 
         # First: sample/reorder nonzero expression tokens
-        num_nonzero_to_sample = min(len(nonzero_indices), self.fc.max_input_length)
-        selected_nonzero = self.fc.rng.choice(nonzero_indices, num_nonzero_to_sample, replace=False)
+        # num_nonzero_to_sample = min(len(nonzero_indices), self.fc.max_input_length)
+        num_nonzero = len(nonzero_indices)
+        num_zero = len(zero_indices)
+
+        # selected_nonzero = self.fc.rng.choice(nonzero_indices, num_nonzero_to_sample, replace=False)
+        selected_nonzero = self.fc.rng.choice(nonzero_indices, num_nonzero, replace=False)
 
         # If needed: sample zero-expression tokens to fill up
-        num_remaining = self.fc.max_input_length - num_nonzero_to_sample
-        if num_remaining > 0:
-            selected_zero = self.fc.rng.choice(zero_indices, num_remaining, replace=False)
+        # num_remaining = self.fc.max_input_length - num_nonzero_to_sample
+        # if num_remaining > 0:
+        if num_zero > 0:
+            selected_zero = self.fc.rng.choice(zero_indices, num_zero, replace=False)
             gene_order = np.concatenate([selected_nonzero, selected_zero])
         else:
             gene_order = selected_nonzero
 
         # Optionally shuffle to avoid position bias, but we dont need to because the gene ids are the position
         # self.rng.shuffle(final_indices)
+        print(gene_order)
 
         return gene_order
 

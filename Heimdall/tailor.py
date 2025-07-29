@@ -71,8 +71,10 @@ class Tailor(ABC):
     def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, gene_order: NDArray) -> NDArray:
         (input_length,) = identity_inputs.shape
 
-        if input_length > self.fc.max_input_length:
+        if input_length >= self.fc.max_input_length:
             identity_inputs, expression_inputs = self.limit(identity_inputs, expression_inputs, gene_order)
+            print(f"{identity_inputs=}")
+            print(f"{expression_inputs=}")
 
         (input_length,) = identity_inputs.shape
 

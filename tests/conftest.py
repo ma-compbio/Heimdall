@@ -392,7 +392,7 @@ def geneformer_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zer
 def scgpt_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_expression_binning_fe):
     fc_config = OmegaConf.create(
         {
-            "max_input_length": 2,
+            "max_input_length": 3,
             "embedding_parameters": {
                 "type": "torch.nn.Module",
             },
