@@ -63,6 +63,10 @@ class Tailor(ABC):
                 of a cell.
 
         """
+        identity_inputs = identity_inputs[: self.fc.max_input_length]
+        expression_inputs = expression_inputs[: self.fc.max_input_length]
+
+        return identity_inputs, expression_inputs
 
     def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, gene_order: NDArray) -> NDArray:
         (input_length,) = identity_inputs.shape
@@ -78,7 +82,7 @@ class Tailor(ABC):
         return identity_inputs, expression_inputs
 
 
-class TruncateTailor(Tailor):
+class ReorderTailor(Tailor):
     def limit(
         self,
         identity_inputs: NDArray,
@@ -86,10 +90,10 @@ class TruncateTailor(Tailor):
         gene_order: NDArray,
     ) -> tuple[NDArray, NDArray]:
 
-        identity_inputs = identity_inputs[gene_order][: self.fc.max_input_length]
-        expression_inputs = expression_inputs[gene_order][: self.fc.max_input_length]
+        identity_inputs = identity_inputs[gene_order]
+        expression_inputs = expression_inputs[gene_order]
 
-        return identity_inputs, expression_inputs
+        return super().limit(identity_inputs, expression_inputs, gene_order)
 
     def pad(
         self,
@@ -104,7 +108,7 @@ class TruncateTailor(Tailor):
         return super().pad(identity_inputs, expression_inputs, gene_order)
 
 
-class ChromosomeTailor(TruncateTailor):
+class ChromosomeTailor(Tailor):
     def __init__(self, fc: Fc, sample_size: int):
         self.sample_size = sample_size
 
@@ -181,6 +185,15 @@ class ChromosomeTailor(TruncateTailor):
             sequence_index += 1  # add the closing token again
 
         return grouped_gene_tokenization, grouped_expression_tokenization
+
+    def limit(
+        self,
+        identity_inputs: NDArray,
+        expression_inputs: NDArray,
+        gene_order: NDArray,
+    ) -> tuple[NDArray, NDArray]:
+
+        return super().limit(identity_inputs, expression_inputs, gene_order)
 
     def pad(
         self,

@@ -104,7 +104,7 @@ def paired_task_config(request, toy_paried_data_path):
         embedding_parameters:
           type: torch.nn.Module  # Should throw an error if called
         tailor_config:
-          type: Heimdall.tailor.TruncateTailor
+          type: Heimdall.tailor.ReorderTailor
         order_config:
           type: Heimdall.order.ExpressionOrder
         reduce_config:

@@ -13,7 +13,7 @@ args:
   tailor_config:
     type: Heimdall.tailor.ChromosomeTailor
     args:
-      sample_size: 450
+      sample_size: 1100
   order_config:
     type: Heimdall.order.ChromosomeOrder
   reduce_config:

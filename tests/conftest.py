@@ -363,7 +363,7 @@ def geneformer_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zer
                 "type": "torch.nn.Module",
             },
             "tailor_config": {
-                "type": "Heimdall.tailor.TruncateTailor",
+                "type": "Heimdall.tailor.ReorderTailor",
             },
             "order_config": {
                 "type": "Heimdall.order.ExpressionOrder",
@@ -397,7 +397,7 @@ def scgpt_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_exp
                 "type": "torch.nn.Module",
             },
             "tailor_config": {
-                "type": "Heimdall.tailor.TruncateTailor",
+                "type": "Heimdall.tailor.ReorderTailor",
             },
             "order_config": {
                 "type": "Heimdall.order.RandomOrder",

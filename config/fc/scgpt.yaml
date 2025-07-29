@@ -5,7 +5,7 @@ args:
   embedding_parameters:
     type: torch.nn.Module  # Should throw an error if called
   tailor_config:
-    type: Heimdall.tailor.TruncateTailor
+    type: Heimdall.tailor.ReorderTailor
   order_config:
     type: Heimdall.order.RandomOrder
   reduce_config:
