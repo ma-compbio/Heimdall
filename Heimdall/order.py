@@ -76,7 +76,6 @@ class RandomOrder(Order):
 
         # Optionally shuffle to avoid position bias, but we dont need to because the gene ids are the position
         # self.rng.shuffle(final_indices)
-        print(gene_order)
 
         return gene_order
 

@@ -73,8 +73,8 @@ class Tailor(ABC):
 
         if input_length >= self.fc.max_input_length:
             identity_inputs, expression_inputs = self.limit(identity_inputs, expression_inputs, gene_order)
-            print(f"{identity_inputs=}")
-            print(f"{expression_inputs=}")
+            # print(f"{identity_inputs=}")
+            # print(f"{expression_inputs=}")
 
         (input_length,) = identity_inputs.shape
 
@@ -156,7 +156,7 @@ class ChromosomeTailor(Tailor):
             chromosome_identity_inputs = resampled_identity_inputs[chromosome_index]
             chromosome_expression_inputs = resampled_expression_inputs[chromosome_index]
 
-            chromosome_gene_ranks = resampled_gene_ranks[chromosome_identity_inputs]
+            chromosome_gene_ranks = resampled_gene_ranks[chromosome_index]
             chromosome_gene_order = np.argsort(chromosome_gene_ranks)
 
             placeholder_id = -(chromosome + self.fc.chrom_token_offset + 1)
