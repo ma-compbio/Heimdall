@@ -83,7 +83,6 @@ class Fc:
             expression_inputs,
             gene_order,
         )
-
         padding_mask = expression_inputs == self.fe.pad_value
         return identity_inputs, expression_inputs, padding_mask
 

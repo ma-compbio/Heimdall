@@ -9,7 +9,7 @@ from functools import partial, wraps
 from pathlib import Path
 from pprint import pformat
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
+import torch
 import anndata as ad
 import awkward as ak
 import mygene
@@ -177,6 +177,8 @@ def heimdall_collate_fn(examples):
     #             conditional_tokens[key] = torch.tensor([example[key] for example in examples])
     # batch["conditional_tokens"] = conditional_tokens
     # return batch
+    
+
 
     # Collate batch using pytorch's default collate function
     flat_batch = default_collate(examples)

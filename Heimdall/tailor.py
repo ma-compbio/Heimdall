@@ -63,8 +63,8 @@ class Tailor(ABC):
                 of a cell.
 
         """
-        identity_inputs = identity_inputs[: self.fc.max_input_length]
-        expression_inputs = expression_inputs[: self.fc.max_input_length]
+        identity_inputs = identity_inputs[: self.fc.max_input_length].astype(self.fc.float_dtype)
+        expression_inputs = expression_inputs[: self.fc.max_input_length].astype(self.fc.float_dtype)
 
         return identity_inputs, expression_inputs
 
@@ -92,6 +92,7 @@ class ReorderTailor(Tailor):
         gene_order: NDArray,
     ) -> tuple[NDArray, NDArray]:
 
+        
         identity_inputs = identity_inputs[gene_order]
         expression_inputs = expression_inputs[gene_order]
 
@@ -104,6 +105,7 @@ class ReorderTailor(Tailor):
         gene_order: NDArray,
     ) -> tuple[NDArray, NDArray]:
 
+    
         identity_inputs = identity_inputs[gene_order]
         expression_inputs = expression_inputs[gene_order]
 
