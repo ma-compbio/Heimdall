@@ -92,7 +92,6 @@ class ReorderTailor(Tailor):
         gene_order: NDArray,
     ) -> tuple[NDArray, NDArray]:
 
-        
         identity_inputs = identity_inputs[gene_order]
         expression_inputs = expression_inputs[gene_order]
 
@@ -105,7 +104,6 @@ class ReorderTailor(Tailor):
         gene_order: NDArray,
     ) -> tuple[NDArray, NDArray]:
 
-    
         identity_inputs = identity_inputs[gene_order]
         expression_inputs = expression_inputs[gene_order]
 

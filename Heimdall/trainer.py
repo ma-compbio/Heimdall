@@ -4,6 +4,7 @@ import random
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import psutil
 import scanpy as sc
 import torch
@@ -16,9 +17,9 @@ from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, Matt
 from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
 from transformers import get_scheduler
-import pandas as pd
-import wandb
+
 import Heimdall.losses
+import wandb
 
 
 class HeimdallTrainer:
@@ -34,12 +35,12 @@ class HeimdallTrainer:
         self.cfg = cfg
         self.model = model
         self.data = data
-        
-        #cell type label
+
+        # cell type label
         label_key = self.cfg.tasks.args.label_col_name
         if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
-            self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype('category')
-        
+            self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
+
         # class_names will now align with integer labels returned by .codes
         self.class_names = self.data.adata.obs[label_key].cat.categories.tolist()
 
@@ -566,7 +567,7 @@ class HeimdallTrainer:
         encoded_list = []
 
         y_true_batches, preds_batches = [], []
-        
+
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
                 inputs = (batch["identity_inputs"], batch["expression_inputs"])
@@ -580,7 +581,7 @@ class HeimdallTrainer:
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
 
-                if self.cfg.tasks.args.task_type=='multiclass':
+                if self.cfg.tasks.args.task_type == "multiclass":
                     preds = logits.argmax(1)
 
                 y_true_batches.append(labels.cpu())
@@ -628,9 +629,8 @@ class HeimdallTrainer:
         loss = loss / len(dataloader)
 
         # concatenate & gather once per epoch
-        y_true_all  = torch.cat(y_true_batches, 0)
-        preds_all   = torch.cat(preds_batches, 0)
-
+        y_true_all = torch.cat(y_true_batches, 0)
+        preds_all = torch.cat(preds_batches, 0)
 
         if self.accelerator.num_processes > 1:
             loss = self.accelerator.gather(torch.tensor(loss)).mean().item()
@@ -643,17 +643,15 @@ class HeimdallTrainer:
                 if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
                     log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
 
-        
         if "ConfusionMatrix" in metrics:
             # 1. Gather counts from all processes and sum
-            cm_local = metrics["ConfusionMatrix"].compute()                # (C, C) tensor
-            cm_counts = self.accelerator.reduce(cm_local, reduction="sum")           # global counts
-
+            cm_local = metrics["ConfusionMatrix"].compute()  # (C, C) tensor
+            cm_counts = self.accelerator.reduce(cm_local, reduction="sum")  # global counts
 
             # 3) If binary and flat, reshape to (2, 2)
             if cm_counts.dim() == 1:
-                C = int(cm_counts.numel() ** 0.5)      # should be 2
-                cm_counts = cm_counts.view(C, C)
+                c = int(cm_counts.numel() ** 0.5)  # should be 2
+                cm_counts = cm_counts.view(c, c)
 
             # 2. Row-wise normalisation → per-class accuracy matrix
             cm_norm = cm_counts.float()
@@ -668,15 +666,14 @@ class HeimdallTrainer:
             # 4. Log interactive confusion matrix to WandB (main process only)
             if self.run_wandb and self.accelerator.is_main_process:
                 wandb_cm = wandb.plot.confusion_matrix(
-                    y_true = y_true_all.numpy().tolist(),
-                    preds = preds_all.numpy().tolist(),
-                    class_names=self.class_names                  # same order as metric
+                    y_true=y_true_all.numpy().tolist(),
+                    preds=preds_all.numpy().tolist(),
+                    class_names=self.class_names,  # same order as metric
                 )
-                self.accelerator.log({f"{dataset_type}_confusion_matrix": wandb_cm},
-                             step=self.step)
-
-
-
+                self.accelerator.log(
+                    {f"{dataset_type}_confusion_matrix": wandb_cm},
+                    step=self.step,
+                )
 
         rss = self.process.memory_info().rss / (1024**3)
         log["Process_mem_rss"] = rss

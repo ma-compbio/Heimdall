@@ -286,8 +286,6 @@ class ScBERTBinningFe(Fe):
         return cell_identity_inputs, binned_expression
 
 
-
-
 class IdentityFe(Fe):
     """Directly pass the continuous values. Remove zeros.
 
