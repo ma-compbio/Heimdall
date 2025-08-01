@@ -10,7 +10,7 @@ from pytest import fixture
 from scipy.sparse import csr_array
 
 from Heimdall.fc import ChromosomeAwareFc, Fc
-from Heimdall.fe import BinningFe, IdentityFe
+from Heimdall.fe import ScBERTBinningFe, BinningFe, IdentityFe
 from Heimdall.fg import IdentityFg
 from Heimdall.utils import convert_to_ensembl_ids, instantiate_from_config
 
@@ -232,6 +232,29 @@ def zero_expression_sorting_fe(zero_expression_mock_dataset):
 
 
 @fixture
+def scbert_binning_fe(mock_dataset):
+    fe_config = OmegaConf.create(
+        {
+            "vocab_size": int(np.max(mock_dataset.X)) + 2,
+            "embedding_parameters": {
+                "type": "Heimdall.embedding.FlexibleTypeLinear",
+                "args": {
+                    "in_features": 1,  # Replace later
+                    "out_features": 128,
+                },
+            },
+            "d_embedding": 128,
+            "num_bins": int(np.max(mock_dataset.X)),
+        },
+    )
+    binning_fe = ScBERTBinningFe(mock_dataset, **fe_config)
+
+    return binning_fe
+
+
+
+
+@fixture
 def binning_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
@@ -334,6 +357,28 @@ def zero_expression_binning_fe(zero_expression_mock_dataset):
 
 
 @fixture
+def zero_expression_scbert_binning_fe(zero_expression_mock_dataset):
+    fe_config = OmegaConf.create(
+        {
+            "vocab_size": 6,
+            "embedding_parameters": {
+                "type": "Heimdall.embedding.FlexibleTypeLinear",
+                "args": {
+                    "in_features": 1,  # Replace later
+                    "out_features": 128,
+                },
+            },
+            "d_embedding": 128,
+            "num_bins": int(np.max(zero_expression_mock_dataset.X)),
+        },
+    )
+    binning_fe = ScBERTBinningFe(zero_expression_mock_dataset, **fe_config)
+
+    return binning_fe
+
+
+
+@fixture
 def weighted_sampling_fe(mock_dataset_all_valid_genes):
     fe_config = OmegaConf.create(
         {
@@ -420,6 +465,41 @@ def scgpt_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_exp
     metadata_embeddings = instantiate_from_config(scgpt_fc.embedding_parameters)
 
     return scgpt_fc
+
+
+@fixture
+def scbert_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_expression_scbert_binning_fe):
+    fc_config = OmegaConf.create(
+        {
+            "max_input_length": 3,
+            "embedding_parameters": {
+                "type": "torch.nn.Module",
+            },
+            "tailor_config": {
+                "type": "Heimdall.tailor.ReorderTailor",
+            },
+            "order_config": {
+                "type": "Heimdall.order.RandomOrder",
+            },
+            "reduce_config": {
+                "type": "Heimdall.reduce.SumReduce",
+            },
+        },
+    )
+    zero_expression_identity_fg.preprocess_embeddings()
+    zero_expression_scbert_binning_fe.preprocess_embeddings()
+
+    scbert_fc = Fc(
+        zero_expression_identity_fg,
+        zero_expression_scbert_binning_fe,
+        zero_expression_mock_dataset,
+        **fc_config,
+    )
+
+    metadata_embeddings = instantiate_from_config(scbert_fc.embedding_parameters)
+
+    return scbert_fc
+
 
 
 @fixture
