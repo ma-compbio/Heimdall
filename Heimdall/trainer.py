@@ -63,7 +63,8 @@ class HeimdallTrainer:
             # Multi-label classification using .obsm[label_obsm_key]
             self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
             self.num_labels = len(self.class_names)
-
+        elif label_key =='self_supervised' or label_obsm_key == 'self_supervised':
+            pass
         else:
             raise ValueError("Must specify either `label_col_name` or `label_obsm_name` in the config.")
 
