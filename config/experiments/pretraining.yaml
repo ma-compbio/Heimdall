@@ -10,7 +10,7 @@ defaults:
   - override /scheduler: cosine # contains scheduler
   - override /optimizer: AdamW
   - override /fc: scbert
-  - override /fe: autobin
+  - override /fe: binning_scbert
   - override /fg: esm2 #gene2vec
   - override /loss: CrossEntropyLoss
 
