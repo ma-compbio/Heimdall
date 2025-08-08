@@ -9,6 +9,7 @@ import psutil
 import scanpy as sc
 import torch
 import torch.nn as nn
+import wandb
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from anndata import AnnData
@@ -19,7 +20,6 @@ from tqdm import tqdm
 from transformers import get_scheduler
 
 import Heimdall.losses
-import wandb
 
 
 class HeimdallTrainer:
@@ -52,7 +52,9 @@ class HeimdallTrainer:
         label_key = getattr(args, "label_col_name", None)
         label_obsm_key = getattr(args, "label_obsm_name", None)
 
-        if label_key is not None:
+        if label_key == "self_supervised" or label_obsm_key == "self_supervised":
+            pass
+        elif label_key is not None:
             # Single-label classification using .obs[label_key]
             if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
                 self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
@@ -63,8 +65,6 @@ class HeimdallTrainer:
             # Multi-label classification using .obsm[label_obsm_key]
             self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
             self.num_labels = len(self.class_names)
-        elif label_key == 'self_supervised' or label_obsm_key == 'self_supervised':
-            pass
         else:
             raise ValueError("Must specify either `label_col_name` or `label_obsm_name` in the config.")
 
