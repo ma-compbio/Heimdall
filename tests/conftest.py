@@ -10,7 +10,7 @@ from pytest import fixture
 from scipy.sparse import csr_array
 
 from Heimdall.fc import ChromosomeAwareFc, Fc
-from Heimdall.fe import ScBERTBinningFe, BinningFe, IdentityFe
+from Heimdall.fe import BinningFe, IdentityFe, ScBERTBinningFe
 from Heimdall.fg import IdentityFg
 from Heimdall.utils import convert_to_ensembl_ids, instantiate_from_config
 
@@ -244,14 +244,12 @@ def scbert_binning_fe(mock_dataset):
                 },
             },
             "d_embedding": 128,
-            "num_bins": int(np.max(mock_dataset.X)),
+            "num_bins": 2,
         },
     )
     binning_fe = ScBERTBinningFe(mock_dataset, **fe_config)
 
     return binning_fe
-
-
 
 
 @fixture
@@ -369,13 +367,12 @@ def zero_expression_scbert_binning_fe(zero_expression_mock_dataset):
                 },
             },
             "d_embedding": 128,
-            "num_bins": int(np.max(zero_expression_mock_dataset.X)),
+            "num_bins": 2,
         },
     )
     binning_fe = ScBERTBinningFe(zero_expression_mock_dataset, **fe_config)
 
     return binning_fe
-
 
 
 @fixture
@@ -499,7 +496,6 @@ def scbert_fc(zero_expression_mock_dataset, zero_expression_identity_fg, zero_ex
     metadata_embeddings = instantiate_from_config(scbert_fc.embedding_parameters)
 
     return scbert_fc
-
 
 
 @fixture
