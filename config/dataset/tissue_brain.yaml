@@ -1,9 +1,0 @@
-dataset_name: "brain_tissue"
-
-preprocess_args:
-  data_path: "${data_path}/tissue_splits_sctab/brain_tissue_split.h5ad"
-  top_n_genes: false
-  normalize: true
-  log_1p: true
-  scale_data: false
-  species: "human"

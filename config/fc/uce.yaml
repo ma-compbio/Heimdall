@@ -1,7 +1,7 @@
 type: Heimdall.fc.ChromosomeAwareFc
 
 args:
-  max_input_length: 1024
+  max_input_length: 512
   species: ${dataset.preprocess_args.species}
   gene_metadata_filepath: ${data_path}/gene_metadata/species_chrom.csv
   ensembl_dir: ${data_path}
@@ -13,7 +13,7 @@ args:
   tailor_config:
     type: Heimdall.tailor.ChromosomeTailor
     args:
-      sample_size: 924
+      sample_size: 412
   order_config:
     type: Heimdall.order.ChromosomeOrder
   reduce_config:

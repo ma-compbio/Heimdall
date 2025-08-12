@@ -11,7 +11,7 @@ args:
       num_embeddings: 100
       embedding_dim: ${fg.args.d_embedding}
   tailor_config:
-    type: Heimdall.tailor.ReorderTailor
+    type: Heimdall.tailor.ChromosomeTailor
   order_config:
     type: Heimdall.order.ChromosomeOrder
   reduce_config:
