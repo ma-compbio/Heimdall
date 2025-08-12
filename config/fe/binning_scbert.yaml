@@ -3,9 +3,9 @@ name: Heimdall.fe.ScBERTBinningFe
 
 args:
   embedding_parameters:
-    type: Heimdall.embedding.ScGPTCategoryValueEncoder # TODO: replace this with the actual scGPT ValueEncoder: https://github.com/bowang-lab/scGPT/blob/7301b51a72f5db321fccebb51bc4dd1380d99023/scgpt/model/model.py#L765
+    type: Heimdall.embedding.FlexibleTypeEmbedding
     args:
-      num_embeddings: "vocab_size" # this is the number of bins
+      num_embeddings: "vocab_size"
       embedding_dim: ${fe.args.d_embedding}
   num_bins: 7 ## also the number of bins
   d_embedding: ${model.args.d_model}
