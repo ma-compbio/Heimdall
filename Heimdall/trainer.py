@@ -47,6 +47,7 @@ class HeimdallTrainer:
         #assert len(self.class_names) == self.num_labels, "Mismatch between classes and label indices"
         
         args = self.cfg.tasks.args
+        
 
         # Unified label key handling: support .obs or .obsm
         label_key = getattr(args, "label_col_name", None)
@@ -64,8 +65,8 @@ class HeimdallTrainer:
             self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
             self.num_labels = len(self.class_names)
 
-        else:
-            raise ValueError("Must specify either `label_col_name` or `label_obsm_name` in the config.")
+        #else:
+        #    raise ValueError("Must specify either `label_col_name` or `label_obsm_name` in the config.")
 
         # Verify model output matches number of labels
         #assert self.num_labels == self.model.output_dim, \
@@ -422,15 +423,24 @@ class HeimdallTrainer:
 
     # Add these methods to the HeimdallTrainer class
     def save_adata_umap(self, best_test_embed, best_val_embed):
-        # pull the adata from the
-        test_adata = self.data.adata[
+        # Case 1: predefined splits
+        if hasattr(self.cfg.tasks.args, "splits"):
+            test_adata = self.data.adata[
             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
-        ].copy()
-        val_adata = self.data.adata[
+            ].copy()
+            val_adata = self.data.adata[
             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
-        ].copy()
+            ].copy()
+        
+        # Case 2: random splits
+        elif hasattr(self.data, "splits"):
+            # breakpoint()
+            test_adata = self.data.adata[self.splits["test"]].copy()
+            val_adata = self.data.adata[self.splits["val"]].copy()
 
-        # breakpoint()
+        else: 
+            raise ValueError("No split information found in config")
+        
         test_adata.obsm["heimdall_latents"] = best_test_embed
         val_adata.obsm["heimdall_latents"] = best_val_embed
 
