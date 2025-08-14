@@ -1,0 +1,31 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - override /model: transformer # the chosen model
+  - override /dataset: spatial_cancer_split1 # dataset for the relevant task
+  - override /tasks: spatial_cancer_split_random # dataset for the relevant task
+  - override /scheduler: cosine # contains scheduler
+  - override /trainer: default # contains optimizer and trainer details
+  - override /optimizer: AdamW
+  - override /fc: geneformer
+  - override /fg: identity
+  - override /loss: CrossEntropyLoss
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+
+seed: 55
+
+
+run_name: ${fg.type}_${fe.type}_${fc.type}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}  ## what is set for WandB
+work_dir: '${project_name}_results/${fg.type}_${fe.name}_${fc.type}_${dataset.dataset_name}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}_seed${seed}_ag${fe.args.drop_zeros}'  ## set your custom working directory
+
+project_name: 'spatial_cancer_split' #project name for WandB
+
+optimizer:
+  args:
+    lr: 2e-3
