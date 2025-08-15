@@ -16,3 +16,5 @@ datasets==2.20.0
 einops==0.8.0
 mygene==3.2.2
 awkward==2.6.9
+psutil==0.11.9
+leidenalg==0.10.2

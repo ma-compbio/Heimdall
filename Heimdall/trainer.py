@@ -18,6 +18,7 @@ from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
 from transformers import get_scheduler
 
+import Heimdall.datasets
 import Heimdall.losses
 import wandb
 
@@ -37,15 +38,15 @@ class HeimdallTrainer:
         self.data = data
 
         # cell type label
-        #label_key = self.cfg.tasks.args.label_col_name
-        #if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
+        # label_key = self.cfg.tasks.args.label_col_name
+        # if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
         #    self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
 
         # class_names will now align with integer labels returned by .codes
-        #self.class_names = self.data.adata.obs[label_key].cat.categories.tolist()
+        # self.class_names = self.data.adata.obs[label_key].cat.categories.tolist()
 
-        #assert len(self.class_names) == self.num_labels, "Mismatch between classes and label indices"
-        
+        # assert len(self.class_names) == self.num_labels, "Mismatch between classes and label indices"
+
         args = self.cfg.tasks.args
 
         # Unified label key handling: support .obs or .obsm
@@ -65,13 +66,16 @@ class HeimdallTrainer:
             self.num_labels = len(self.class_names)
 
         else:
-            raise ValueError("Must specify either `label_col_name` or `label_obsm_name` in the config.")
+            # Auto infering
+            self.class_names = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
+            self.num_labels = data.num_tasks
+
+        # else:
+        #    raise ValueError("Must specify either `label_col_name` or `label_obsm_name` in the config.")
 
         # Verify model output matches number of labels
-        #assert self.num_labels == self.model.output_dim, \
-         #   f"Mismatch between number of labels ({self.num_labels}) and model output dim ({self.model.output_dim})"
-
-
+        # assert self.num_labels == self.model.output_dim, \
+        #     f"Mismatch between number of labels ({self.num_labels}) and model output dim ({self.model.output_dim})"
 
         self.run_wandb = run_wandb
         self.process = psutil.Process()
@@ -336,7 +340,11 @@ class HeimdallTrainer:
                 self.accelerator.log(best_metric, step=self.step)
             self.accelerator.end_training()
 
-        if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
+        if (
+            self.accelerator.is_main_process
+            and self.cfg.model.name != "logistic_regression"
+            and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
+        ):
             self.save_adata_umap(best_test_embed, best_val_embed)
             self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
 
@@ -422,15 +430,24 @@ class HeimdallTrainer:
 
     # Add these methods to the HeimdallTrainer class
     def save_adata_umap(self, best_test_embed, best_val_embed):
-        # pull the adata from the
-        test_adata = self.data.adata[
-            self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
-        ].copy()
-        val_adata = self.data.adata[
-            self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
-        ].copy()
+        # Case 1: predefined splits
+        if hasattr(self.cfg.tasks.args, "splits"):
+            test_adata = self.data.adata[
+                self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
+            ].copy()
+            val_adata = self.data.adata[
+                self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
+            ].copy()
 
-        # breakpoint()
+        # Case 2: random splits
+        elif hasattr(self.data, "splits"):
+            # breakpoint()
+            test_adata = self.data.adata[self.splits["test"]].copy()
+            val_adata = self.data.adata[self.splits["val"]].copy()
+
+        else:
+            raise ValueError("No split information found in config")
+
         test_adata.obsm["heimdall_latents"] = best_test_embed
         val_adata.obsm["heimdall_latents"] = best_val_embed
 
@@ -610,7 +627,7 @@ class HeimdallTrainer:
 
                 if self.cfg.tasks.args.task_type == "multiclass":
                     preds = logits.argmax(1)
-                
+
                 elif self.cfg.tasks.args.task_type == "binary":
                     # multi-label binary classification → use sigmoid + threshold
                     probs = torch.sigmoid(logits)
