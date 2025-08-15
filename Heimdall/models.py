@@ -44,6 +44,11 @@ class TransformerOutput:
         )
         return reduced_output
 
+    def __post_init__(self):
+        # ensure output tensors are in float32 format
+        for k, v in self.__dict__.items():
+            setattr(self, k, v.float())
+
 
 class HeimdallModel(nn.Module):
     def __init__(
