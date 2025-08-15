@@ -446,11 +446,7 @@ class CellRepresentation(SpecialTokenMixin):
                         expression_embeddings,
                     ) = pkl.load(rep_file)
 
-                    self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
-                    self.fe.load_from_cache(expression_embeddings)
-
                     self.processed_fcfg = True
-                    return
 
             OmegaConf.save(cfg, processed_cfg_path)
 
@@ -463,12 +459,12 @@ class CellRepresentation(SpecialTokenMixin):
         )
         if cache_dir is not None and processed_data_path.is_file():
             self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
+        else:
+            self.fg.preprocess_embeddings()
+            print(f"> Finished calculating fg with {self.fg_cfg.type}")
 
-        self.fg.preprocess_embeddings()
-        print(f"> Finished calculating fg with {self.fg_cfg.type}")
-
-        self.drop_invalid_genes()  # TODO: remove this if necessary
-        print("> Finished dropping invalid genes from AnnData")
+            self.drop_invalid_genes()  # TODO: remove this if necessary
+            print("> Finished dropping invalid genes from AnnData")
 
         self.fe, fe_name = instantiate_from_config(
             self.fe_cfg,
@@ -480,9 +476,9 @@ class CellRepresentation(SpecialTokenMixin):
 
         if cache_dir is not None and processed_data_path.is_file():
             self.fe.load_from_cache(expression_embeddings)
-
-        self.fe.preprocess_embeddings()
-        print(f"> Finished calculating fe with {self.fe_cfg.type}")
+        else:
+            self.fe.preprocess_embeddings()
+            print(f"> Finished calculating fe with {self.fe_cfg.type}")
 
         self.fc, fc_name = instantiate_from_config(
             self.fc_cfg,
@@ -503,12 +499,24 @@ class CellRepresentation(SpecialTokenMixin):
             gene_embeddings = self.fg.gene_embeddings
             expression_embeddings = self.fe.expression_embeddings
 
-            with open(processed_data_path, "wb") as rep_file:
-                cache_representation = (
-                    identity_embedding_index,
-                    identity_valid_mask,
-                    gene_embeddings,
-                    expression_embeddings,
-                )
-                pkl.dump(cache_representation, rep_file)
-                print(f"Finished writing cell representations at {processed_data_path}")
+            cfg = DictConfig(
+                {
+                    key: OmegaConf.to_container(getattr(self, key), resolve=True)
+                    for key in ("fg_cfg", "fe_cfg", "fc_cfg")
+                },
+            )
+            processed_data_path, processed_cfg_path = get_cached_paths(
+                cfg,
+                Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
+                "data.pkl",
+            )
+            if not processed_data_path.is_file():
+                with open(processed_data_path, "wb") as rep_file:
+                    cache_representation = (
+                        identity_embedding_index,
+                        identity_valid_mask,
+                        gene_embeddings,
+                        expression_embeddings,
+                    )
+                    pkl.dump(cache_representation, rep_file)
+                    print(f"Finished writing cell representations at {processed_data_path}")
