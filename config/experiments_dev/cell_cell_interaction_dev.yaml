@@ -6,8 +6,10 @@
 
 defaults:
   - override /model: transformer # the chosen model
-  - override /dataset: cell_cell_interaction # dataset for the relevant task
-  - override /tasks: cell_cell_interaction_all # dataset for the relevant task
+  # - override /dataset: cell_cell_interaction # dataset for the relevant task
+  # - override /tasks: cell_cell_interaction_all # dataset for the relevant task
+  - override /dataset: ../old_dataset/zeng_merfish_ccc_subset # dataset for the relevant task
+  - override /tasks: ../old_tasks/cell_cell_interaction # dataset for the relevant task
   - override /scheduler: cosine # contains scheduler
   - override /trainer: default # contains optimizer and trainer details
   - override /optimizer: AdamW
