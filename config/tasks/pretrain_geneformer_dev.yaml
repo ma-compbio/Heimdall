@@ -9,8 +9,8 @@ args:
   epochs: 20
   dataset_config:
     type: Heimdall.datasets.SeqMaskedPretrainDataset
-    args:
-      mask_ratio: 0.15
+    # args:
+    #   mask_ratio: 0.15
   head_config:
     type: Heimdall.models.LinearSeqPredHead
     args: null
