@@ -13,8 +13,7 @@ def main(config):
 
     # After preparing your f_g and f_c, use the Heimdall Cell_Representation object to load in and
     # preprocess the dataset
-    only_preprocess_data = OmegaConf.pop(
-        config,
+    only_preprocess_data = config.pop(
         "only_preprocess_data",
     )  # pop so hash of cfg is not changed depending on value
     cr = CellRepresentation(config)  # takes in the whole config from hydra
