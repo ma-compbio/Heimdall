@@ -232,11 +232,12 @@ class CellRepresentation(SpecialTokenMixin):
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
         preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
+        print(preprocessed_data_path, preprocessed_cfg_path)
         if preprocessed_data_path is not None:
             is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
             if is_cached:
                 return
-
+        print("debug")
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
         print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
