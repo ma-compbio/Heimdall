@@ -210,7 +210,10 @@ class CellRepresentation(SpecialTokenMixin):
             loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(preprocessed_cfg_path)).replace("\n", "\n    ")
             print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
             print(f"  Preprocessing config:\n    {loaded_cfg_str}")
-            self.adata = ad.read_h5ad(preprocessed_data_path)
+            self.adata = ad.read_h5ad(
+                preprocessed_data_path,
+                backed="r",
+            )  # add backed arguement to prevent entire dataset from being read into mem
             self.sequence_length = len(self.adata.var)
             print(f"> Finished Processing Anndata Object:\n{self.adata}")
             return True
