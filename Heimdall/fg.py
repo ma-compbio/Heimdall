@@ -79,7 +79,8 @@ class Fg(ABC):
         valid_mask = self.adata.var.loc[gene_names, "identity_valid_mask"]
         if (valid_mask.sum() != len(gene_names)) and not return_mask:
             raise KeyError(
-                "At least one gene is not mapped in this `Fg`. Please remove such genes from consideration in the `Fc`.",
+                "At least one gene is not mapped in this `Fg`. "
+                "Please remove such genes from consideration in the `Fc`.",
             )
 
         if return_mask:
