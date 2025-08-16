@@ -111,6 +111,7 @@ class Fe(ABC):
                 continue
             self.embedding_parameters["args"][key] = value
 
+
 class ScBERTBinningFe(Fe):
     """scBERT-style binning: cap expression values and convert to long indices."""
 
@@ -124,7 +125,7 @@ class ScBERTBinningFe(Fe):
         vocab_size = num_bins + 3  # [0, ..., num_bins], <PAD>, <MASK>
         super().__init__(adata, vocab_size=vocab_size, **fe_kwargs)
         self.num_bins = num_bins
-    
+
     def binning(self, row, n_bins) -> Union[np.ndarray, torch.Tensor]:
         """scBERT-style binning: bin values into [0, n_bins], capping high values.
         - Zeros are retained as 0.
@@ -138,8 +139,8 @@ class ScBERTBinningFe(Fe):
         binned = np.floor(row).astype(np.float32)
         binned = np.clip(binned, a_min=0, a_max=n_bins)
         binned[nan_mask] = np.nan  # preserve NaNs
-        
-        return torch.from_numpy(binned).to(dtype) if not return_np else binned.astype(dtype) 
+
+        return torch.from_numpy(binned).to(dtype) if not return_np else binned.astype(dtype)
 
     def __getitem__(self, cell_index: int):
         # Get gene indices and expression values
@@ -283,46 +284,6 @@ class BinningFe(Fe):
         cell_expression_inputs_binned = self.binning(cell_expression_inputs, self.num_bins + 1)
 
         return cell_identity_inputs, cell_expression_inputs_binned
-
-
-class ScBERTBinningFe(Fe):
-    """scBERT-style binning: cap expression values and convert to long indices."""
-
-    def __init__(
-        self,
-        adata: ad.AnnData,
-        num_bins: int,  # CLASS - 2 in scBERT
-        **fe_kwargs,
-    ):
-        fe_kwargs.pop("vocab_size", None)
-        vocab_size = num_bins + 3  # [0, ..., num_bins], <PAD>, <MASK>
-        super().__init__(adata, vocab_size=vocab_size, **fe_kwargs)
-        self.num_bins = num_bins
-
-    def binning(self, row, n_bins) -> Union[np.ndarray, torch.Tensor]:
-        """scBERT-style binning: bin values into [0, n_bins], capping high values.
-        - Zeros are retained as 0.
-        - Values > n_bins are capped at n_bins.
-        """
-        dtype = row.dtype
-        return_np = not isinstance(row, torch.Tensor)
-        row = row.cpu().numpy() if isinstance(row, torch.Tensor) else row
-
-        nan_mask = np.isnan(row)
-        binned = np.floor(row).astype(np.float32)
-        binned = np.clip(binned, a_min=0, a_max=n_bins)
-        binned[nan_mask] = np.nan  # preserve NaNs
-
-        return torch.from_numpy(binned).to(dtype) if not return_np else binned.astype(dtype)
-
-    def __getitem__(self, cell_index: int):
-        # Get gene indices and expression values
-        cell_identity_inputs, cell_expression_inputs = self._get_inputs_from_csr(cell_index)
-
-        # Apply scBERT-style binning (capped at num_bins)
-        binned_expression = self.binning(cell_expression_inputs, self.num_bins)
-
-        return cell_identity_inputs, binned_expression
 
 
 class IdentityFe(Fe):
