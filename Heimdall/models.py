@@ -226,7 +226,6 @@ class HeimdallLinear(nn.Module):
         elif pos_enc == "BERT":
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, d_model)  # +1 cuz of CLS
         elif pos_enc == "sincos":
-            #raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
             self.position_embeddings = SinusoidalPositionalEncoding(d_model, max_len=self.fc.max_input_length + 1)
         elif pos_enc == "none" or pos_enc == "NONE":
             self.position_embeddings = None
@@ -447,7 +446,7 @@ class HeimdallTransformer(nn.Module):
         elif pos_enc == "BERT":
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, d_model)  # +1 cuz of CLS
         elif pos_enc == "sincos":
-            #raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
+            # raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
             self.position_embeddings = SinusoidalPositionalEncoding(d_model, max_len=self.fc.max_input_length + 1)
         elif pos_enc == "none" or pos_enc == "NONE":
             self.position_embeddings = None
@@ -630,7 +629,9 @@ class FFN(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+
 import math
+
 
 class SinusoidalPositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=5000):
@@ -644,9 +645,7 @@ class SinusoidalPositionalEncoding(nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return x + self.pe[:, :x.size(1)]
-
-
+        return x + self.pe[:, : x.size(1)]
 
 
 class PreNormResidual(nn.Module):
