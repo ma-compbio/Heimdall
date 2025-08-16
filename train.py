@@ -37,7 +37,8 @@ def main(config):
 
     trainer = HeimdallTrainer(cfg=config, model=model, data=cr, run_wandb=True)
 
-    trainer.fit()
+    if not config.only_preprocess_data:
+        trainer.fit()
 
 
 if __name__ == "__main__":
