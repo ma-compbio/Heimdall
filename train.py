@@ -1,5 +1,5 @@
 import hydra
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.models import HeimdallModel
@@ -13,9 +13,10 @@ def main(config):
 
     # After preparing your f_g and f_c, use the Heimdall Cell_Representation object to load in and
     # preprocess the dataset
-    only_preprocess_data = config.pop(
-        "only_preprocess_data",
-    )  # pop so hash of cfg is not changed depending on value
+
+    with open_dict(config):
+        only_preprocess_data = config.pop("only_preprocess_data", None)
+        # pop so hash of cfg is not changed depending on value
     cr = CellRepresentation(config)  # takes in the whole config from hydra
 
     # Create the model and the types of inputs that it may use
