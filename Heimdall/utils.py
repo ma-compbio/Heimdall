@@ -19,6 +19,7 @@ import requests
 from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
+from scipy.sparse import issparse
 from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
@@ -523,13 +524,17 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
         cell_index: cell for which to process expression values and get indices, as stored in `adata`.
 
     """
-
     if drop_zeros is True:
-        expression = adata.X
-        start = expression.indptr[cell_index]
-        end = expression.indptr[cell_index + 1]
-        cell_expression_inputs = expression.data[start:end]
-        cell_identity_inputs = expression.indices[start:end]
+        if issparse(adata.X):
+            expression = adata.X
+            start = expression.indptr[cell_index]
+            end = expression.indptr[cell_index + 1]
+            cell_expression_inputs = expression.data[start:end]
+            cell_identity_inputs = expression.indices[start:end]
+        else:
+            cell_expression_inputs_full = adata.X[cell_index, :]
+            cell_identity_inputs = np.nonzero(cell_expression_inputs_full)[0]
+            cell_expression_inputs = cell_expression_inputs_full[cell_identity_inputs]
     else:
         cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()
         cell_identity_inputs = np.arange(adata.shape[1])
