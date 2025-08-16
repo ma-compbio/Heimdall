@@ -4,6 +4,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 from dotenv import load_dotenv
 from omegaconf import OmegaConf
 from pytest import fixture
@@ -549,3 +550,33 @@ def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_f
     metadata_embeddings = instantiate_from_config(uce_fc.embedding_parameters)
 
     return uce_fc
+
+
+@fixture
+def mock_gene_embeddings():
+    return torch.from_pretrained(
+        torch.tensor(
+            [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ],
+            dtype=torch.float32,
+        ),
+    )
+
+
+@fixture
+def mock_expression_embeddings():
+    return torch.from_pretrained(
+        torch.tensor(
+            [
+                [2, 0, 0, 0],
+                [0, 2, 0, 0],
+                [0, 0, 2, 0],
+                [0, 0, 0, 2],
+            ],
+            dtype=torch.float32,
+        ),
+    )
