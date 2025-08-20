@@ -532,7 +532,8 @@ class PartitionedDistributedSampler(DistributedSampler):
             g = torch.Generator()
             g.manual_seed(self.seed + self.epoch)
 
-            # partition_order = torch.randperm(partition_order, generator=rand_generator).tolist() # NOT SUPPORTED YET, WILL NEED TO MAKE SURE PARTITIONED IS LOADED
+            # partition_order = torch.randperm(partition_order, generator=rand_generator).tolist()
+            # NOT SUPPORTED YET, WILL NEED TO MAKE SURE PARTITIONED IS LOADED
 
         for i, partition in enumerate(partition_order):
 
