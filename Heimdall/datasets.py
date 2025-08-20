@@ -1,13 +1,19 @@
+import math
 import warnings
 from abc import ABC, abstractmethod, abstractproperty
+from glob import glob
+from pathlib import Path
 from pprint import pformat
 from typing import TYPE_CHECKING, Tuple, Union
 
+import anndata
 import numpy as np
 import pandas as pd
+import torch
 from numpy.typing import NDArray
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset as PyTorchDataset
+from torch.utils.data import DistributedSampler
 
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
@@ -363,3 +369,183 @@ class SeqMaskedPretrainDataset(MaskedPretrainDataset):
         data["masks"] = mask
 
         return data
+
+
+class PartitionedDataset(SeqMaskedPretrainDataset):
+    def __init__(self, data, mask_ratio: float = 0.15):
+        self.mask_ratio = mask_ratio
+        self._data = data
+
+        self.partition_file_paths = sorted(
+            glob((Path(self._data._cfg.dataset.preprocess_args.data_path).parent / "*.h5ad").as_posix()),
+        )
+        self.partition_sizes = {}
+        self.partition_splits = {}
+
+        for i, f in enumerate(self.partition_file_paths):
+            ad = anndata.read_h5ad(f, backed="r")
+            self.partition_sizes[i] = ad.n_obs
+            ad.file.close()
+            del ad
+
+            self.partition_splits[i] = self.get_partition_splits(self.partition_sizes[i], i)
+
+        self.num_partitions = len(self.partition_file_paths)
+        self.total_num_samples = np.cumsum(self.partition_sizes)
+
+        self.curr_partition = 0  # TODO don't hardcode
+
+        if self.labels is None:
+            self._setup_labels_and_pre_splits()  # predefined splits may be set up here
+
+    def __len__(self):
+
+        return self.partition_sizes[self.curr_partition]
+
+    def next_partition(self, part_id):
+        self.close_curr_partition()
+
+        self.curr_partition = part_id
+
+        # open handle to new partition
+        self._data.dataset_preproc_cfg.data_path = self.partition_file_paths[part_id]
+        self._data.preprocess_anndata()
+        self._data.tokenize_cells()
+
+    def close_curr_partition(self):
+
+        self._data.adata.file.close()
+        del self._data.adata
+        self._data.adata = None
+
+    @property
+    def curr_partition(self):
+        return self._curr_partition
+
+    @curr_partition.setter
+    def curr_partition(self, part_id):
+        self._curr_partition = part_id
+        self.splits = self.partition_splits[self._curr_partition]
+
+    def get_partition_splits(self, num_samples_partition, part_id):
+        dataset_task_cfg = self.data.dataset_task_cfg
+        adata = self.data.adata
+        splits = dataset_task_cfg.get("splits", None)
+
+        if splits is None:
+            split_type = "random"
+            print(f"> Did not find splits in config, generating random splits for partition {part_id}")
+            partition_splits = self.get_random_splits_partition(num_samples_partition, part_id)
+
+        else:
+            split_type = splits.get("type", None)
+
+            if split_type == "predefined":
+                print(f"> Found predefined splits in config, extracting splits for partition {part_id}")
+                partition_splits = {}
+                if hasattr(dataset_task_cfg.splits, "col"):
+                    split_col = adata.obs[dataset_task_cfg.splits.col]
+                else:
+                    split_col = adata.obs["split"]
+                for split in self.SPLITS:
+                    if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+                        warnings.warn(
+                            f"Skipping {split!r} split as the corresponding key is not found",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        continue
+                    partition_splits[split] = np.where(split_col == split_key)[0]
+            else:
+                raise ValueError(f"Unknown split type {split_type!r}")
+
+        split_size_str = "\n  ".join(f"{i}: {len(j):,}" for i, j in partition_splits.items())
+        print(f"> Dataset splits sizes ({split_type}):\n  {split_size_str}")
+
+        return partition_splits
+
+    def get_random_splits_partition(self, num_samples_partition, part_id):
+        warnings.warn("Pre-defined split unavailable, using random 8/1/1 split", UserWarning, stacklevel=2)
+
+        seed = self.data._cfg.seed + part_id
+
+        train_idx, test_val_idx = train_test_split(np.arange(num_samples_partition), train_size=0.8, random_state=seed)
+        val_idx, test_idx = train_test_split(test_val_idx, test_size=0.5, random_state=seed)
+
+        return {"train": train_idx, "val": val_idx, "test": test_idx}
+
+
+class PartitionedDistributedSampler(DistributedSampler):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.total_samples_per_partition = {}
+
+        for p, part_size in self.dataset.partition_sizes.items():
+            # If the dataset length is evenly divisible by # of replicas, then there
+            # is no need to drop any data, since the dataset will be split equally.
+            if self.drop_last and part_size % self.num_replicas != 0:  # type: ignore[arg-type]
+                # Split to nearest available length that is evenly divisible.
+                # This is to ensure each rank receives the same amount of data when
+                # using this Sampler.
+                num_samples_part = math.ceil(
+                    (part_size - self.num_replicas) / self.num_replicas,  # type: ignore[arg-type]
+                )
+            else:
+                num_samples_part = math.ceil(part_size / self.num_replicas)  # type: ignore[arg-type]
+
+            self.total_samples_per_partition[p] = num_samples_part * self.num_replicas
+
+    def generate_partition_indices(self, partition, rand_generator=None):
+
+        if self.shuffle:
+            indices = torch.randperm(len(self.dataset), generator=rand_generator).tolist()  # type: ignore[arg-type]
+        else:
+            indices = list(range(len(self.dataset)))  # type: ignore[arg-type]
+
+        if not self.drop_last:
+            # add extra samples to make it evenly divisible
+            padding_size = self.total_samples_per_partition[partition] - len(indices)
+            if padding_size <= len(indices):
+                indices += indices[:padding_size]
+            else:
+                indices += (indices * math.ceil(padding_size / len(indices)))[:padding_size]
+        else:
+            # remove tail of data to make it evenly divisible.
+            indices = indices[: self.total_samples_per_partition[partition]]
+        assert len(indices) == self.total_samples_per_partition[partition]
+
+        # subsample
+        indices = indices[self.rank : self.total_samples_per_partition[partition] : self.num_replicas]
+        assert len(indices) == self.total_samples_per_partition[partition] / self.num_replicas
+
+        return indices[:500]
+
+    def __iter__(self):
+
+        partition_order = list(range(self.dataset.num_partitions))  # Provide an arg to shuffle
+        g = None
+
+        if self.shuffle:
+            # deterministically shuffle based on epoch and seed
+            g = torch.Generator()
+            g.manual_seed(self.seed + self.epoch)
+
+            # partition_order = torch.randperm(partition_order, generator=rand_generator).tolist() # NOT SUPPORTED YET, WILL NEED TO MAKE SURE PARTITIONED IS LOADED
+
+        for i, partition in enumerate(partition_order):
+
+            partition_indices = self.generate_partition_indices(partition, rand_generator=g)
+
+            yield from partition_indices
+
+            # trigger loading of next partition
+            if i < self.dataset.num_partitions - 1:
+                self.dataset.next_partition(partition_order[i + 1])
+            # trigger end of epoch
+            else:
+                raise StopIteration
+
+    def __len__(self) -> int:
+        return sum(self.num_samples_per_partition.values())
