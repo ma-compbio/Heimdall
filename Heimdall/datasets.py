@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MultiLabelBinarizer
 from torch.utils.data import Dataset as PyTorchDataset
 
 if TYPE_CHECKING:
