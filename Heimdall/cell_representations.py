@@ -22,6 +22,7 @@ from Heimdall.datasets import Dataset
 from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
+from Heimdall.samplers import PartitionedDistributedSampler
 from Heimdall.utils import (
     convert_to_ensembl_ids,
     get_cached_paths,
@@ -560,6 +561,7 @@ class PartitionedCellRepresentation(CellRepresentation):
 
         self.partition = 0  # TODO: don't hardcode
         self.prepare_full_dataset()
+        self.prepare_dataset_loaders()
 
     def close_partition(self):
         """Close current partition."""
