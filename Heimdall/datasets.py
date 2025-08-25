@@ -381,8 +381,8 @@ class PartitionedDataset(SeqMaskedPretrainDataset):
 
     @partition.setter
     def partition(self, partition):
-        self.splits = self.partition_splits.get(partition, None)
         self._data.partition = partition
+        self.splits = self.partition_splits.get(partition, None)
 
     def __len__(self):
         return self.partition_sizes[self.partition]
