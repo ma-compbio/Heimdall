@@ -62,12 +62,10 @@ class HeimdallTrainer:
                 self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
             self.class_names = self.data.adata.obs[label_key].cat.categories.tolist()
             self.num_labels = len(self.class_names)
-
         elif label_obsm_key is not None:
             # Multi-label classification using .obsm[label_obsm_key]
             self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
             self.num_labels = len(self.class_names)
-
         else:
             # Auto infering
             self.class_names = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
@@ -245,6 +243,9 @@ class HeimdallTrainer:
                         metrics[metric_name] = F1Score(task="binary", num_labels=num_labels, average="macro")
                     elif metric_name == "MatthewsCorrCoef":
                         metrics[metric_name] = MatthewsCorrCoef(task="binary", num_labels=num_labels)
+        elif task_type == "mlm":
+            # TODO: fill out
+            ...
 
         return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
@@ -620,7 +621,7 @@ class HeimdallTrainer:
                 logits = outputs.logits
                 labels = batch["labels"].to(outputs.device)
 
-                if self.cfg.tasks.args.task_type == "multiclass":
+                if self.cfg.tasks.args.task_type in ("multiclass", "mlm"):
                     preds = logits.argmax(dim=1)
                 elif self.cfg.tasks.args.task_type == "binary":
                     # multi-label binary classification → use sigmoid + threshold
@@ -646,16 +647,11 @@ class HeimdallTrainer:
                 # perform a .clone() so that the labels are not updated in-place
                 loss += self.get_loss(logits, labels.clone()).item()
 
-                # predictions = outputs["logits"] if isinstance(outputs, dict) else outputs
-                # labels = batch['labels']
-
-                # print(metrics)
-                # print("---")
                 for metric_name, metric in metrics.items():  # noqa: B007
                     # Built-in metric
                     # print(metric)
                     # print(metric_name)
-                    if self.cfg.tasks.args.task_type in ["multiclass"]:
+                    if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
                         labels = labels.to(torch.int)
                     if self.cfg.tasks.args.task_type in ["binary"]:
                         # Step 1: Flatten the tensor

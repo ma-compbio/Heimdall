@@ -53,12 +53,12 @@ def check_states(
             ), "Please make sure to preprocess the cell representation at least once first"
 
         if labels:
-            assert getattr(self, "_labels", None) is not None, "labels not setup yet, run prepare_labels() first"
+            assert getattr(self, "_labels", None) is not None, "labels not setup yet, create `Dataset` object first"
 
         if splits:
             assert (
                 getattr(self, "_splits", None) is not None
-            ), "splits not setup yet, run prepare_datase_loaders() first"
+            ), "splits not setup yet, run prepare_dataset_loaders() first"
 
         return meth(self, *args, **kwargs)
 
@@ -100,11 +100,16 @@ class CellRepresentation(SpecialTokenMixin):
         self.rng = np.random.default_rng(seed)
 
         if auto_setup:
-            self.preprocess_anndata()
-            self.tokenize_cells()
+            self.auto_setup()
+            self.prepare_full_dataset()
             self.prepare_dataset_loaders()
 
-            super().__init__()
+    def auto_setup(self):
+        self.preprocess_anndata()
+        self.tokenize_cells()
+        if hasattr(self, "datasets") and "full" in self.datasets:
+            self.prepare_dataset_loaders()
+        super().__init__()
 
     # @property
     # @check_states(adata=True, processed_fcfg=True)
@@ -129,6 +134,7 @@ class CellRepresentation(SpecialTokenMixin):
                 "regression",
                 "binary",
                 "multiclass",
+                "mlm",
             ], "task type must be regression, binary, or multiclass. Check the task config file."
 
             task_type = self.dataset_task_cfg.task_type
@@ -143,6 +149,8 @@ class CellRepresentation(SpecialTokenMixin):
                 else:
                     out = self._labels.shape[1]
             elif task_type == "multiclass":
+                out = self._labels.max() + 1
+            elif task_type == "mlm":
                 out = self._labels.max() + 1
             else:
                 raise ValueError(
@@ -213,7 +221,7 @@ class CellRepresentation(SpecialTokenMixin):
             self.adata = ad.read_h5ad(
                 preprocessed_data_path,
                 backed="r",
-            )  # add backed arguement to prevent entire dataset from being read into mem
+            )  # add backed argument to prevent entire dataset from being read into mem
             self.sequence_length = len(self.adata.var)
             print(f"> Finished Processing Anndata Object:\n{self.adata}")
             return True
@@ -237,7 +245,6 @@ class CellRepresentation(SpecialTokenMixin):
             is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
             if is_cached:
                 return
-        print("debug")
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
         print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
 
@@ -341,12 +348,15 @@ class CellRepresentation(SpecialTokenMixin):
         print(f"> Finished Processing Anndata Object:\n{self.adata}")
 
     @check_states(adata=True, processed_fcfg=True)
-    def prepare_dataset_loaders(self):
+    def prepare_full_dataset(self):
         # Set up full dataset given the processed cell representation data
         # This will prepare: labels, splits
         full_dataset: Dataset = instantiate_from_config(self._cfg.tasks.args.dataset_config, self)
         self.datasets = {"full": full_dataset}
 
+    @check_states(adata=True, processed_fcfg=True)
+    def prepare_dataset_loaders(self):
+        full_dataset = self.datasets["full"]
         # Set up dataset splits given the data splits
         for split, split_idx in self.splits.items():
             self.datasets[split] = Subset(full_dataset, split_idx)
@@ -524,3 +534,79 @@ class CellRepresentation(SpecialTokenMixin):
                     )
                     pkl.dump(cache_representation, rep_file)
                     print(f"Finished writing cell representations at {processed_data_path}")
+
+
+class PartitionedCellRepresentation(CellRepresentation):
+    def __init__(self, config, auto_setup: bool = True):
+        super().__init__(config, auto_setup=False)
+
+        # Expect `data_path` to hold parent directory, not filepath
+        self.partition_file_paths = sorted(
+            Path(self._cfg.dataset.preprocess_args.data_path).glob("*.h5ad"),
+        )
+
+        self.partition_sizes = {}
+
+        for partition, f in enumerate(self.partition_file_paths):
+            adata = anndata.read_h5ad(f, backed="r")
+            self.partition_sizes[partition] = adata.n_obs
+            self.partition = partition
+
+            adata.file.close()
+            del adata
+
+        self.num_partitions = len(self.partition_file_paths)
+        self.total_num_samples = np.cumsum(self.partition_sizes)
+
+        self.partition = 0  # TODO: don't hardcode
+        self.prepare_full_dataset()
+
+    def close_partition(self):
+        """Close current partition."""
+        if self.adata is not None:
+            self.adata.file.close()
+
+            del self.adata
+            self.adata = None
+
+    @property
+    def partition(self):
+        return self._partition
+
+    @partition.setter
+    def partition(self, partition):
+        """Move to a new partition."""
+        self.close_partition()
+        self._partition = partition
+
+        # Preprocess partition AnnData
+        self.dataset_preproc_cfg.data_path = self.partition_file_paths[partition]
+        self.auto_setup()
+
+    @check_states(adata=True, processed_fcfg=True)
+    def prepare_dataset_loaders(self):
+        # TODO: implement. It may be okay to just inherit from `CellRepresentation`, if we
+        # implement `PartitionedDataset` correctly, actually...
+
+        # Set up dataset splits given the data splits
+        for split, split_idx in self.splits.items():
+            self.datasets[split] = Subset(full_dataset, split_idx)
+
+        # sampler = PartitionedDistributedSampler(...) # TODO: instantiate distributed sampler
+        # Set up data loaders
+        dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
+        dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
+        self.dataloaders = {
+            split: DataLoader(
+                dataset,
+                batch_size=self.dataset_task_cfg.batchsize,
+                shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
+                # sampler=sampler,
+                collate_fn=heimdall_collate_fn,
+                **dataloader_kwargs,
+            )
+            for split, dataset in self.datasets.items()
+        }
+
+        dataset_str = pformat(self.datasets).replace("\n", "\n\t")
+        print(f"> Finished setting up datasets (and loaders):\n\t{dataset_str}")
