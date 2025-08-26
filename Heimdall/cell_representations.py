@@ -425,7 +425,7 @@ class CellRepresentation(SpecialTokenMixin):
             self.anndata_to_cache(preprocessed_data_path)
 
     @check_states(adata=True)
-    def tokenize_cells(self):
+    def tokenize_cells(self, hash_vars=()):
         """Processes the `f_g`, `fe` and `f_c` from the config.
 
         This will first check to see if the cell representations are already
@@ -444,6 +444,9 @@ class CellRepresentation(SpecialTokenMixin):
                     for key in ("fg_cfg", "fe_cfg", "fc_cfg")
                 },
             )
+
+            cfg = {**cfg, "hash_vars": hash_vars}
+
             processed_data_path, processed_cfg_path = get_cached_paths(
                 cfg,
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
@@ -521,6 +524,8 @@ class CellRepresentation(SpecialTokenMixin):
                     for key in ("fg_cfg", "fe_cfg", "fc_cfg")
                 },
             )
+            cfg = {**cfg, "hash_vars": hash_vars}
+
             processed_data_path, processed_cfg_path = get_cached_paths(
                 cfg,
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
@@ -551,18 +556,23 @@ class PartitionedCellRepresentation(CellRepresentation):
         self.partition_sizes = {}
 
         for partition, f in enumerate(self.partition_file_paths):
-            adata = ad.read_h5ad(f, backed="r")
-            self.partition_sizes[partition] = adata.n_obs
+            # adata = ad.read_h5ad(f, backed="r") #TODO don't need to do this step since we load the dataset in the set partition
             self.partition = partition
+            self.partition_sizes[partition] = self.adata.n_obs
 
-            adata.file.close()
-            del adata
+            # adata.file.close()
+            # del adata
 
         self.num_partitions = len(self.partition_file_paths)
-
         self.partition = 0  # TODO: don't hardcode
+
+        SpecialTokenMixin.__init__(self)
         self.prepare_full_dataset()
         self.prepare_dataset_loaders()
+
+    def auto_setup(self):
+        self.preprocess_anndata()
+        self.tokenize_cells(hash_vars=(self.partition,))
 
     def close_partition(self):
         """Close current partition."""
