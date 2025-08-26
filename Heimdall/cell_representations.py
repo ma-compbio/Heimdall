@@ -555,8 +555,9 @@ class PartitionedCellRepresentation(CellRepresentation):
 
         self.partition_sizes = {}
 
-        for partition, f in enumerate(self.partition_file_paths):
-            # adata = ad.read_h5ad(f, backed="r") #TODO don't need to do this step since we load the dataset in the set partition
+        for partition, _ in enumerate(self.partition_file_paths):
+            # adata = ad.read_h5ad(f, backed="r") #TODO don't need to
+            # do this step since we load the dataset in the set partition
             self.partition = partition
             self.partition_sizes[partition] = self.adata.n_obs
 
