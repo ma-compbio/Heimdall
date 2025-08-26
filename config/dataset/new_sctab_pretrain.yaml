@@ -1,7 +1,7 @@
 dataset_name: "new_sctab_full"
 
 preprocess_args:
-  data_path: "${data_path}/sctab_full_dataset_mod/0.h5ad"
+  data_path: "${data_path}/sctab_full_dataset_mod_tmp"
   top_n_genes: false
   normalize: true
   log_1p: true
