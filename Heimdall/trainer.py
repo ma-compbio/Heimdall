@@ -9,6 +9,7 @@ import psutil
 import scanpy as sc
 import torch
 import torch.nn as nn
+import wandb
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from anndata import AnnData
@@ -20,7 +21,6 @@ from transformers import get_scheduler
 
 import Heimdall.datasets
 import Heimdall.losses
-import wandb
 
 
 class HeimdallTrainer:
@@ -64,8 +64,11 @@ class HeimdallTrainer:
             self.num_labels = len(self.class_names)
         elif label_obsm_key is not None:
             # Multi-label classification using .obsm[label_obsm_key]
-            self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
-            self.num_labels = len(self.class_names)
+            if label_obsm_key != "mlm":
+                self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
+                self.num_labels = len(self.class_names)
+            else:
+                self.num_labels = data.num_tasks
         else:
             # Auto infering
             self.class_names = data.adata.uns["task_order"]  # NOTE: first entry might be NULL

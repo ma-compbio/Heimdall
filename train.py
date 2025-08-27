@@ -1,7 +1,9 @@
+from pathlib import Path
+
 import hydra
 from omegaconf import OmegaConf, open_dict
 
-from Heimdall.cell_representations import CellRepresentation
+from Heimdall.cell_representations import CellRepresentation, PartitionedCellRepresentation
 from Heimdall.models import HeimdallModel
 from Heimdall.trainer import HeimdallTrainer
 from Heimdall.utils import count_parameters, get_dtype
@@ -17,7 +19,11 @@ def main(config):
     with open_dict(config):
         only_preprocess_data = config.pop("only_preprocess_data", None)
         # pop so hash of cfg is not changed depending on value
-    cr = CellRepresentation(config)  # takes in the whole config from hydra
+
+    if Path(config.dataset.preprocess_args.data_path).is_dir():
+        cr = PartitionedCellRepresentation(config)
+    else:
+        cr = CellRepresentation(config)  # takes in the whole config from hydra
 
     # Create the model and the types of inputs that it may use
     # `type` can either be `learned`, which is integer tokens and learned nn.embeddings,

@@ -1,5 +1,5 @@
 args:
-  task_type: multiclass
+  task_type: mlm
   label_obsm_name: mlm
   metrics:
     - Accuracy

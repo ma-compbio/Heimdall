@@ -154,7 +154,8 @@ class CellRepresentation(SpecialTokenMixin):
             elif task_type == "multiclass":
                 out = self._labels.max() + 1
             elif task_type == "mlm":
-                out = self._labels.max() + 1
+                # out = self._labels.max() + 1
+                out = self._labels.shape[0] + 1  # TODO why +1 ?
             else:
                 raise ValueError(
                     f"Unknown task type {task_type!r}. Valid options are: 'multiclass', 'binary', 'regression'.",

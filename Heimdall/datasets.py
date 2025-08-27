@@ -316,7 +316,7 @@ class PretrainDataset(SingleInstanceDataset, ABC):
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
             "expression_padding": expression_padding,
-            "labels": identity_inputs,
+            "labels": identity_inputs.astype(int),
         }
         return self._transform(data)
 
@@ -381,6 +381,8 @@ class PartitionedDataset(SeqMaskedPretrainDataset):
     def _setup_labels_and_pre_splits(self):
         dataset_task_cfg = self.data.dataset_task_cfg
         splits = dataset_task_cfg.get("splits", None)
+        self._data._labels = np.empty(self._data.fg.vocab_size)
+
         if splits is None:
             return
 

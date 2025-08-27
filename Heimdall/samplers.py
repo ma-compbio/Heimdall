@@ -37,11 +37,9 @@ class PartitionedDistributedSampler(DistributedSampler):
             self.total_samples_per_partition[p] = num_samples_part * self.num_replicas
 
     def generate_partition_indices(self, partition):
-        indices = range(self.partition_sizes[partition])
+        indices = list(range(self.partition_sizes[partition]))
         if self.shuffle:
-            indices = self.rng.permutation(indices)
-
-        indices = indices.astype(int).tolist()
+            indices = self.rng.permutation(indices).astype(int).tolist()
 
         if not self.drop_last:
             # add extra samples to make it evenly divisible
