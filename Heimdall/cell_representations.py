@@ -436,7 +436,6 @@ class CellRepresentation(SpecialTokenMixin):
             "data.pkl",
         )
         if processed_data_path.is_file():
-            loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(processed_cfg_path)).replace("\n", "\n    ")
             # loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(processed_cfg_path)).replace("\n", "\n    ")
             # print(f"  Processing config:\n    {loaded_cfg_str}") # TODO: add verbosity levels
 
