@@ -480,7 +480,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.fe, fe_name = instantiate_from_config(
             self.fe_cfg,
             self.adata,
-            vocab_size=self.adata.n_vars + 2,
+            vocab_size=self.adata.n_vars + 2,  # TODO: figure out a way to fix the number of expr tokens
             rng=self.rng,
             return_name=True,
         )
