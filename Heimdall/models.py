@@ -130,7 +130,7 @@ class ExpressionOnly(nn.Module):
         """
 
         self.conditional_input_types = conditional_input_types
-        self.vocab_size = data.sequence_length + 2
+        self.vocab_size = data.adata.n_vars + 2
         self.float_dtype = data.float_dtype
         _, self.d_encoded = data.adata.shape
 
@@ -424,7 +424,7 @@ class HeimdallTransformer(nn.Module):
         self.fc = data.fc
         self.use_flash_attn = use_flash_attn
 
-        self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
+        self.vocab_size = data.adata.n_vars + 2  # <PAD> and <MASK> TODO: data.vocab_size
 
         # Setting up embedding layers
         if data.fg.d_embedding is not None:
@@ -571,11 +571,12 @@ class CellPredHeadMixin:
 
 class SeqPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
+        cls_emb = encoder_output[:, 0, :]
         logits = self.decoder(encoder_output[:, 1:, :])
         return TransformerOutput(
             logits=logits,
             sequence_embeddings=encoder_output,
-            cls_embeddings=encoder_output[:, 0, :],
+            cls_embeddings=cls_emb,
         )
 
 

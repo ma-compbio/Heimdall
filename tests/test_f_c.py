@@ -7,6 +7,20 @@ from pytest import fixture
 from scipy.sparse import csr_array
 
 
+def test_dummy_getitem(geneformer_fc, scgpt_fc):
+    dummy_index = -1
+
+    identity_inputs, expression_inputs, padding_mask = geneformer_fc[dummy_index]
+    assert np.all(identity_inputs == geneformer_fc.fg.pad_value)
+    assert np.all(expression_inputs == geneformer_fc.fe.pad_value)
+    assert np.all(padding_mask)
+
+    identity_inputs, expression_inputs, padding_mask = scgpt_fc[dummy_index]
+    assert np.all(identity_inputs == scgpt_fc.fg.pad_value)
+    assert np.all(expression_inputs == scgpt_fc.fe.pad_value)
+    assert np.all(padding_mask)
+
+
 def test_geneformer_fc_preprocess_cells_and_getitem(zero_expression_mock_dataset, geneformer_fc):
     identity_expected = csr_array(
         np.array(

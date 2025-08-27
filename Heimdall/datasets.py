@@ -337,7 +337,7 @@ class MaskedPretrainDataset(PretrainDataset, ABC):
 class SeqMaskedPretrainDataset(MaskedPretrainDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # self._num_tasks = self.data.sequence_length  # number of genes
+        # self._num_tasks = self.data.adata.n_vars  # number of genes
 
     @property
     def mask_token(self):
