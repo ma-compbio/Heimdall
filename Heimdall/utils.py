@@ -155,14 +155,12 @@ def heimdall_collate_fn(examples):
     .. code-block:: python
 
         ds_train = Dataset.from_dict({"inputs": train_x,
-                                      'labels':train_y,
-                                      'conditional_tokens_1': train_x,
-                                      'conditional_tokens_2': train_x})
+                                      'labels': train_y,
+                                    )
 
-    where the  `conditional_tokens_*` are optional conditional tokens. This
+    This
     will process the output of a batch to be a dictionary with keys: "inputs",
-    "labels" (these are mandatory), and "conditional_tokens" which is a
-    dictionary of the conditional tokens.
+    "labels" (these are mandatory).
 
     """
     # batch = {}
@@ -192,12 +190,10 @@ def heimdall_collate_fn(examples):
     flat_batch = default_collate(examples)
 
     # Regroup by keys
-    batch, conditional_tokens = {}, {}
+    batch = {}
     for key, val in flat_batch.items():
-        (batch if key in MAIN_KEYS else conditional_tokens)[key] = val
-
-    if conditional_tokens:
-        batch["conditional_tokens"] = conditional_tokens
+        if key in MAIN_KEYS:
+            batch[key] = val
 
     return batch
 

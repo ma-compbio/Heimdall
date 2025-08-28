@@ -57,7 +57,6 @@ class HeimdallModel(nn.Module):
         data: CellRepresentation,
         model_config: DictConfig,
         task_config: DictConfig,
-        conditional_input_types: Optional[dict] = None,
     ):
         super().__init__()
         """Heimdall model. Combines language model and task-specific head.
@@ -66,13 +65,11 @@ class HeimdallModel(nn.Module):
             data: Cell representation data object.
             model_config: The language model config.
             task_config: The task config.
-            conditional_input_types: Conditional input types specification.
 
         """
         self.encoder = instantiate_from_config(
             model_config,
             data,
-            conditional_input_types,
         )
 
         self.num_labels = data.num_tasks
@@ -88,24 +85,20 @@ class HeimdallModel(nn.Module):
 
         self.head = instantiate_from_config(task_config.head_config, dim_in=dim_in, dim_out=self.num_labels)
 
-    def forward(self, inputs, labels=None, conditional_tokens=None, attention_mask=None):
-        # handling when there are no conditional tokens supplied
-        if conditional_tokens is not None and len(conditional_tokens) == 0:
-            conditional_tokens = None
-
+    def forward(self, inputs, labels=None, attention_mask=None):
         # print(inputs, attention_mask)
         if self.reducer is not None:
             all_cell_inputs = zip(*inputs)
             first_cell_mask, second_cell_mask = attention_mask
 
             encoded_cells = tuple(
-                self.encoder(cell_inputs, conditional_tokens, attention_mask=cell_mask)
+                self.encoder(cell_inputs, attention_mask=cell_mask)
                 for cell_inputs, cell_mask in zip(all_cell_inputs, attention_mask)
             )
 
             encoded = self.reducer(encoded_cells)
         else:
-            encoded = self.encoder(inputs, conditional_tokens, attention_mask)
+            encoded = self.encoder(inputs, attention_mask)
 
         outputs = self.head(encoded)
 
@@ -116,7 +109,6 @@ class ExpressionOnly(nn.Module):
     def __init__(
         self,
         data: CellRepresentation,
-        conditional_input_types: Optional[dict],
     ):
         super().__init__()
         """Heimdall model. Combines language model and task-specific head.
@@ -125,16 +117,14 @@ class ExpressionOnly(nn.Module):
             data: Cell representation data object.
             model_config: The language model config.
             task_config: The task config.
-            conditional_input_types: Conditional input types specification.
 
         """
 
-        self.conditional_input_types = conditional_input_types
         self.vocab_size = data.adata.n_vars + 2
         self.float_dtype = data.float_dtype
         _, self.d_encoded = data.adata.shape
 
-    def forward(self, inputs, labels=None, conditional_tokens=None, attention_mask=None):
+    def forward(self, inputs, labels=None, attention_mask=None):
         _, outputs = inputs  # extract expression only
 
         return outputs.to(get_dtype(self.float_dtype))  # convert to float32?
@@ -180,7 +170,6 @@ class HeimdallLinear(nn.Module):
     def __init__(
         self,
         data: CellRepresentation,
-        conditional_input_types: Optional[dict],
         d_model: int,
         pos_enc: str,
         pooling: str,
@@ -191,13 +180,9 @@ class HeimdallLinear(nn.Module):
         Args:
             data: Cell representation data object.
             config: The transformer config.
-            conditional_input_types: Conditional input types specification.
-
-        Example ``conditional_input_types``:
 
         """
         self.d_encoded = d_model
-        self.conditional_input_types = conditional_input_types
 
         self.fc = data.fc
 
@@ -234,18 +219,6 @@ class HeimdallLinear(nn.Module):
             raise ValueError("pos_enc canonly be: BERT")
 
         self.metadata_embeddings = instantiate_from_config(data.fc.embedding_parameters)
-        # Setting up the conditional embeddings; TODO: can this fit into the fg/fe framework instead?
-        # self.conditional_embeddings = nn.ModuleDict()
-        # if conditional_input_types is not None:
-        #     for name, spec in conditional_input_types.items():
-        #         if spec["type"] == "learned":
-        #             self.conditional_embeddings[name] = nn.Embedding(spec["vocab_size"], d_model)
-        #         elif spec["type"] == "predefined":
-        #             self.conditional_embeddings[name] = None  # no need to specify anything, loads in directly
-        #         else:
-        #             raise ValueError(
-        #                 f"conditional_input_types.{name}['type'] must be either 'learned' or 'predefined'",
-        #             )
 
         # encoder_layer = instantiate_from_config(encoder_layer_parameters)
         # self.transformer_encoder = instantiate_from_config(encoder_parameters, encoder_layer)
@@ -258,14 +231,12 @@ class HeimdallLinear(nn.Module):
         # Initialize the [CLS] token as a learnable parameter
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
 
-    def forward(self, inputs, conditional_tokens=None, attention_mask=None):
+    def forward(self, inputs, attention_mask=None):
         """LM model.
 
         Args:
             inputs: This is either integers if IDs or bf16/fp32
                 floats for predefined embeddings
-            conditional_tokens: _description_. Defaults
-                to None.
             attention_mask: A tensor of shape [batchsize, seqlen] where 1/True
                 represents no attention and 0/False represents that attention should be used
 
@@ -382,7 +353,6 @@ class HeimdallTransformer(nn.Module):
     def __init__(
         self,
         data: CellRepresentation,
-        conditional_input_types: Optional[dict],
         d_model: int,
         pos_enc: str,
         nhead: int,
@@ -399,27 +369,11 @@ class HeimdallTransformer(nn.Module):
         Args:
             data: Cell representation data object.
             config: The transformer config.
-            conditional_input_types: Conditional input types specification.
-
-        Example ``conditional_input_types``:
 
         .. code-block:: python
 
-            conditional_input_types = {
-                "binned_gene_expression_embeddings" : {
-                    "type": "learned",
-                    "vocab_size": 512,
-                    }
-
-                "ESM_embeddings" : {
-                    "type": "predefined",
-                    "vocab_size": -1
-                    }
-            }
-
         """
         self.d_encoded = d_model
-        self.conditional_input_types = conditional_input_types
 
         self.fc = data.fc
         self.use_flash_attn = use_flash_attn
@@ -474,14 +428,12 @@ class HeimdallTransformer(nn.Module):
         # Initialize the [CLS] token as a learnable parameter
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
 
-    def forward(self, inputs, conditional_tokens=None, attention_mask=None):
+    def forward(self, inputs, attention_mask=None):
         """LM model.
 
         Args:
             inputs: This is either integers if IDs or bf16/fp32
                 floats for predefined embeddings
-            conditional_tokens: _description_. Defaults
-                to None.
             attention_mask: A tensor of shape [batchsize, seqlen] where 1/True
                 represents no attention and 0/False represents that attention should be used
 
@@ -521,25 +473,6 @@ class HeimdallTransformer(nn.Module):
             else:
                 # Sinusoidal encoding
                 input_embeds = self.position_embeddings(input_embeds)
-        # # Dynamically adding the conditional tokens, if there are any
-        # if conditional_tokens is not None:
-        #     assert isinstance(
-        #         conditional_tokens,
-        #         dict,
-        #     ), "conditional_tokens must be a dictionary of names and IDs or embeddings to add to the input"
-        #     assert (
-        #         len(self.conditional_embeddings) > 0
-        #     ), "This was not initialized properly, there are no conditional embeddings to add to the input"
-        #     for name, embed in self.conditional_embeddings.items():
-        #         if embed is not None:
-        #             input_embeds += embed(conditional_tokens[name])
-        #         else:
-        #             input_embeds += conditional_tokens[name]
-        # else:
-        #     assert len(self.conditional_embeddings) == 0, (
-        #         "This model was initialized with conditional tokens, but none were passed in the forward pass. "
-        #         "Please pass in the conditional tokens"
-        #     )
 
         # Concatenate the CLS Token to both the attention mask and the input
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # Expand to match batch size

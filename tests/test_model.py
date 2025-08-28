@@ -248,7 +248,6 @@ def instantiate_and_run_model(config):
     model(
         inputs=(batch["identity_inputs"], batch["expression_inputs"]),
         attention_mask=batch["expression_padding"],
-        conditional_tokens=None,
     )
 
 
