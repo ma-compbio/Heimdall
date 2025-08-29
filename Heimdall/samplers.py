@@ -1,24 +1,28 @@
 import math
 
 import numpy as np
-from torch.utils.data import DistributedSampler
+from torch.utils.data import DistributedSampler, Subset
 
-from Heimdall.datasets import PartitionedSubset
+from Heimdall.datasets import PartitionedDataset, PartitionedSubset
 
 
 class PartitionedDistributedSampler(DistributedSampler):
     """Distributed sampler for `PartitionedDataset`."""
 
-    def __init__(self, dataset: PartitionedSubset, *args, **kwargs):
+    def __init__(self, dataset: PartitionedSubset | PartitionedDataset, *args, **kwargs):
         super().__init__(dataset, *args, **kwargs)
 
-        subset = self.dataset
-        full_dataset = subset.dataset
+        if isinstance(self.dataset, Subset):
+            subset = dataset
+            self.full_dataset = subset.dataset
+            self.partition_sizes = {partition: len(indices) for partition, indices in subset.indices.items()}
+        else:
+            self.full_dataset = dataset
+            self.partition_sizes = self.full_dataset._data.partition_sizes
 
-        self.rng = np.random.default_rng(seed=full_dataset._data._cfg.seed)
-        self.partition_order = list(range(full_dataset.num_partitions))  # Provide an arg to shuffle
+        self.rng = np.random.default_rng(seed=self.full_dataset._data._cfg.seed)
+        self.partition_order = list(range(self.full_dataset.num_partitions))  # Provide an arg to shuffle
 
-        self.partition_sizes = {partition: len(indices) for partition, indices in subset.indices.items()}
         self.total_samples_per_partition = {}
 
         for p, part_size in self.partition_sizes.items():
@@ -60,13 +64,11 @@ class PartitionedDistributedSampler(DistributedSampler):
         return iter(indices)  # TODO: why 500?
 
     def __iter__(self):
-        subset = self.dataset
-        full_dataset = subset.dataset
         if self.shuffle:
             self.rng.shuffle(self.partition_order)
 
         for partition in self.partition_order:
-            full_dataset.partition = partition
+            self.full_dataset.partition = partition
             indices = self.generate_partition_indices(partition)
             yield from indices
 

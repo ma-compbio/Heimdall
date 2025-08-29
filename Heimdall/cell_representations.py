@@ -642,7 +642,6 @@ class PartitionedCellRepresentation(CellRepresentation):
                 **dataloader_kwargs,
             )
             for split, dataset in self.datasets.items()
-            if split != "full"  # TODO: add back 'full'
         }
 
         dataset_str = pformat(self.datasets).replace("\n", "\n\t")
