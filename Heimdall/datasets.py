@@ -381,7 +381,9 @@ class PartitionedDataset(SeqMaskedPretrainDataset):
     def _setup_labels_and_pre_splits(self):
         dataset_task_cfg = self.data.dataset_task_cfg
         splits = dataset_task_cfg.get("splits", None)
-        self._data._labels = np.empty(self._data.fg.vocab_size)
+
+        # Dummy labels to indicate task size
+        self.labels = np.empty(self._data.fg.vocab_size)
 
         if splits is None:
             return
