@@ -9,7 +9,6 @@ import psutil
 import scanpy as sc
 import torch
 import torch.nn as nn
-import wandb
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from anndata import AnnData
@@ -21,6 +20,7 @@ from transformers import get_scheduler
 
 import Heimdall.datasets
 import Heimdall.losses
+import wandb
 
 
 class HeimdallTrainer:
@@ -440,8 +440,8 @@ class HeimdallTrainer:
         # Case 2: random splits
         elif hasattr(self.data, "splits"):
             # breakpoint()
-            test_adata = self.data.adata[self.splits["test"]].copy()
-            val_adata = self.data.adata[self.splits["val"]].copy()
+            test_adata = self.data.adata[self.data.splits["test"]].copy()
+            val_adata = self.data.adata[self.data.splits["val"]].copy()
 
         else:
             raise ValueError("No split information found in config")
