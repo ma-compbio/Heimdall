@@ -407,24 +407,24 @@ class HeimdallTrainer:
                         self.optimizer.zero_grad()
                         self.step += 1
 
-                t.set_description(
-                    f"Epoch: {epoch} "
-                    f"Step {self.step} "
-                    f"Loss: {loss.item():.4f} "
-                    f"LR: {lr:.1e} "
-                    f"grad_norm: {grad_norm:.4f} ",
-                )
+                    t.set_description(
+                        f"Epoch: {epoch} "
+                        f"Step {self.step} "
+                        f"Loss: {loss.item():.4f} "
+                        f"LR: {lr:.1e} "
+                        f"grad_norm: {grad_norm:.4f} ",
+                    )
 
-                if is_logging:
-                    log = {
-                        "train_loss": loss.item(),
-                        "global_step": self.step,
-                        "learning_rate": lr,
-                        "epoch": epoch,
-                        "grad_norm": grad_norm,
-                    }
-                    if self.run_wandb and self.accelerator.is_main_process:
-                        self.accelerator.log(log, step=self.step)
+                    if is_logging:
+                        log = {
+                            "train_loss": loss.item(),
+                            "global_step": self.step,
+                            "learning_rate": lr,
+                            "epoch": epoch,
+                            "grad_norm": grad_norm,
+                        }
+                        if self.run_wandb and self.accelerator.is_main_process:
+                            self.accelerator.log(log, step=self.step)
 
                 if self.cfg.trainer.fastdev:
                     break

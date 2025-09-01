@@ -3,7 +3,7 @@ args:
   label_obsm_name: mlm
   metrics:
     - Accuracy
-  train_split: 0.9
+  train_split: 0.95
   shuffle: True
   batchsize: 512
   epochs: 10
