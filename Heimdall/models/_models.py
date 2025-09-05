@@ -219,9 +219,46 @@ class MaskedAverage(CellSentenceModel):
 
         super().__init__(data, d_model=d_model, pos_enc=pos_enc, pooling=pooling)
 
-        self.cell_sentence_model = MaskedAverageEncoder(
-            d_model=d_model,
-        )
+        self.cell_sentence_model = MaskedAverageEncoder()
+
+
+class ExpressionWeightedSum(CellSentenceModel):
+    def __init__(
+        self,
+        data: CellRepresentation,
+        d_model: int,
+        pos_enc: str,
+        pooling: str,
+    ):
+        if pooling != "mean_pooling":
+            raise ValueError("Please ensure that `pooling == 'mean_pooling'`")
+        if pos_enc is not None:
+            raise ValueError("Please ensure that `pos_enc is None`")
+
+        super().__init__(data, d_model=d_model, pos_enc=pos_enc, pooling=pooling)
+
+        self.cell_sentence_model = ExpressionWeightedSumEncoder()
+
+    def forward(self, inputs, attention_mask=None):
+        """LM model.
+
+        Args:
+            inputs: This is either integers if IDs or bf16/fp32
+                floats for predefined embeddings
+            attention_mask: A tensor of shape [batchsize, seqlen] where 1/True
+                represents no attention and 0/False represents that attention should be used
+
+        Returns:
+            torch.tensor: The predicted outputs before cross entropy loss.
+
+        """
+        _, expression_inputs = inputs
+        input_embeds = self.embed_inputs(inputs)
+
+        # Encoder
+        outputs = self.cell_sentence_model(expression_inputs, input_embeds, attention_mask)
+
+        return outputs
 
 
 class Transformer(CellSentenceModel):
@@ -316,6 +353,25 @@ class MaskedAverageEncoder(nn.Module):
         masked_avg = sum_embeds / valid_counts
 
         return masked_avg
+
+
+class ExpressionWeightedSumEncoder(nn.Module):
+    """Implementation of expression-weighted sum encoder used by GenePT-w."""
+
+    def forward(self, expression_inputs, input_embeds, attention_mask):
+
+        valid_mask = ~attention_mask
+        expanded_mask = valid_mask.unsqueeze(-1)  # Add an extra dimension for broadcasting
+        expanded_expression_inputs = torch.unsqueeze(expression_inputs, dim=2)
+
+        # Mask the input_embeds
+        masked_embeds = input_embeds * expanded_mask
+        masked_expression_inputs = expanded_expression_inputs * expanded_mask
+
+        # Sum the valid (unmasked) embeddings along the sequence dimension
+        weighted_sum = masked_embeds.mul(masked_expression_inputs)
+
+        return weighted_sum
 
 
 class TransformerEncoder(nn.Module):
