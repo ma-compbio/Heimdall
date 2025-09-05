@@ -2,7 +2,6 @@
 
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Callable, Optional
 
 import torch
@@ -12,43 +11,8 @@ from torch import Tensor
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.datasets import PairedInstanceDataset
+from Heimdall.embedding import PositionalEncoding
 from Heimdall.utils import get_dtype, instantiate_from_config
-
-
-@dataclass
-class TransformerOutput:
-    logits: torch.Tensor
-    # predictions: torch.Tensor
-    sequence_embeddings: torch.Tensor
-    # pooled_embeddings: torch.Tensor
-    cls_embeddings: torch.Tensor
-
-    @property
-    def device(self):
-        return self.logits.device
-
-    def to(self, device):
-        for key, val in self.__dict__.items():
-            self.__dict__[key] = val.to(device)
-
-    @classmethod
-    def reduce(cls, outputs: list["TransformerOutput"], reduction: Callable = torch.sum):
-        keys = cls.__dict__["__annotations__"].keys()
-        reduced_output = TransformerOutput(
-            **{
-                key: reduction(
-                    torch.stack([getattr(output, key) for output in outputs], axis=0),
-                    axis=0,
-                )
-                for key in keys
-            },
-        )
-        return reduced_output
-
-    def __post_init__(self):
-        # ensure output tensors are in float32 format
-        for k, v in self.__dict__.items():
-            setattr(self, k, v.float())
 
 
 class HeimdallModel(nn.Module):
@@ -189,7 +153,7 @@ class HeimdallLinear(nn.Module):
         assert pooling == "mean_pooling"
         assert pos_enc == "NONE"
 
-        self.vocab_size = data.sequence_length + 2  # <PAD> and <MASK> TODO: data.vocab_size
+        self.vocab_size = data.adata.n_vars + 2  # <PAD> and <MASK> TODO: data.vocab_size
 
         # Setting up embedding layers
         if data.fg.d_embedding is not None:
@@ -212,7 +176,7 @@ class HeimdallLinear(nn.Module):
         elif pos_enc == "BERT":
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, d_model)  # +1 cuz of CLS
         elif pos_enc == "sincos":
-            self.position_embeddings = SinusoidalPositionalEncoding(d_model, max_len=self.fc.max_input_length + 1)
+            self.position_embeddings = PositionalEncoding(d_model, max_len=self.fc.max_input_length + 1)
         elif pos_enc == "none" or pos_enc == "NONE":
             self.position_embeddings = None
         else:
@@ -402,7 +366,7 @@ class HeimdallTransformer(nn.Module):
             self.position_embeddings = nn.Embedding(self.fc.max_input_length + 1, d_model)  # +1 cuz of CLS
         elif pos_enc == "sincos":
             # raise NotImplementedError("Sine-Cosine Positional Encodings are not implemented yet")
-            self.position_embeddings = SinusoidalPositionalEncoding(d_model, max_len=self.fc.max_input_length + 1)
+            self.position_embeddings = PositionalEncoding(d_model, max_len=self.fc.max_input_length + 1)
         elif pos_enc == "none" or pos_enc == "NONE":
             self.position_embeddings = None
         else:
@@ -491,61 +455,7 @@ class HeimdallTransformer(nn.Module):
         return transformer_encoder_output
 
 
-class CellPredHeadMixin:
-    def forward(self, encoder_output) -> TransformerOutput:
-        cls_emb = encoder_output[:, 0, :]
-        logits = self.decoder(cls_emb.unsqueeze(1)).squeeze(1)
-        return TransformerOutput(
-            logits=logits,
-            sequence_embeddings=encoder_output,
-            cls_embeddings=cls_emb,
-        )
-
-
-class SeqPredHeadMixin:
-    def forward(self, encoder_output) -> TransformerOutput:
-        cls_emb = encoder_output[:, 0, :]
-        logits = self.decoder(encoder_output[:, 1:, :])
-        return TransformerOutput(
-            logits=logits,
-            sequence_embeddings=encoder_output,
-            cls_embeddings=cls_emb,
-        )
-
-
-class ExpressionPredHeadMixin:
-    def forward(self, encoder_output) -> TransformerOutput:
-        logits = self.decoder(encoder_output)
-        logits = logits.squeeze(1)
-        return TransformerOutput(
-            logits=logits,
-            sequence_embeddings=logits,
-            cls_embeddings=logits,
-        )
-
-
-class SeqHeadPredHeadMixin:
-    def forward(self, encoder_output) -> TransformerOutput:
-        logits = self.decoder(encoder_output)
-        logits = logits.squeeze(1)
-        return TransformerOutput(
-            logits=logits,
-            sequence_embeddings=logits,
-            cls_embeddings=logits,
-        )
-
-
-class LinearDecoderMixin(nn.Module):
-    def __init__(self, dim_in: int, dim_out: Optional[int] = None, dropout: float = 0.0, **kwargs):
-        super().__init__()
-        if dim_out is None:
-            dim_out = dim_in
-        self.decoder = nn.Sequential(
-            nn.Linear(dim_in, dim_out, **kwargs),
-            nn.Dropout(dropout),
-        )
-
-
+# TODO: deprecate
 class FFN(nn.Module):
     def __init__(self, dim_in: int, dim_out: Optional[int] = None, mult: int = 4, dropout: float = 0.0):
         super().__init__()
@@ -565,21 +475,7 @@ class FFN(nn.Module):
         return self.net(x)
 
 
-class SinusoidalPositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)  # Shape: (1, max_len, d_model)
-        self.register_buffer("pe", pe)
-
-    def forward(self, x):
-        return x + self.pe[:, : x.size(1)]
-
-
+# TODO: deprecate
 class PreNormResidual(nn.Module):
     def __init__(self, module: nn.Module, dim: int):
         super().__init__()
@@ -590,68 +486,3 @@ class PreNormResidual(nn.Module):
         res = self.mod(self.norm(x))
         assert res.shape == x.shape, "Input and output size must be the same for residual operations"
         return res + x
-
-
-class LinearCellPredHead(CellPredHeadMixin, LinearDecoderMixin):
-    """Linear cell prediction head."""
-
-
-class ExpressionOnlyCellPredHead(ExpressionPredHeadMixin, LinearDecoderMixin):
-    """Logistic regression prediction head.
-
-    Put expression be the input
-
-    """
-
-
-class LinearSeqPredHead(SeqPredHeadMixin, LinearDecoderMixin):
-    """Linear sequence prediction head."""
-
-
-class Reducer(nn.Module, ABC):
-    """Reduce a list of `n` tensors into a single tensor.
-
-    Each tensor in the list must have dimensionality `(batch_size, dim_in)`. The
-    reduction may be symmetric or asymmetric.
-
-    """
-
-    def __init__(self, dim_in: int):
-        super().__init__()
-        self.dim_in = dim_in
-
-    @abstractmethod
-    def forward(self, tensors: list[Tensor]): ...
-
-
-class SumReducer(Reducer):
-    def forward(self, tensors: list[Tensor]):
-        return torch.sum(torch.stack(tensors, axis=0), axis=0)
-
-
-class MeanReducer(Reducer):
-    def forward(self, tensors: list[Tensor]):
-        return torch.mean(torch.stack(tensors, axis=0), axis=0)
-
-
-class AsymmetricConcatReducer(Reducer):
-    def __init__(self, dim_in: int):
-        super().__init__(dim_in=dim_in)
-        self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
-
-    def forward(self, tensors: list[Tensor]):
-        concatenated = torch.cat(tensors, dim=-1)
-        return self.pair_embedder(concatenated)
-
-
-class SymmetricConcatReducer(Reducer):
-    def __init__(self, dim_in: int):
-        super().__init__(dim_in=dim_in)
-        self.pair_embedder = nn.Linear(2 * dim_in, dim_in)
-
-    def forward(self, tensors: list[Tensor]):
-        concatenated_1 = torch.cat(tensors, dim=2)
-        concatenated_2 = torch.cat(list(reversed(tensors)), dim=2)
-
-        encoded = self.pair_embedder(concatenated_1) + self.pair_embedder(concatenated_2)
-        return encoded
