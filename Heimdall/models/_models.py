@@ -438,36 +438,3 @@ class TransformerEncoder(nn.Module):
                 src_key_padding_mask=attention_mask,
             )
         return encoder_output
-
-
-# TODO: deprecate
-class FFN(nn.Module):
-    def __init__(self, dim_in: int, dim_out: Optional[int] = None, mult: int = 4, dropout: float = 0.0):
-        super().__init__()
-
-        dim_inner = int(dim_in * mult)
-        if dim_out is None:
-            dim_out = dim_in
-
-        self.net = nn.Sequential(
-            nn.Linear(dim_in, dim_inner),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(dim_inner, dim_out),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-# TODO: deprecate
-class PreNormResidual(nn.Module):
-    def __init__(self, module: nn.Module, dim: int):
-        super().__init__()
-        self.mod = module
-        self.norm = nn.LayerNorm(dim)
-
-    def forward(self, x):
-        res = self.mod(self.norm(x))
-        assert res.shape == x.shape, "Input and output size must be the same for residual operations"
-        return res + x
