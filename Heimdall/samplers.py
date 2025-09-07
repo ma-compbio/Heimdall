@@ -73,4 +73,4 @@ class PartitionedDistributedSampler(DistributedSampler):
             yield from indices
 
     def __len__(self) -> int:
-        return sum(self.total_samples_per_partition.values())
+        return sum(self.total_samples_per_partition.values()) // self.num_replicas

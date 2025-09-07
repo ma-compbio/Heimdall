@@ -9,7 +9,7 @@ import psutil
 import scanpy as sc
 import torch
 import torch.nn as nn
-from accelerate import Accelerator
+import wandb
 from accelerate.utils import set_seed
 from anndata import AnnData
 from omegaconf import OmegaConf
@@ -20,7 +20,6 @@ from transformers import get_scheduler
 
 import Heimdall.datasets
 import Heimdall.losses
-import wandb
 
 
 class HeimdallTrainer:
@@ -29,6 +28,7 @@ class HeimdallTrainer:
         cfg,
         model,
         data,
+        accelerate_context,
         run_wandb=False,
         custom_loss_func=None,
         custom_metrics=None,
@@ -36,6 +36,7 @@ class HeimdallTrainer:
         self.cfg = cfg
         self.model = model
         self.data = data
+        self.accelerator = accelerate_context
 
         # cell type label
         # label_key = self.cfg.tasks.args.label_col_name
@@ -79,17 +80,17 @@ class HeimdallTrainer:
         self.custom_loss_func = custom_loss_func
         self.custom_metrics = custom_metrics or {}
 
-        accelerator_log_kwargs = {}
-        if run_wandb:
-            accelerator_log_kwargs["log_with"] = "wandb"
-            accelerator_log_kwargs["project_dir"] = cfg.work_dir
+        # accelerator_log_kwargs = {}
+        # if run_wandb:
+        #     accelerator_log_kwargs["log_with"] = "wandb"
+        #     accelerator_log_kwargs["project_dir"] = cfg.work_dir
         set_seed(cfg.seed)
 
-        self.accelerator = Accelerator(
-            gradient_accumulation_steps=cfg.trainer.accumulate_grad_batches,
-            step_scheduler_with_optimizer=False,
-            **accelerator_log_kwargs,
-        )
+        # self.accelerator = Accelerator(
+        #     gradient_accumulation_steps=cfg.trainer.accumulate_grad_batches,
+        #     step_scheduler_with_optimizer=False,
+        #     **accelerator_log_kwargs,
+        # )
 
         if hasattr(model.encoder, "use_flash_attn") and model.encoder.use_flash_attn:
             assert self.accelerator.mixed_precision == "bf16", "If using Flash Attention, mixed precision must be bf16"
@@ -343,6 +344,8 @@ class HeimdallTrainer:
             self.accelerator.is_main_process
             and self.cfg.model.name != "logistic_regression"
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
+            and self.cfg.tasks.args.task_type != "mlm"
+            # TODO doesn't seem necessary for pretraining but consult with others
         ):
             self.save_adata_umap(best_test_embed, best_val_embed)
             self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
@@ -404,24 +407,24 @@ class HeimdallTrainer:
                         self.optimizer.zero_grad()
                         self.step += 1
 
-                t.set_description(
-                    f"Epoch: {epoch} "
-                    f"Step {self.step} "
-                    f"Loss: {loss.item():.4f} "
-                    f"LR: {lr:.1e} "
-                    f"grad_norm: {grad_norm:.4f} ",
-                )
+                        t.set_description(
+                            f"Epoch: {epoch} "
+                            f"Step {self.step} "
+                            f"Loss: {loss.item():.4f} "
+                            f"LR: {lr:.1e} "
+                            f"grad_norm: {grad_norm:.4f} ",
+                        )
 
-                if is_logging:
-                    log = {
-                        "train_loss": loss.item(),
-                        "global_step": self.step,
-                        "learning_rate": lr,
-                        "epoch": epoch,
-                        "grad_norm": grad_norm,
-                    }
-                    if self.run_wandb and self.accelerator.is_main_process:
-                        self.accelerator.log(log, step=self.step)
+                        if is_logging:
+                            log = {
+                                "train_loss": loss.item(),
+                                "global_step": self.step,
+                                "learning_rate": lr,
+                                "epoch": epoch,
+                                "grad_norm": grad_norm,
+                            }
+                            if self.run_wandb and self.accelerator.is_main_process:
+                                self.accelerator.log(log, step=self.step)
 
                 if self.cfg.trainer.fastdev:
                     break

@@ -434,11 +434,21 @@ class PartitionedDataset(SeqMaskedPretrainDataset):
     def _get_random_splits_partition(self, part_id):
         num_samples_partition = self.partition_sizes[part_id]
 
-        warnings.warn("Pre-defined split unavailable, using random 8/1/1 split", UserWarning, stacklevel=2)
+        warnings.warn("Pre-defined split unavailable, using random split", UserWarning, stacklevel=2)
 
         seed = self._data._cfg.seed + part_id
 
-        train_idx, test_val_idx = train_test_split(np.arange(num_samples_partition), train_size=0.8, random_state=seed)
+        train_idx, test_val_idx = train_test_split(
+            np.arange(num_samples_partition),
+            train_size=float(
+                getattr(
+                    self._data._cfg.tasks.args,
+                    "train_split",
+                    0.8,
+                ),
+            ),
+            random_state=seed,
+        )
         val_idx, test_idx = train_test_split(test_val_idx, test_size=0.5, random_state=seed)
 
         return {"train": train_idx, "val": val_idx, "test": test_idx}

@@ -3,10 +3,10 @@ args:
   label_obsm_name: mlm
   metrics:
     - Accuracy
-  train_split: 0.8
+  train_split: 0.95
   shuffle: True
-  batchsize: 32
-  epochs: 20
+  batchsize: 512
+  epochs: 10
   dataset_config:
     type: Heimdall.datasets.PartitionedDataset
     # args:

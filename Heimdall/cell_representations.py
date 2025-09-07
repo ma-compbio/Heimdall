@@ -17,7 +17,6 @@ from omegaconf import DictConfig, OmegaConf
 from scipy import sparse
 from scipy.sparse import csc_array
 from sklearn.utils import resample
-from torch import distributed as dist
 from torch.utils.data import DataLoader, Subset
 
 from Heimdall.datasets import Dataset, PartitionedSubset
@@ -77,13 +76,16 @@ class SpecialTokenMixin:
 
 
 class CellRepresentation(SpecialTokenMixin):
-    def __init__(self, config, auto_setup: bool = True):
+    def __init__(self, config, accelerate_context, auto_setup: bool = True):
         """Initialize the Cell Rep object with configuration and AnnData object.
 
         Parameters:
         config (dict): Configuration dictionary.
 
         """
+        self.rank = accelerate_context.process_index
+        self.num_replicas = accelerate_context.num_processes
+        self.cr_setup = False
         self._cfg = config
 
         self.dataset_preproc_cfg = config.dataset.preprocess_args
@@ -113,6 +115,7 @@ class CellRepresentation(SpecialTokenMixin):
         super().__init__()
         # if hasattr(self, "datasets") and "full" in self.datasets:
         #     self.prepare_dataset_loaders()
+        self.cr_setup = True
 
     # @property
     # @check_states(adata=True, processed_fcfg=True)
@@ -208,7 +211,9 @@ class CellRepresentation(SpecialTokenMixin):
     def get_preprocessed_data_path(self):
         preprocessed_data_path = preprocessed_cfg_path = cfg = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-            cfg = DictConfig(OmegaConf.to_container(self._cfg, resolve=True))
+
+            cfg = DictConfig({"dataset": OmegaConf.to_container(self._cfg.dataset, resolve=True)})
+
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
                 cfg,
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
@@ -219,7 +224,12 @@ class CellRepresentation(SpecialTokenMixin):
 
     def anndata_from_cache(self, preprocessed_data_path, preprocessed_cfg_path, cfg):
         if preprocessed_data_path.is_file():
-            print(f"> Found already preprocessed anndata: {preprocessed_data_path}")
+            self.check_print(
+                f"> Found already preprocessed \
+                             anndata: {preprocessed_data_path}",
+                cr_setup=True,
+                rank=True,
+            )
             # loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(preprocessed_cfg_path)).replace("\n", "\n    ")
             # print(f"  Preprocessing config:\n    {loaded_cfg_str}") # TODO: add verbosity level
             self.adata = ad.read_h5ad(
@@ -227,7 +237,7 @@ class CellRepresentation(SpecialTokenMixin):
                 backed="r",
             )  # add backed argument to prevent entire dataset from being read into mem
             self.sequence_length = len(self.adata.var)
-            print(f"> Finished Processing Anndata Object:\n{self.adata}")
+            self.check_print(f"> Finished Processing Anndata Object:\n{self.adata}", cr_setup=True, rank=True)
             return True
 
         OmegaConf.save(cfg, preprocessed_cfg_path)
@@ -249,23 +259,22 @@ class CellRepresentation(SpecialTokenMixin):
             if is_cached:
                 return
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
-        print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}")
-
+        self.check_print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}", cr_setup=True)
         # convert gene names to ensembl ids
-        print("> Converting gene names to Ensembl IDs...")
+        self.check_print("> Converting gene names to Ensembl IDs...", cr_setup=True)
         self.adata, _ = self.convert_to_ensembl_ids(
             data_dir=self._cfg.ensembl_dir,
             species=self.dataset_preproc_cfg.species,
         )
 
         if sparse.issparse(self.adata.X):
-            print("> Converting sparse matrix to dense... normalization preprocessing")
+            self.check_print("> Converting sparse matrix to dense... normalization preprocessing", cr_setup=True)
             self.adata.X = self.adata.X.toarray()
         else:
-            print("> Matrix is already dense.")
+            self.check_print("> Matrix is already dense.", cr_setup=True)
 
         if get_value(self.dataset_preproc_cfg, "normalize"):
-            print("> Normalizing AnnData...")
+            self.check_print("> Normalizing AnnData...", cr_setup=True)
 
             # Store mask of NaNs
             nan_mask = np.isnan(self.adata.X)
@@ -285,10 +294,10 @@ class CellRepresentation(SpecialTokenMixin):
                 self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
             ), "Normalize and Log1P both need to be TRUE"
         else:
-            print("> Skipping Normalizing anndata...")
+            self.check_print("> Skipping Normalizing anndata...", cr_setup=True)
 
         if get_value(self.dataset_preproc_cfg, "log_1p"):
-            print("> Log Transforming anndata...")
+            self.check_print("> Log Transforming anndata...", cr_setup=True)
 
             # Store mask of NaNs
             nan_mask = np.isnan(self.adata.X)
@@ -300,7 +309,7 @@ class CellRepresentation(SpecialTokenMixin):
             # Assign back
             self.adata.X = normalized_expression
         else:
-            print("> Skipping Log Transforming anndata..")
+            self.check_print("> Skipping Log Transforming anndata..", cr_setup=True)
 
         # if get_value(self.dataset_preproc_cfg, "normalize"):
         #     # Normalizing based on target sum
@@ -346,7 +355,7 @@ class CellRepresentation(SpecialTokenMixin):
         if preprocessed_data_path is not None:
             self.anndata_to_cache(preprocessed_data_path)
 
-        print(f"> Finished Processing Anndata Object:\n{self.adata}")
+        self.check_print(f"> Finished Processing Anndata Object:\n{self.adata}", cr_setup=True)
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_full_dataset(self):
@@ -368,7 +377,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.dataloaders = {
             split: DataLoader(
                 dataset,
-                batch_size=self.dataset_task_cfg.batchsize,
+                batch_size=self._cfg.trainer.per_device_batch_size,
                 shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
                 collate_fn=heimdall_collate_fn,
                 **dataloader_kwargs,
@@ -377,7 +386,7 @@ class CellRepresentation(SpecialTokenMixin):
         }
 
         dataset_str = pformat(self.datasets).replace("\n", "\n\t")
-        print(f"> Finished setting up datasets (and loaders):\n\t{dataset_str}")
+        self.check_print(f"> Finished setting up datasets (and loaders):\n\t{dataset_str}", rank=True)
 
     def rebalance_dataset(self, df):
         # Step 1: Find which label has a lower number
@@ -425,7 +434,7 @@ class CellRepresentation(SpecialTokenMixin):
         if preprocessed_data_path is not None:
             self.anndata_to_cache(preprocessed_data_path)
 
-        print(f"> Finished dropping invalid genes, yielding new AnnData: :\n{self.adata}")
+        self.check_print(f"> Finished dropping invalid genes, yielding new AnnData: :\n{self.adata}", cr_setup=True)
 
     def load_tokenization_from_cache(self, cache_dir, hash_vars):
         cfg = DictConfig(
@@ -484,7 +493,7 @@ class CellRepresentation(SpecialTokenMixin):
                     expression_embeddings,
                 )
                 pkl.dump(cache_representation, rep_file)
-                print(f"Finished writing cell representations at {processed_data_path}")
+                self.check_print(f"Finished writing cell representations at {processed_data_path}", cr_setup=True)
 
     def instantiate_representation_functions(self):
         """Instantiate `f_g`, `fe` and `f_c` according to config."""
@@ -532,24 +541,28 @@ class CellRepresentation(SpecialTokenMixin):
                 return
 
         self.fg.preprocess_embeddings()
-        print(f"> Finished calculating fg with {self.fg_cfg.type}")
+        self.check_print(f"> Finished calculating fg with {self.fg_cfg.type}", cr_setup=True)
 
         self.drop_invalid_genes()
-        print("> Finished dropping invalid genes from AnnData")
+        self.check_print("> Finished dropping invalid genes from AnnData", cr_setup=True)
 
         self.fe.preprocess_embeddings()
-        print(f"> Finished calculating fe with {self.fe_cfg.type}")
+        self.check_print(f"> Finished calculating fe with {self.fe_cfg.type}", cr_setup=True)
 
         self.processed_fcfg = True
 
         if cache_dir is not None:
             self.save_tokenization_to_cache(cache_dir, hash_vars=hash_vars)
 
+    def check_print(self, message, rank=False, cr_setup=False):
+
+        if (not rank or self.rank == 0) and (not cr_setup or not self.cr_setup):
+            print(message)
+
 
 class PartitionedCellRepresentation(CellRepresentation):
-    def __init__(self, config, auto_setup: bool = True):
-        super().__init__(config, auto_setup=False)
-        self.get_context()
+    def __init__(self, config, accelerate_context, auto_setup: bool = True):
+        super().__init__(config, accelerate_context, auto_setup=False)
 
         # Expect `data_path` to hold parent directory, not filepath
         self.partition_file_paths = sorted(
@@ -558,21 +571,22 @@ class PartitionedCellRepresentation(CellRepresentation):
         self.num_partitions = len(self.partition_file_paths)
 
         self.partition_sizes = {}
-
         if auto_setup:
             for partition, _ in enumerate(self.partition_file_paths):
                 self.partition = partition
                 self.partition_sizes[partition] = self.adata.n_obs
 
+            self.cr_setup = True
             self.prepare_full_dataset()
             self.prepare_dataset_loaders()
 
             self.partition = 0  # TODO: don't hardcode
 
+            SpecialTokenMixin.__init__(self)
+
     def setup(self):
         self.preprocess_anndata()
         self.tokenize_cells(hash_vars=(self.partition,))
-        SpecialTokenMixin.__init__(self)
 
     def close_partition(self):
         """Close current partition."""
@@ -596,17 +610,9 @@ class PartitionedCellRepresentation(CellRepresentation):
         self._partition = partition
 
         # Preprocess partition AnnData
-        print(f"> Opening partition {partition + 1} of {self.num_partitions}")
+        self.check_print(f"> Opening partition {partition + 1} of {self.num_partitions}", cr_setup=True, rank=True)
         self.dataset_preproc_cfg.data_path = self.partition_file_paths[partition]
         self.setup()
-
-    def get_context(self):
-        if dist.is_initialized():
-            self.rank = dist.get_rank()
-            self.num_replicas = dist.get_world_size()
-        else:
-            self.rank = 0
-            self.num_replicas = 1
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_dataset_loaders(self):
@@ -625,12 +631,14 @@ class PartitionedCellRepresentation(CellRepresentation):
 
         # Set up data loaders
         # dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
-        dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
+        dataloader_kwargs = {"num_workers": 4}
+        # TODO: we can parse additional data loader kwargs from config
         self.dataloaders = {
             split: DataLoader(
                 dataset,
-                batch_size=self.dataset_task_cfg.batchsize,
-                # shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
+                batch_size=self._cfg.trainer.per_device_batch_size,
+                #  self.dataset_task_cfg.batchsize,
+                #  shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
                 sampler=PartitionedDistributedSampler(
                     dataset,
                     num_replicas=self.num_replicas,
@@ -645,4 +653,4 @@ class PartitionedCellRepresentation(CellRepresentation):
         }
 
         dataset_str = pformat(self.datasets).replace("\n", "\n\t")
-        print(f"> Finished setting up datasets (and loaders):\n\t{dataset_str}")
+        self.check_print(f"> Finished setting up datasets (and loaders):\n\t{dataset_str}", rank=True)
