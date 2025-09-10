@@ -16,6 +16,7 @@ import mygene
 import numpy as np
 import pandas as pd
 import requests
+import scanpy as sc
 from anndata.abc import CSCDataset, CSRDataset
 from numpy.random import Generator
 from numpy.typing import NDArray
@@ -547,3 +548,19 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
 
 def issparse(x):
     return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
+
+
+def save_umap(cr: "CellRepresentation", embeddings, savepath, split="test"):
+    if hasattr(cr, "splits"):
+        # breakpoint()
+        adata = cr.adata[cr.splits[split]].copy()
+    else:
+        raise ValueError("No split information found.")
+
+    adata.obsm["heimdall_latents"] = embeddings
+
+    sc.pp.neighbors(adata, use_rep="heimdall_latents")
+    sc.tl.leiden(adata)
+    sc.tl.umap(adata)
+
+    ad.io.write_h5ad(savepath, adata)

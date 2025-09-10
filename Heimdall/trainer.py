@@ -21,6 +21,7 @@ from transformers import get_scheduler
 import Heimdall.datasets
 import Heimdall.losses
 import wandb
+from Heimdall.utils import save_umap
 
 
 class HeimdallTrainer:
@@ -203,7 +204,7 @@ class HeimdallTrainer:
         task_type = self.cfg.tasks.args.task_type
 
         # First, add custom metrics if provided, TODO this is not implemented yet
-        assert self.custom_metrics == {}, "Custom Metrics Not Implemented Yet"
+        assert self.custom_metrics == {}, "Custom metrics not implemented yet"
         metrics.update(self.custom_metrics)
 
         # Then, add built-in metrics if not overridden by custom metrics
@@ -329,10 +330,6 @@ class HeimdallTrainer:
                 self.save_checkpoint(epoch)
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
 
-        # # Save final checkpoint ## no need to save the final checkpoint
-        # self.save_checkpoint(epoch)
-        # self.print_r0(f"> Saved final checkpoint at epoch {epoch}")
-
         if self.run_wandb and self.accelerator.is_main_process:
             if track_metric:  # logging the best val score and the tracked test scores
                 self.accelerator.log(best_metric, step=self.step)
@@ -345,7 +342,8 @@ class HeimdallTrainer:
             and self.cfg.tasks.args.task_type != "mlm"
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
-            self.save_adata_umap(best_test_embed, best_val_embed)
+            save_umap(self.data, best_test_embed, split="test", savepath=self.results_folder / "test_adata.h5ad")
+            save_umap(self.data, best_val_embed, split="val", savepath=self.results_folder / "val_adata.h5ad")
             self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
 
         if self.accelerator.is_main_process:
@@ -370,75 +368,85 @@ class HeimdallTrainer:
 
         return loss
 
+    def get_outputs_and_loss(self, batch, loss=None):
+        inputs = (batch["identity_inputs"], batch["expression_inputs"])
+
+        outputs = self.model(
+            inputs=inputs,
+            attention_mask=batch.get("expression_padding"),
+        )
+
+        logits = outputs.logits
+        labels = batch["labels"].to(outputs.device)
+
+        if (masks := batch.get("masks")) is not None:
+            masks = masks.to(outputs.device)
+
+        # perform a .clone() so that the labels are not updated in-place
+        batch_loss = self.get_loss(logits, labels.clone(), masks=masks)
+        if loss is None:
+            loss = batch_loss
+        else:
+            loss += batch_loss
+
+        return outputs, loss
+
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
         # print(metrics)
         loss = 0
-        encoded_list = []
+        batched_embeddings = []
 
         y_true_batches, preds_batches = [], []
 
         with torch.no_grad():
-            for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
-                inputs = (batch["identity_inputs"], batch["expression_inputs"])
+            with tqdm(dataloader, disable=not self.accelerator.is_main_process) as t:
+                for batch in t:
+                    outputs, loss = self.get_outputs_and_loss(batch, loss)
+                    logits = outputs.logits
+                    labels = batch["labels"].to(outputs.device)
 
-                outputs = self.model(
-                    inputs=inputs,
-                    attention_mask=batch.get("expression_padding"),
-                )
+                    if self.cfg.model.name != "logistic_regression":
+                        batched_embeddings.append(outputs.cls_embeddings.detach().cpu().numpy())
 
-                logits = outputs.logits
-                labels = batch["labels"].to(outputs.device)
+                    if self.cfg.tasks.args.task_type in ("multiclass", "mlm"):
+                        preds = logits.argmax(dim=1)
+                    elif self.cfg.tasks.args.task_type == "binary":
+                        # multi-label binary classification → use sigmoid + threshold
+                        probs = torch.sigmoid(logits)
+                        preds = (probs > 0.5).float()
 
-                if self.cfg.tasks.args.task_type in ("multiclass", "mlm"):
-                    preds = logits.argmax(dim=1)
-                elif self.cfg.tasks.args.task_type == "binary":
-                    # multi-label binary classification → use sigmoid + threshold
-                    probs = torch.sigmoid(logits)
-                    preds = (probs > 0.5).float()
+                    elif self.cfg.tasks.args.task_type == "regression":
+                        preds = logits
 
-                elif self.cfg.tasks.args.task_type == "regression":
-                    preds = logits
+                    else:
+                        raise ValueError(f"Unsupported task_type: {self.cfg.tasks.args.task_type}")
 
-                else:
-                    raise ValueError(f"Unsupported task_type: {self.cfg.tasks.args.task_type}")
+                    y_true_batches.append(labels.cpu())
+                    preds_batches.append(preds.cpu())
 
-                y_true_batches.append(labels.cpu())
-                preds_batches.append(preds.cpu())
+                    for metric_name, metric in metrics.items():  # noqa: B007
+                        # Built-in metric
+                        if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
+                            labels = labels.to(torch.int)
+                        if self.cfg.tasks.args.task_type in ["binary"]:
+                            # Step 1: Flatten the tensor
+                            flattened_labels = labels.flatten()
+                            flattened_logits = logits.flatten()
+                            mask = ~torch.isnan(flattened_labels)
 
-                if self.cfg.model.name != "logistic_regression":
-                    encoded_list.append(outputs.cls_embeddings.detach().cpu().numpy())
+                            no_nans_flattened_labels = flattened_labels[mask]
+                            no_nans_flattened_logits = flattened_logits[mask]
+                            labels = no_nans_flattened_labels.to(torch.int)
+                            logits = no_nans_flattened_logits
+                        metric.update(logits, labels)
+                    if self.cfg.trainer.fastdev:
+                        break
 
-                if (masks := batch.get("masks")) is not None:
-                    masks = masks.to(outputs.device)
-
-                # perform a .clone() so that the labels are not updated in-place
-                loss += self.get_loss(logits, labels.clone(), masks=masks).item()
-
-                for metric_name, metric in metrics.items():  # noqa: B007
-                    # Built-in metric
-                    # print(metric)
-                    # print(metric_name)
-                    if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
-                        labels = labels.to(torch.int)
-                    if self.cfg.tasks.args.task_type in ["binary"]:
-                        # Step 1: Flatten the tensor
-                        flattened_labels = labels.flatten()
-                        flattened_logits = logits.flatten()
-                        mask = ~torch.isnan(flattened_labels)
-
-                        no_nans_flattened_labels = flattened_labels[mask]
-                        no_nans_flattened_logits = flattened_logits[mask]
-                        labels = no_nans_flattened_labels.to(torch.int)
-                        logits = no_nans_flattened_logits
-                    metric.update(logits, labels)
-                if self.cfg.trainer.fastdev:
-                    break
-
-        all_encoded = None
+        all_embeddings = None
         if self.cfg.model.name != "logistic_regression":
-            all_encoded = np.concatenate(encoded_list, axis=0)
+            all_embeddings = np.concatenate(batched_embeddings, axis=0)
 
         loss = loss / len(dataloader)
 
@@ -450,7 +458,8 @@ class HeimdallTrainer:
             loss_tensor = torch.tensor(
                 [loss],
                 device=self.accelerator.device,
-            )  # loss is a python floating point value, for gather
+            )
+            # loss is a python floating point value, for gather
             # operation across multiple processes needs to be
             # cuda tensor
             loss = self.accelerator.gather(loss_tensor).mean().item()
@@ -504,7 +513,7 @@ class HeimdallTrainer:
         if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
 
-        return log, all_encoded
+        return log, all_embeddings
 
     def train_epoch(self, epoch):
         self.model.train()
@@ -518,19 +527,10 @@ class HeimdallTrainer:
 
                 lr = self.lr_scheduler.get_last_lr()[0]
                 with self.accelerator.accumulate(self.model):
-
-                    inputs = (batch["identity_inputs"], batch["expression_inputs"])
-                    outputs = self.model(
-                        inputs=inputs,
-                        attention_mask=batch.get("expression_padding"),
-                    )
-                    labels = batch["labels"].to(outputs.device)
-                    if (masks := batch.get("masks")) is not None:
-                        masks = masks.to(outputs.device)
-
-                    loss = self.get_loss(outputs.logits, labels, masks=masks)
+                    outputs, loss = self.get_outputs_and_loss(batch)
 
                     self.accelerator.backward(loss)
+
                     if self.accelerator.sync_gradients:
                         grad_norm = self.accelerator.clip_grad_norm_(
                             self.model.parameters(),
@@ -563,38 +563,38 @@ class HeimdallTrainer:
                 if self.cfg.trainer.fastdev:
                     break
 
-    def save_adata_umap(self, best_test_embed, best_val_embed):
-        # Case 1: predefined splits
-        if hasattr(self.cfg.tasks.args, "splits"):
-            test_adata = self.data.adata[
-                self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
-            ].copy()
-            val_adata = self.data.adata[
-                self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
-            ].copy()
+    # def save_adata_umap(self, best_test_embed, best_val_embed):
+    #     # Case 1: predefined splits
+    #     if hasattr(self.cfg.tasks.args, "splits"):
+    #         test_adata = self.data.adata[
+    #             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
+    #         ].copy()
+    #         val_adata = self.data.adata[
+    #             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
+    #         ].copy()
 
-        # Case 2: random splits
-        elif hasattr(self.data, "splits"):
-            # breakpoint()
-            test_adata = self.data.adata[self.data.splits["test"]].copy()
-            val_adata = self.data.adata[self.data.splits["val"]].copy()
+    #     # Case 2: random splits
+    #     elif hasattr(self.data, "splits"):
+    #         # breakpoint()
+    #         test_adata = self.data.adata[self.data.splits["test"]].copy()
+    #         val_adata = self.data.adata[self.data.splits["val"]].copy()
 
-        else:
-            raise ValueError("No split information found in config")
+    #     else:
+    #         raise ValueError("No split information found in config")
 
-        test_adata.obsm["heimdall_latents"] = best_test_embed
-        val_adata.obsm["heimdall_latents"] = best_val_embed
+    #     test_adata.obsm["heimdall_latents"] = best_test_embed
+    #     val_adata.obsm["heimdall_latents"] = best_val_embed
 
-        sc.pp.neighbors(test_adata, use_rep="heimdall_latents")
-        sc.tl.leiden(test_adata)
-        sc.tl.umap(test_adata)
+    #     sc.pp.neighbors(test_adata, use_rep="heimdall_latents")
+    #     sc.tl.leiden(test_adata)
+    #     sc.tl.umap(test_adata)
 
-        sc.pp.neighbors(val_adata, use_rep="heimdall_latents")
-        sc.tl.leiden(val_adata)
-        sc.tl.umap(val_adata)
+    #     sc.pp.neighbors(val_adata, use_rep="heimdall_latents")
+    #     sc.tl.leiden(val_adata)
+    #     sc.tl.umap(val_adata)
 
-        AnnData.write(test_adata, self.results_folder / "test_adata.h5ad")
-        AnnData.write(val_adata, self.results_folder / "val_adata.h5ad")
+    #     AnnData.write(test_adata, self.results_folder / "test_adata.h5ad")
+    #     AnnData.write(val_adata, self.results_folder / "val_adata.h5ad")
 
     def initialize_checkpointing(self, results_folder_path=None):
         """Initialize checkpoint directory."""
