@@ -338,13 +338,13 @@ class HeimdallTrainer:
                 self.accelerator.log(best_metric, step=self.step)
             self.accelerator.end_training()
 
-        if (
-            self.accelerator.is_main_process
-            and self.cfg.model.name != "logistic_regression"
-            and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-        ):
-            self.save_adata_umap(best_test_embed, best_val_embed)
-            self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
+        #if (
+         #   self.accelerator.is_main_process
+         #   and self.cfg.model.name != "logistic_regression"
+         #   and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
+       # ):
+            #self.save_adata_umap(best_test_embed, best_val_embed)
+            #self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
 
         if self.accelerator.is_main_process:
             self.print_r0("> Model has finished Training")
