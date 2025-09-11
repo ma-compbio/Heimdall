@@ -26,8 +26,6 @@ from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
-from Heimdall.cell_representations import CellRepresentation
-
 MAIN_KEYS = {
     "identity_inputs",
     "expression_inputs",
@@ -553,7 +551,7 @@ def issparse(x):
     return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
 
 
-def save_umap(cr: CellRepresentation, embeddings, savepath, split="test"):
+def save_umap(cr: "CellRepresentation", embeddings, savepath, split="test"):
     if hasattr(cr, "splits"):
         # breakpoint()
         adata = cr.adata[cr.splits[split]].copy()
