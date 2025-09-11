@@ -6,12 +6,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import psutil
-import scanpy as sc
 import torch
 import torch.nn as nn
+import wandb
 from accelerate import Accelerator
 from accelerate.utils import set_seed
-from anndata import AnnData
 from omegaconf import OmegaConf
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
@@ -20,7 +19,6 @@ from transformers import get_scheduler
 
 import Heimdall.datasets
 import Heimdall.losses
-import wandb
 from Heimdall.utils import save_umap
 
 

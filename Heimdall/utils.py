@@ -26,6 +26,8 @@ from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
+from Heimdall.cell_representations import CellRepresentation
+
 MAIN_KEYS = {
     "identity_inputs",
     "expression_inputs",
@@ -530,6 +532,7 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
         cell_index: cell for which to process expression values and get indices, as stored in `adata`.
 
     """
+
     if drop_zeros is True:
         if issparse(adata.X):
             cell = adata.X[[cell_index], :].toarray().flatten()
@@ -537,7 +540,7 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
             cell_expression_inputs = cell[cell_identity_inputs]
         else:
             cell_expression_inputs_full = adata.X[cell_index, :]
-            cell_identity_inputs, _ = np.nonzero(cell_expression_inputs_full)
+            cell_identity_inputs = np.nonzero(cell_expression_inputs_full)
             cell_expression_inputs = cell_expression_inputs_full[cell_identity_inputs]
     else:
         cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()
@@ -550,7 +553,7 @@ def issparse(x):
     return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
 
 
-def save_umap(cr: "CellRepresentation", embeddings, savepath, split="test"):
+def save_umap(cr: CellRepresentation, embeddings, savepath, split="test"):
     if hasattr(cr, "splits"):
         # breakpoint()
         adata = cr.adata[cr.splits[split]].copy()

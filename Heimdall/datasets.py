@@ -441,16 +441,26 @@ class PartitionedSubset(Subset):
 
     def __getitem__(self, idx):
         if isinstance(idx, list):
-            return self.dataset[[self.indices[self.dataset.partition][i] for i in idx]]
-        return self.dataset[self.indices[self.dataset.partition][idx]]
+            return self.__getitems__(idx)
 
-    def __getitems__(self, indices: list[int]) -> list:
+        index, partition = idx
+        if partition != self.dataset.partition:
+            self.dataset.partition = partition
+        return self.dataset[self.indices[self.dataset.partition][index]]
+
+    def __getitems__(self, indices: list[tuple[int, int]]) -> list:
         # add batched sampling support when parent dataset supports it.
         # see torch.utils.data._utils.fetch._MapDatasetFetcher
         if callable(getattr(self.dataset, "__getitems__", None)):
             return self.dataset.__getitems__([self.indices[self.dataset.partition][idx] for idx in indices])
         else:
-            return [self.dataset[self.indices[self.dataset.partition][idx]] for idx in indices]
+            batched_data = []
+            for idx, partition in indices:
+                if partition != self.dataset.partition:
+                    self.dataset.partition = partition
+                batched_data.append(self.dataset[self.indices[self.dataset.partition][idx]])
+
+            return batched_data
 
     def __len__(self):
         return sum(len(indices) for indices in self.indices.values())

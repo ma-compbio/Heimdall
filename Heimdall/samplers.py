@@ -61,15 +61,16 @@ class PartitionedDistributedSampler(DistributedSampler):
         indices = indices[self.rank : self.total_samples_per_partition[partition] : self.num_replicas]
         assert len(indices) == self.total_samples_per_partition[partition] / self.num_replicas
 
-        return iter(indices)  # TODO: why 500?
+        return indices
 
     def __iter__(self):
         if self.shuffle:
             self.rng.shuffle(self.partition_order)
 
         for partition in self.partition_order:
-            self.full_dataset.partition = partition
             indices = self.generate_partition_indices(partition)
+            # add parition to indices
+            indices = list(zip(indices, [partition] * len(indices)))
             yield from indices
 
     def __len__(self) -> int:
