@@ -1,0 +1,9 @@
+dataset_name: cnv_binary
+
+preprocess_args:
+  data_path: ${data_path}/cnv_prediction/processed/cnv_labels_as_binary_cnv.h5ad
+  top_n_genes: false
+  normalize: false
+  log_1p: true
+  scale_data: true
+  species: human
