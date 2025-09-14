@@ -9,12 +9,12 @@ import scipy.sparse as sp
 import torch
 from accelerate import Accelerator
 from dotenv import load_dotenv
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from pytest import fixture
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.models import HeimdallModel
-from Heimdall.utils import get_dtype
+from Heimdall.utils import get_dtype, instantiate_from_config
 
 load_dotenv()
 
@@ -174,6 +174,8 @@ def paired_task_config(request, toy_paried_data_path):
         head_config:
           type: Heimdall.models.LinearCellPredHead
           args: null
+        cell_rep_config:
+          type: Heimdall.cell_representations.CellRepresentation
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -266,6 +268,90 @@ def single_task_config(request, toy_single_data_path):
         head_config:
           type: Heimdall.models.ExpressionOnlyCellPredHead
           args: null
+        cell_rep_config:
+          type: Heimdall.cell_representations.CellRepresentation
+    scheduler:
+      name: cosine
+      lr_schedule_type: cosine
+      warmup_ratio: 0.1
+      num_epochs: 20
+    trainer:
+      accelerator: cuda
+      precision: 32-true
+      random_seed: 42
+      per_device_batch_size: 64
+      accumulate_grad_batches: 1
+      grad_norm_clip: 1.0
+      fastdev: false
+    optimizer:
+      name: AdamW
+      args:
+        lr: 0.0001
+        weight_decay: 0.1
+        betas:
+        - 0.9
+        - 0.95
+        foreach: false
+{format_for_config(fc_config)}
+    fe:
+      type: Heimdall.fe.IdentityFe
+      args:
+        embedding_parameters:
+          type: torch.nn.Module
+        d_embedding: null
+        drop_zeros: False
+{format_for_config(fg_config)}j
+    loss:
+      name: CrossEntropyLoss
+    """
+    conf = OmegaConf.create(config_string)
+
+    return conf
+
+
+@fixture(scope="module")
+def partition_config(request, toy_partitioned_data_path):
+    model_config, fc_config = request.param
+    config_string = f"""
+    project_name: Cell_Type_Classification_dev
+    run_name: run_name
+    work_dir: work_dir
+    only_preprocess_data: true
+    seed: 42
+    float_dtype: 'float32'
+    data_path: {os.environ['DATA_PATH']}
+    ensembl_dir: {os.environ['DATA_PATH']}
+    cache_preprocessed_dataset_dir: null
+    entity: Heimdall
+{format_for_config(model_config)}
+    dataset:
+      dataset_name: cell_type_classification
+      preprocess_args:
+        data_path: {toy_partitioned_data_path}
+        top_n_genes: 1000
+        normalize: true
+        log_1p: true
+        scale_data: false
+        species: mouse
+    tasks:
+      args:
+        task_type: multiclass
+        label_col_name: class
+        metrics:
+        - Accuracy
+        - MatthewsCorrCoef
+        train_split: 0.8
+        shuffle: true
+        batchsize: 32
+        epochs: 10
+        prediction_dim: 14
+        dataset_config:
+          type: Heimdall.datasets.PartitionedDataset
+        head_config:
+          type: Heimdall.models.ExpressionOnlyCellPredHead
+          args: null
+        cell_rep_config:
+          type: Heimdall.cell_representations.PartitionedCellRepresentation
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -318,7 +404,14 @@ def instantiate_and_run_model(config):
     if accelerator.is_main_process:
         print(OmegaConf.to_yaml(config, resolve=True))
 
-    cr = CellRepresentation(config, accelerator)  # takes in the whole config from hydra
+    with open_dict(config):
+        only_preprocess_data = config.pop("only_preprocess_data", None)
+        # pop so hash of cfg is not changed depending on value
+
+    cr = instantiate_from_config(config.tasks.args.cell_rep_config, config, accelerator)
+
+    if only_preprocess_data:
+        return
 
     float_dtype = get_dtype(config.float_dtype)
 
@@ -357,3 +450,12 @@ def test_single_task_model_instantiation(single_task_config):
 )
 def test_paired_task_model_instantiation(paired_task_config):
     instantiate_and_run_model(paired_task_config)
+
+
+@pytest.mark.parametrize(
+    "partition_config",
+    zip(model_configs, fc_configs),
+    indirect=True,
+)
+def test_partitioned_model_instantiation(partition_config):
+    instantiate_and_run_model(partition_config)
