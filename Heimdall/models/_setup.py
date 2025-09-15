@@ -2,7 +2,7 @@ from accelerate import Accelerator
 from omegaconf import OmegaConf, open_dict
 
 from Heimdall.models import HeimdallModel
-from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config, save_umap
+from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config
 
 
 def setup_experiment(config, cpu=False):

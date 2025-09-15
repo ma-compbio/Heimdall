@@ -6,11 +6,8 @@ from typing import TYPE_CHECKING, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as PyTorchDataset
 from torch.utils.data import Subset
-
-from Heimdall.utils import AllPartitionsExhausted
 
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation

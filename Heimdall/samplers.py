@@ -139,7 +139,7 @@ class PartitionedBatchSampler(BatchSampler):
 
                 self.sampler.partition_idx += 1
 
-            except AllPartitionsExhausted as e:
+            except AllPartitionsExhausted:
                 self.sampler.partition_idx = None
                 if len(batch) > 0:  # flush remainder
                     yield batch

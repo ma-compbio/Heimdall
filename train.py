@@ -1,8 +1,6 @@
 import hydra
-from accelerate import Accelerator
-from omegaconf import OmegaConf, open_dict
 
-from Heimdall.trainer import setup_experiment
+from Heimdall.trainer import setup_trainer
 
 
 @hydra.main(config_path="config", config_name="config", version_base="1.3")

@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from accelerate import Accelerator
 from accelerate.utils import set_seed
-from omegaconf import OmegaConf, open_dict
+from omegaconf import OmegaConf
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
@@ -20,8 +20,8 @@ from transformers import get_scheduler
 import Heimdall.datasets
 import Heimdall.losses
 import wandb
-from Heimdall.models import HeimdallModel, setup_experiment
-from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config, save_umap
+from Heimdall.models import setup_experiment
+from Heimdall.utils import save_umap
 
 
 class HeimdallTrainer:

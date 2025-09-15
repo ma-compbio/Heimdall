@@ -20,7 +20,7 @@ from scipy.sparse import csc_array
 from sklearn.utils import resample
 from torch.utils.data import DataLoader, Subset
 
-from Heimdall.datasets import Dataset, PartitionedDataLoader, PartitionedSubset
+from Heimdall.datasets import Dataset, PartitionedSubset
 from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
