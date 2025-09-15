@@ -1,7 +1,7 @@
 import math
 
 import numpy as np
-from torch.utils.data import DistributedSampler, Subset
+from torch.utils.data import BatchSampler, DistributedSampler, Subset
 
 from Heimdall.datasets import PartitionedDataset, PartitionedSubset
 from Heimdall.utils import AllPartitionsExhausted
@@ -64,15 +64,7 @@ class PartitionedDistributedSampler(DistributedSampler):
         # load underlying partition
         self.full_dataset.partition = partition
 
-        # # create dataloader for partition
-        # self.dataloader = DataLoader(
-        #     self.dataset,
-        #     **self.dataloader_kwargs,
-        # )
-
-        print(f">>> Setting partition_indices with {partition = }...")
         self.iterator.set_indices(self.generate_partition_indices(partition))
-        # self.iterator = iter(self.dataloader)  # TODO: Is this necessary? Isn't DataLoader already an iterator?
 
     def generate_partition_indices(self, partition):
         indices = list(range(self.partition_sizes[partition]))
@@ -122,16 +114,31 @@ class PartitionIndexIterator:
 
     def __next__(self):
         try:
-            result = next(self.partition_indices)
-            print(result)
-            return result
-        except StopIteration:
+            return next(self.partition_indices)
+        except StopIteration as e:
             self.sampler.full_dataset.data.accelerator.wait_for_everyone()
             if self.sampler.partition_idx + 1 == self.sampler.num_partitions:
-                print(">>> End of all partitions...")
                 self.sampler.partition_idx = None
                 raise AllPartitionsExhausted()
-            else:
-                print(">>> End of partition...")
+
+            raise e
+
+
+class PartitionedBatchSampler(BatchSampler):
+    def __iter__(self):
+        while True:
+            try:
+                batch = []
+                for idx in self.sampler:
+                    batch.append(idx)
+                    if len(batch) == self.batch_size:
+                        yield batch
+                        batch = []
+
+                if len(batch) > 0:  # flush remainder
+                    yield batch
+
                 self.sampler.partition_idx += 1
-                return next(self.partition_indices)
+
+            except AllPartitionsExhausted as e:
+                break
