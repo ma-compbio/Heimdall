@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from functools import partial, wraps
 from pathlib import Path
 from pprint import pformat
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
 import awkward as ak
@@ -25,6 +25,9 @@ from scipy import sparse as sp
 from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
+
+if TYPE_CHECKING:
+    from Heimdall.cell_representations import CellRepresentation
 
 MAIN_KEYS = {
     "identity_inputs",
@@ -164,29 +167,6 @@ def heimdall_collate_fn(examples):
     "labels" (these are mandatory).
 
     """
-    # batch = {}
-    # # Assume all examples have the same keys, use the keys from the first example
-    # keys = examples[0].keys()
-    # conditional_tokens = {}
-
-    # for key in keys:
-    #     if key in ["inputs", "labels"]:
-    #         # Check if the data needs to be stacked or just converted to tensor
-    #         if isinstance(examples[0][key], list):  # or any other condition to decide on stacking
-    #             # Stack tensors if the data type is appropriate (e.g., lists of numbers)
-    #             batch[key] = torch.stack([torch.tensor(example[key]) for example in examples])
-    #         else:
-    #             # Convert to tensor directly if it's a singular item like labels
-    #             batch[key] = torch.tensor([example[key] for example in examples])
-
-    #     else:  # if it is not an input or label, it is automatically processed as a conditional token
-    #         if isinstance(examples[0][key], list):
-    #             conditional_tokens[key] = torch.stack([torch.tensor(example[key]) for example in examples])
-    #         else:
-    #             conditional_tokens[key] = torch.tensor([example[key] for example in examples])
-    # batch["conditional_tokens"] = conditional_tokens
-    # return batch
-
     # Collate batch using pytorch's default collate function
     flat_batch = default_collate(examples)
 
@@ -567,11 +547,6 @@ def save_umap(cr: "CellRepresentation", embeddings, savepath, split="test"):
     ad.io.write_h5ad(savepath, adata)
 
 
-class PartitionExhausted(StopIteration):
-    def __init__(self, message: str = "Partition exhausted"):
-        super().__init__(message)
-
-
-class AllPartitionsExhausted(StopIteration):
+class AllPartitionsExhausted(Exception):
     def __init__(self, message: str = "All partitions exhausted"):
         super().__init__(message)

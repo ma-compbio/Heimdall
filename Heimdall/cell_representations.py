@@ -24,7 +24,9 @@ from Heimdall.datasets import Dataset, PartitionedDataLoader, PartitionedSubset
 from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
-from Heimdall.samplers import PartitionedDistributedSampler
+from Heimdall.samplers import PartitionedBatchSampler, PartitionedDistributedSampler
+
+# from Heimdall.samplers import PartitionedDistributedSampler
 from Heimdall.utils import (
     convert_to_ensembl_ids,
     get_cached_paths,
@@ -86,6 +88,8 @@ class CellRepresentation(SpecialTokenMixin):
         """
         self.rank = accelerator.process_index
         self.num_replicas = accelerator.num_processes
+        self.accelerator = accelerator
+
         self.cr_setup = False
         self._cfg = config
 
@@ -267,21 +271,20 @@ class CellRepresentation(SpecialTokenMixin):
             species=self.dataset_preproc_cfg.species,
         )
 
-        if sparse.issparse(self.adata.X):
-            self.check_print("> Converting sparse matrix to dense... normalization preprocessing", cr_setup=True)
-            self.adata.X = self.adata.X.toarray()
-        else:
-            self.check_print("> Matrix is already dense.", cr_setup=True)
-
         if get_value(self.dataset_preproc_cfg, "normalize"):
             self.check_print("> Normalizing AnnData...", cr_setup=True)
 
-            # Store mask of NaNs
-            nan_mask = np.isnan(self.adata.X)
+            if sparse.issparse(self.adata.X):
+                data = self.adata.X.data
+            else:
+                data = self.adata.X
 
-            self.adata.X[nan_mask] = 0
+            # Store mask of NaNs
+            nan_mask = np.isnan(data)
+
+            data[nan_mask] = 0
             sc.pp.normalize_total(self.adata, target_sum=1e4)
-            self.adata.X[nan_mask] = np.nan
+            data[nan_mask] = np.nan  # NOTE: must not be integer valued
 
             assert (
                 self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
@@ -598,17 +601,22 @@ class PartitionedCellRepresentation(CellRepresentation):
             self.datasets[split] = PartitionedSubset(full_dataset, overall_splits[split])
 
         self.dataloaders = {
-            split: PartitionedDataLoader(
+            split: DataLoader(
                 dataset,
-                batch_size=self._cfg.trainer.per_device_batch_size,
-                sampler=PartitionedDistributedSampler(
-                    dataset,
-                    num_replicas=self.num_replicas,
-                    rank=self.rank,
-                    shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
+                batch_sampler=PartitionedBatchSampler(
+                    PartitionedDistributedSampler(
+                        dataset,
+                        num_replicas=self.num_replicas,
+                        rank=self.rank,
+                        shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
+                    ),
+                    batch_size=self._cfg.trainer.per_device_batch_size,
+                    drop_last=False,
                 ),
                 collate_fn=heimdall_collate_fn,
-                num_workers=4,
+                # num_workers=4,  # TODO: currently doesn't work. To fix, will need to create
+                # separate DataLoader for each partition, wrap them all with accelerate,
+                # and return accordingly.
             )
             for split, dataset in self.datasets.items()
         }

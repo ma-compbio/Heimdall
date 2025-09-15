@@ -118,7 +118,6 @@ class PartitionIndexIterator:
         except StopIteration as e:
             self.sampler.full_dataset.data.accelerator.wait_for_everyone()
             if self.sampler.partition_idx + 1 == self.sampler.num_partitions:
-                self.sampler.partition_idx = None
                 raise AllPartitionsExhausted()
 
             raise e
@@ -141,4 +140,7 @@ class PartitionedBatchSampler(BatchSampler):
                 self.sampler.partition_idx += 1
 
             except AllPartitionsExhausted as e:
+                self.sampler.partition_idx = None
+                if len(batch) > 0:  # flush remainder
+                    yield batch
                 break

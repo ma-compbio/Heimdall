@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from accelerate import Accelerator
 from accelerate.utils import set_seed
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
@@ -20,7 +20,8 @@ from transformers import get_scheduler
 import Heimdall.datasets
 import Heimdall.losses
 import wandb
-from Heimdall.utils import AllPartitionsExhausted, PartitionExhausted, save_umap
+from Heimdall.models import HeimdallModel, setup_experiment
+from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config, save_umap
 
 
 class HeimdallTrainer:
@@ -40,17 +41,6 @@ class HeimdallTrainer:
         self.accelerator = accelerator
 
         self.check_flash_attn()
-
-        # cell type label
-        # label_key = self.cfg.tasks.args.label_col_name
-        # if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
-        #    self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
-
-        # class_names will now align with integer labels returned by .codes
-        # self.class_names = self.data.adata.obs[label_key].cat.categories.tolist()
-
-        # assert len(self.class_names) == self.num_labels, "Mismatch between classes and label indices"
-
         args = self.cfg.tasks.args
 
         # TODO: since we use the label_key in the CellRepresentation setup, we shouldn't need it here.
@@ -207,7 +197,7 @@ class HeimdallTrainer:
         metrics.update(self.custom_metrics)
 
         # Then, add built-in metrics if not overridden by custom metrics
-        if task_type == "multiclass":
+        if task_type in ("mlm", "multiclass"):
             num_classes = self.num_labels
             for metric_name in self.cfg.tasks.args.metrics:
                 if metric_name not in metrics:
@@ -245,9 +235,6 @@ class HeimdallTrainer:
                         metrics[metric_name] = F1Score(task="binary", num_labels=num_labels, average="macro")
                     elif metric_name == "MatthewsCorrCoef":
                         metrics[metric_name] = MatthewsCorrCoef(task="binary", num_labels=num_labels)
-        elif task_type == "mlm":
-            # TODO: fill out
-            ...
 
         return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
 
@@ -291,7 +278,6 @@ class HeimdallTrainer:
             if track_metric:
                 val_metric = valid_log.get(f"valid_{track_metric}", float("-inf"))
                 if val_metric > best_metric[f"best_val_{track_metric}"]:
-
                     best_val_embed = val_embed
                     best_test_embed = test_embed
                     best_epoch = epoch
@@ -345,7 +331,7 @@ class HeimdallTrainer:
             and self.cfg.tasks.args.task_type != "mlm"
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
-            if best_test_embed is not None and best_val_embed is not None:
+            if best_test_embed is not None and best_val_embed is not None and not self.cfg.trainer.fastdev:
                 save_umap(self.data, best_test_embed, split="test", savepath=self.results_folder / "test_adata.h5ad")
                 save_umap(self.data, best_val_embed, split="val", savepath=self.results_folder / "val_adata.h5ad")
                 self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
@@ -401,67 +387,49 @@ class HeimdallTrainer:
         dataloader,
         loss=None,
         epoch=None,
-        batched_embeddings=None,
-        y_true_batches=None,
-        preds_batches=None,
         metrics=None,
         log_every: int = 1,
     ):
+        """Iterate through `DataLoader` (either for training or for
+        validation)."""
         training = epoch is not None
+
         if training:
             step = len(dataloader) * epoch
+            outputs = None
         else:
             step = 0
 
-        pbar = tqdm(len(dataloader), disable=not self.accelerator.is_main_process)
-        iterable_dataloader = iter(dataloader)
-        while True:
-            try:
-                batch = next(iterable_dataloader)
+            outputs = {
+                "all_embeddings": [],
+                "all_labels": [],
+                "all_preds": [],
+            }
+
+        with tqdm(dataloader, disable=not self.accelerator.is_main_process) as pbar:
+            for batch in pbar:
                 step += 1
 
                 is_logging = step % log_every == 0
                 lr = self.lr_scheduler.get_last_lr()[0]
 
                 with self.accelerator.accumulate(self.model) if training else nullcontext():
-                    outputs, loss = self.get_outputs_and_loss(batch, loss)
-                    logits = outputs.logits
-                    labels = batch["labels"].to(outputs.device)
+                    batch_outputs, loss = self.get_outputs_and_loss(batch, loss)
+                    logits = batch_outputs.logits
+                    labels = batch["labels"].to(batch_outputs.device)
 
-                    if not training:
-                        if self.cfg.model.name != "logistic_regression":
-                            batched_embeddings.append(outputs.cls_embeddings.detach().cpu().numpy())
-
-                        if self.cfg.tasks.args.task_type in ("multiclass", "mlm"):
-                            preds = logits.argmax(dim=1)
-                        elif self.cfg.tasks.args.task_type == "binary":
-                            # multi-label binary classification → use sigmoid + threshold
-                            probs = torch.sigmoid(logits)
-                            preds = (probs > 0.5).float()
-                        elif self.cfg.tasks.args.task_type == "regression":
-                            preds = logits
-                        else:
-                            raise ValueError(f"Unsupported task_type: {self.cfg.tasks.args.task_type}")
-
-                        y_true_batches.append(labels.cpu())
-                        preds_batches.append(preds.cpu())
-
-                    if metrics is not None:
-                        for metric_name, metric in metrics.items():  # noqa: B007
-                            # Built-in metric
-                            if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
-                                labels = labels.to(torch.int)
-                            if self.cfg.tasks.args.task_type in ["binary"]:
-                                # Step 1: Flatten the tensor
-                                flattened_labels = labels.flatten()
-                                flattened_logits = logits.flatten()
-                                mask = ~torch.isnan(flattened_labels)
-
-                                no_nans_flattened_labels = flattened_labels[mask]
-                                no_nans_flattened_logits = flattened_logits[mask]
-                                labels = no_nans_flattened_labels.to(torch.int)
-                                logits = no_nans_flattened_logits
-                            metric.update(logits, labels)
+                    if self.cfg.tasks.args.task_type == "multiclass":
+                        preds = logits.argmax(dim=1)
+                    elif self.cfg.tasks.args.task_type == "mlm":
+                        preds = logits.argmax(dim=2)
+                    elif self.cfg.tasks.args.task_type == "binary":
+                        # multi-label binary classification → use sigmoid + threshold
+                        probs = torch.sigmoid(logits)
+                        preds = (probs > 0.5).float()
+                    elif self.cfg.tasks.args.task_type == "regression":
+                        preds = logits
+                    else:
+                        raise ValueError(f"Unsupported task_type: {self.cfg.tasks.args.task_type}")
 
                     if training:
                         self.accelerator.backward(loss)
@@ -493,50 +461,57 @@ class HeimdallTrainer:
                                 }
                                 if self.run_wandb and self.accelerator.is_main_process:
                                     self.accelerator.log(log, step=self.step)
-
                         loss = None
+                    else:
+                        if self.cfg.model.name != "logistic_regression":
+                            outputs["all_embeddings"].append(batch_outputs.cls_embeddings.detach().cpu().numpy())
+
+                        outputs["all_labels"].append(labels.detach().cpu().numpy())
+                        outputs["all_preds"].append(preds.detach().cpu().numpy())
+                        outputs["loss"] = loss
+
+                    if metrics is not None:
+                        for metric_name, metric in metrics.items():  # noqa: B007
+                            # Built-in metric
+                            if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
+                                labels = labels.to(torch.int)
+                            if self.cfg.tasks.args.task_type in ["binary"]:
+                                # Step 1: Flatten the tensor
+                                flattened_labels = labels.flatten()
+                                flattened_preds = preds.flatten()
+                                mask = ~torch.isnan(flattened_labels)
+
+                                no_nans_flattened_labels = flattened_labels[mask]
+                                no_nans_flattened_preds = flattened_preds[mask]
+                                labels = no_nans_flattened_labels.to(torch.int)
+                                preds = no_nans_flattened_preds
+
+                            metric.update(preds, labels)
 
                 if self.cfg.trainer.fastdev:
                     break
 
-                pbar.update(1)
-            except StopIteration as e:
-                if isinstance(e, (PartitionExhausted, AllPartitionsExhausted)):
-                    self.accelerator.wait_for_everyone()
+        if not training:
+            outputs["all_embeddings"] = np.concatenate(outputs["all_embeddings"], axis=0)
+            outputs["all_labels"] = np.concatenate(outputs["all_embeddings"], axis=0)
+            outputs["all_preds"] = np.concatenate(outputs["all_embeddings"], axis=0)
 
-                return loss, e
+        return outputs
 
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
         loss = 0
-        batched_embeddings = []
-
-        y_true_batches, preds_batches = [], []
 
         with torch.no_grad():
-            while True:
-                iteration_loss, e = self.iterate_dataloader(
-                    dataloader,
-                    loss,
-                    batched_embeddings=batched_embeddings,
-                    y_true_batches=y_true_batches,
-                    preds_batches=preds_batches,
-                    metrics=metrics,
-                )
-                loss += iteration_loss
-                if not isinstance(e, PartitionExhausted):
-                    break
-
-        all_embeddings = None
-        if self.cfg.model.name != "logistic_regression":
-            all_embeddings = np.concatenate(batched_embeddings, axis=0)
+            outputs = self.iterate_dataloader(
+                dataloader,
+                loss,
+                metrics=metrics,
+            )
+            loss += outputs["loss"]
 
         loss = loss / len(dataloader)
-
-        # concatenate & gather once per epoch
-        y_true_all = torch.cat(y_true_batches, 0)
-        preds_all = torch.cat(preds_batches, 0)
 
         if self.accelerator.num_processes > 1:
             loss_tensor = torch.tensor(
@@ -579,8 +554,8 @@ class HeimdallTrainer:
             # 4. Log interactive confusion matrix to WandB (main process only)
             if self.run_wandb and self.accelerator.is_main_process:
                 wandb_cm = wandb.plot.confusion_matrix(
-                    y_true=y_true_all.numpy().tolist(),
-                    preds=preds_all.numpy().tolist(),
+                    y_true=outputs["all_labels"],
+                    preds=outputs["all_preds"],
                     class_names=self.class_names,  # same order as metric
                 )
                 self.accelerator.log(
@@ -597,21 +572,15 @@ class HeimdallTrainer:
         if not self.run_wandb and self.accelerator.is_main_process:
             print(log)
 
-        return log, all_embeddings
+        return log, outputs["all_embeddings"]
 
     def train_epoch(self, epoch):
         self.model.train()
-        step = len(self.dataloader_train) * epoch
-        log_every = 1
-        data_exhausted = False
 
-        while True:
-            _, e = self.iterate_dataloader(
-                self.dataloader_train,
-                epoch=epoch,
-            )
-            if not isinstance(e, PartitionExhausted):
-                break
+        self.iterate_dataloader(
+            self.dataloader_train,
+            epoch=epoch,
+        )
 
     def initialize_checkpointing(self, results_folder_path=None):
         """Initialize checkpoint directory."""
@@ -753,3 +722,14 @@ class HeimdallTrainer:
         self.print_r0(f"> Resumed from epoch {epoch}, step {self.step}")
 
         return epoch + 1  # Return the next epoch to start from
+
+
+def setup_trainer(config, cpu=True):
+    experiment_primitives = setup_experiment(config, cpu=cpu)
+    if experiment_primitives is None:
+        return
+
+    accelerator, cr, model, run_wandb = experiment_primitives
+    trainer = HeimdallTrainer(cfg=config, model=model, data=cr, accelerator=accelerator, run_wandb=run_wandb)
+
+    return trainer
