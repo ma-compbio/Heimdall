@@ -4,6 +4,7 @@ import numpy as np
 from torch.utils.data import DistributedSampler, Subset
 
 from Heimdall.datasets import PartitionedDataset, PartitionedSubset
+from Heimdall.utils import AllPartitionsExhausted
 
 
 class PartitionedDistributedSampler(DistributedSampler):
@@ -39,6 +40,37 @@ class PartitionedDistributedSampler(DistributedSampler):
 
             self.total_samples_per_partition[p] = num_samples_part * self.num_replicas
 
+        self.partition_order = list(range(self.num_partitions))
+        self.partition_idx = None
+
+    @property
+    def partition_idx(self):
+        return self._partition_idx
+
+    @property
+    def num_partitions(self):
+        return self.full_dataset.num_partitions
+
+    @partition_idx.setter
+    def partition_idx(self, partition_idx: int | None):
+        self._partition_idx = partition_idx
+        if partition_idx is None:
+            return
+
+        partition = self.partition_order[partition_idx]
+
+        # load underlying partition
+        self.full_dataset.partition = partition
+
+        # # create dataloader for partition
+        # self.dataloader = DataLoader(
+        #     self.dataset,
+        #     **self.dataloader_kwargs,
+        # )
+
+        self.partition_indices = self.generate_partition_indices(partition)
+        # self.iterator = iter(self.dataloader)  # TODO: Is this necessary? Isn't DataLoader already an iterator?
+
     def generate_partition_indices(self, partition):
         indices = list(range(self.partition_sizes[partition]))
         if self.shuffle:
@@ -62,8 +94,29 @@ class PartitionedDistributedSampler(DistributedSampler):
 
         yield from indices
 
+    # def __iter__(self):
+    #     return self.generate_partition_indices(self.full_dataset.partition)
+
     def __iter__(self):
-        return self.generate_partition_indices(self.full_dataset.partition)
+        if self.shuffle:
+            self.partition_order = self.rng.permutation(self.partition_order)
+
+        if self.partition_idx is None:
+            self.partition_idx = 0
+
+        return self
+
+    def __next__(self):
+        try:
+            return next(self.partition_indices)
+        except StopIteration:
+            self.full_dataset.data.accelerator.wait_for_everyone()
+            if self.partition_idx + 1 == self.num_partitions:
+                self.partition_idx = None
+                raise AllPartitionsExhausted()
+            else:
+                self.partition_idx += 1
+                return next(self.partition_indices)
 
     def __len__(self) -> int:
         return sum(self.total_samples_per_partition.values()) // self.num_replicas
