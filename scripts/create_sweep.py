@@ -9,7 +9,6 @@ def parse_arguments():
     parser.add_argument("--commands", type=str, required=True, help="Commands as a single space-separated string")
     parser.add_argument("--project-name", type=str, default="test", help="The project name in WandB")
     parser.add_argument("--precision", type=str, default="bf16", help="precision")
-
     args = parser.parse_args()
     return args
 

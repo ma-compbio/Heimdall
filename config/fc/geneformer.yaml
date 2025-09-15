@@ -9,4 +9,4 @@ args:
   order_config:
     type: Heimdall.order.ExpressionOrder
   reduce_config:
-    type: Heimdall.reduce.IdentityReduce
+    type: Heimdall.reduce.SumReduce

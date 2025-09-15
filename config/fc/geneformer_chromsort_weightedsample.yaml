@@ -13,9 +13,9 @@ args:
   tailor_config:
     type: Heimdall.tailor.WeightedResampleTailor
     args:
-      sample_size: 912
+      sample_size: 924
   order_config:
-    type: Heimdall.order.ChromosomeOrder
+    type: Heimdall.order.ExpressionOrder
   reduce_config:
-    type: Heimdall.reduce.ChromosomeSumReduce
+    type: Heimdall.reduce.IdentityReduce
 

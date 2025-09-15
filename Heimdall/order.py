@@ -31,6 +31,9 @@ class Order(ABC):
 
 
 class ExpressionOrder(Order):
+
+    uses_raw_for_order = True 
+
     def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray) -> NDArray:
         """Order cell tokens using metadata.
 
@@ -41,13 +44,13 @@ class ExpressionOrder(Order):
                 of a cell.
 
         """
-
+        x = np.asarray(expression_inputs, dtype=float)
         if "medians" in self.fc.adata.var:
-            expression_inputs = expression_inputs - self.fc.adata.var["medians"].iloc[identity_inputs].values
+            x = x - self.fc.adata.var["medians"].iloc[identity_inputs].values
 
         # Sort non-zero values in descending order
-        gene_order = np.argsort(expression_inputs)[::-1]  # Indices for sorting descending
-
+        x = np.where(np.isnan(x), -np.inf, x)
+        gene_order = np.argsort(x)[::-1]  # Indices for sorting descending
         return gene_order
 
 
