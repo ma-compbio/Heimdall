@@ -282,9 +282,11 @@ class CellRepresentation(SpecialTokenMixin):
             # Store mask of NaNs
             nan_mask = np.isnan(data)
 
-            data[nan_mask] = 0
+            if np.any(nan_mask):
+                data[nan_mask] = 0
             sc.pp.normalize_total(self.adata, target_sum=1e4)
-            data[nan_mask] = np.nan  # NOTE: must not be integer valued
+            if np.any(nan_mask):
+                data[nan_mask] = np.nan  # NOTE: must not be integer-valued
 
             assert (
                 self.dataset_preproc_cfg.normalize and self.dataset_preproc_cfg.log_1p
