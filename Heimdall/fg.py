@@ -75,6 +75,7 @@ class Fg(ABC):
 
         """
         embedding_indices = self.adata.var.loc[gene_names, "identity_embedding_index"]
+        
         valid_mask = self.adata.var.loc[gene_names, "identity_valid_mask"]
         if (valid_mask.sum() != len(gene_names)) and not return_mask:
             raise KeyError(
@@ -192,6 +193,7 @@ class PretrainedFg(Fg, ABC):
         index_map[~valid_mask] = None
         index_map[valid_indices] = np.arange(num_mapped_genes)
 
+        print(f"Index Map inside of fg preprocess_embeddings {index_map} with type {type(index_map)}")
         self.adata.var["identity_embedding_index"] = index_map
         self.identity_valid_mask = valid_mask.to_numpy()
 

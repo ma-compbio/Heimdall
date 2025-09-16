@@ -350,7 +350,7 @@ class HeimdallTrainer:
         elif self.cfg.loss.name.endswith("CrossEntropyFocalLoss"):
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "CrossEntropyLoss":
-            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
+            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1)) 
         elif self.cfg.loss.name == "MSELoss":
             loss = self.loss_fn(logits, labels)
         else:

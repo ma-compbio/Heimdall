@@ -213,12 +213,16 @@ class CellRepresentation(SpecialTokenMixin):
         _, gene_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
         return self.adata, gene_mapping
 
-    def get_preprocessed_data_path(self):
+    def get_preprocessed_data_path(self,hash_data_only=True):
         preprocessed_data_path = preprocessed_cfg_path = cfg = None
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-
+        
             cfg = DictConfig({"dataset": OmegaConf.to_container(self._cfg.dataset, resolve=True)})
 
+            if not hash_data_only:
+                cell_repre_cfg = DictConfig({key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},)
+                cfg = {**cfg,**cell_repre_cfg}
+                
             preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
                 cfg,
                 Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
@@ -227,7 +231,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         return preprocessed_data_path, preprocessed_cfg_path, cfg
 
-    def anndata_from_cache(self, preprocessed_data_path, preprocessed_cfg_path, cfg):
+    def anndata_from_cache(self, preprocessed_data_path, preprocessed_cfg_path, cfg,):
         if preprocessed_data_path.is_file():
             self.check_print(
                 f"> Found already preprocessed anndata: {preprocessed_data_path}",
@@ -257,6 +261,13 @@ class CellRepresentation(SpecialTokenMixin):
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
+        preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path(hash_data_only=False)
+
+        if preprocessed_data_path_w_cell_cfg.is_file():
+            is_cached = self.anndata_from_cache(preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg)
+            if is_cached:
+                return
+                
         preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
         if preprocessed_data_path is not None:
             is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
@@ -402,8 +413,9 @@ class CellRepresentation(SpecialTokenMixin):
         self.adata = self.adata[:, valid_mask].copy()
 
         self.fc.adata = self.adata
+        
 
-        preprocessed_data_path, *_ = self.get_preprocessed_data_path()
+        preprocessed_data_path, *_ = self.get_preprocessed_data_path(hash_data_only=False)
         if preprocessed_data_path is not None:
             self.anndata_to_cache(preprocessed_data_path)
 
@@ -506,16 +518,42 @@ class CellRepresentation(SpecialTokenMixin):
         them and save them.
 
         """
-        self.instantiate_representation_functions()
 
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-            is_cached = self.load_tokenization_from_cache(cache_dir, hash_vars=hash_vars)
-            if is_cached:
-                return
+            cfg = DictConfig(
+                {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
+            )
+            cfg = {**cfg, "hash_vars": hash_vars}
+            processed_data_path, processed_cfg_path = get_cached_paths(
+                cfg,
+                Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
+                "data.pkl",
+            )
+            if processed_data_path.is_file():
+                preprocessed_data_path,_,_ = self.get_preprocessed_data_path(hash_data_only=False)
+                self.adata = ad.read_h5ad(
+                        preprocessed_data_path,
+                    ) 
+                self.instantiate_representation_functions()
+    
+                if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+                    is_cached = self.load_tokenization_from_cache(cache_dir, hash_vars=hash_vars)
+                    if is_cached:
+                        return
+                       
+            else:
+                if self.adata.isbacked:
+                    preprocessed_data_path,_,_ = self.get_preprocessed_data_path()
+                    self.adata = ad.read_h5ad(
+                        preprocessed_data_path,
+                    ) 
+
+        self.instantiate_representation_functions()
 
         self.fg.preprocess_embeddings()
         self.check_print(f"> Finished calculating fg with {self.fg_cfg.type}", cr_setup=True)
 
+        # print(f"Debugging identity valid mask values {self.adata.var['identity_valid_mask']}")
         self.drop_invalid_genes()
         self.check_print("> Finished dropping invalid genes from AnnData", cr_setup=True)
 
@@ -559,7 +597,7 @@ class PartitionedCellRepresentation(CellRepresentation):
 
     def setup(self):
         self.preprocess_anndata()
-        self.tokenize_cells(hash_vars=(self.partition,))
+        self.tokenize_cells(hash_vars=(int(self.partition),))
 
     def close_partition(self):
         """Close current partition."""

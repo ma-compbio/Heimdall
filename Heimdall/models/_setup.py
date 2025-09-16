@@ -3,7 +3,7 @@ from omegaconf import OmegaConf, open_dict
 
 from Heimdall.models import HeimdallModel
 from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config
-
+from accelerate import DistributedDataParallelKwargs
 
 def setup_experiment(config, cpu=False):
     """Set up Heimdall experiment based on config, including cr, model and
@@ -14,11 +14,14 @@ def setup_experiment(config, cpu=False):
         accelerator_log_kwargs["log_with"] = "wandb"
         accelerator_log_kwargs["project_dir"] = config.work_dir
 
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+
     accelerator = Accelerator(
         gradient_accumulation_steps=config.trainer.accumulate_grad_batches,
         step_scheduler_with_optimizer=False,
-        cpu=cpu,
+        # cpu=(config.trainer.accelerator == 'cpu'),
         **accelerator_log_kwargs,
+        kwargs_handlers=[ddp_kwargs]
     )
 
     if accelerator.is_main_process:

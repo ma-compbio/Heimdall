@@ -321,7 +321,13 @@ class SeqMaskedMLMDataset(MaskedMixin, MLMDataset):
         is_padding = data["labels"] == self.data.special_tokens["pad"]
         mask[is_padding] = False
 
+        negative_mask = data["identity_inputs"] < 0
+        mask = (mask * ~negative_mask).astype(bool)
+        # negative_tokens = data["identity_inputs"][negative_mask]
+        
         data["identity_inputs"][mask] = self.mask_token
+        # data["identity_inputs"][negative_mask] = negative_tokens
+        
         # data["expression_inputs"][mask] = self.mask_token
         data["masks"] = mask
 
