@@ -193,7 +193,6 @@ class PretrainedFg(Fg, ABC):
         index_map[~valid_mask] = None
         index_map[valid_indices] = np.arange(num_mapped_genes)
 
-        print(f"Index Map inside of fg preprocess_embeddings {index_map} with type {type(index_map)}")
         self.adata.var["identity_embedding_index"] = index_map
         self.identity_valid_mask = valid_mask.to_numpy()
 
