@@ -278,7 +278,7 @@ class PairedInstanceDataset(Dataset):
         }
 
 
-class MLMDataset(SingleInstanceDataset, ABC):
+class MLMMixin:
     def __getitem__(self, idx):
         identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
 
@@ -288,10 +288,21 @@ class MLMDataset(SingleInstanceDataset, ABC):
             "expression_padding": expression_padding,
             "labels": identity_inputs.astype(int),
         }
-        return self._transform(data)
+        return data
 
-    @abstractmethod
-    def _transform(self, data): ...
+
+class ExpressionReconstructionMixin:
+    def __getitem__(self, idx):
+        # TODO: currently not used, can delete
+        identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
+
+        data = {
+            "identity_inputs": identity_inputs,
+            "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
+            "labels": self.data.adata.X[idx],
+        }
+        return data
 
 
 class MaskedMixin(ABC):
@@ -304,7 +315,16 @@ class MaskedMixin(ABC):
     def mask_token(self): ...
 
 
-class SeqMaskedMLMDataset(MaskedMixin, MLMDataset):
+class TransformationMixin(ABC):
+    def __getitem__(self, idx):
+        data = super().__getitem__(idx)
+        return self._transform(data)
+
+    @abstractmethod
+    def _transform(self, data): ...
+
+
+class SeqMaskedMLMDataset(TransformationMixin, MaskedMixin, MLMMixin, SingleInstanceDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # self._num_tasks = self.data.adata.n_vars  # number of genes
