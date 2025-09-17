@@ -1,1 +1,1 @@
-name: MSELoss
+type: torch.nn.MSELoss

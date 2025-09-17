@@ -1,1 +1,1 @@
-name: "CrossEntropyFocalLoss"
+type: Heimdall.losses.FlattenCrossEntropyFocalLoss

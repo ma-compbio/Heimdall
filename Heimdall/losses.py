@@ -41,7 +41,7 @@ class MaskedBCEWithLogitsLoss(MaskedLossMixin, nn.BCEWithLogitsLoss):
     """BCEWithLogitsLoss evaluated on unmasked entires."""
 
 
-class CrossEntropyFocalLoss(torch.nn.Module):
+class CrossEntropyFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0, reduction="mean"):
         """
         Args:
@@ -72,3 +72,20 @@ class CrossEntropyFocalLoss(torch.nn.Module):
         elif self.reduction == "sum":
             return focal_loss.sum()
         return focal_loss  # If reduction='none'
+
+
+class FlattenMixin:
+    def __init__(self, num_labels: int):
+        super().__init__()
+        self.num_labels = num_labels
+
+    def forward(self, logits, labels):
+        return super().forward(logits.view(-1, self.num_labels), labels.view(-1))
+
+
+class FlattenCrossEntropyFocalLoss(FlattenMixin, CrossEntropyFocalLoss):
+    """CrossEntropyFocalLoss with automatic flattening."""
+
+
+class FlattenCrossEntropyLoss(FlattenMixin, nn.CrossEntropyLoss):
+    """CrossEntropyFocalLoss with automatic flattening."""

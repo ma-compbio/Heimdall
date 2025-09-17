@@ -1,1 +1,1 @@
-name: MaskedBCEWithLogitsLoss
+type: Heimdall.losses.MaskedBCEWithLogitsLoss

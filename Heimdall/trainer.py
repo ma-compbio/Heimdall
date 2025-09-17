@@ -21,7 +21,7 @@ import Heimdall.datasets
 import Heimdall.losses
 import wandb
 from Heimdall.models import setup_experiment
-from Heimdall.utils import save_umap
+from Heimdall.utils import instantiate_from_config, save_umap
 
 
 class HeimdallTrainer:
@@ -76,7 +76,7 @@ class HeimdallTrainer:
         set_seed(cfg.seed)
 
         self.optimizer = self._initialize_optimizer()
-        self.loss_fn = self._get_loss_function()
+        self.loss_fn = self.instantiate_loss_from_config(self.cfg.loss)
 
         self.accelerator.wait_for_everyone()
         self.print_r0(f"> Using Device: {self.accelerator.device}")
@@ -131,23 +131,6 @@ class HeimdallTrainer:
     def _initialize_optimizer(self):
         optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)
         return optimizer_class(self.model.parameters(), **OmegaConf.to_container(self.cfg.optimizer.args))
-
-    def _get_loss_function(self):
-        if self.custom_loss_func:
-            self.print_r0(f"> Using Custom Loss Function: {self.custom_loss_func.__name__}")
-            return self.custom_loss_func
-        elif self.cfg.loss.name == "CrossEntropyLoss":
-            return nn.CrossEntropyLoss()
-        elif self.cfg.loss.name == "BCEWithLogitsLoss":
-            return torch.nn.BCEWithLogitsLoss()
-        elif self.cfg.loss.name == "MaskedBCEWithLogitsLoss":
-            return Heimdall.losses.MaskedBCEWithLogitsLoss()
-        elif self.cfg.loss.name == "CrossEntropyFocalLoss":
-            return Heimdall.losses.CrossEntropyFocalLoss()
-        elif self.cfg.loss.name == "MSELoss":
-            return nn.MSELoss()
-        else:
-            raise ValueError(f"Unsupported loss function: {self.cfg.loss.name}")
 
     def _initialize_wandb(self):
         if self.run_wandb and self.accelerator.is_main_process:
@@ -341,22 +324,19 @@ class HeimdallTrainer:
         if self.accelerator.is_main_process:
             self.print_r0("> Model has finished Training")
 
-    def get_loss(self, logits, labels):
+    def instantiate_loss_from_config(self, config):
+        loss_kwargs = {}
+        loss_name = self.cfg.loss.type.split(".")[-1]
+        if loss_name.startswith("Flatten"):
+            loss_kwargs["num_labels"] = self.num_labels
 
-        if self.custom_loss_func:
-            loss = self.loss_fn(logits, labels)
-        elif self.cfg.loss.name.endswith("BCEWithLogitsLoss"):
-            loss = self.loss_fn(logits, labels)
-        elif self.cfg.loss.name.endswith("CrossEntropyFocalLoss"):
-            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
-        elif self.cfg.loss.name == "CrossEntropyLoss":
-            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
-        elif self.cfg.loss.name == "MSELoss":
-            loss = self.loss_fn(logits, labels)
-        else:
-            raise NotImplementedError("Only custom, CrossEntropyLoss, and MSELoss are supported right now")
+        return instantiate_from_config(self.cfg.loss, **loss_kwargs)
 
-        return loss
+    def get_loss(self, logits, labels, *args):
+        if args:
+            return self.loss_fn(logits, labels, *args)
+
+        return self.loss_fn(logits, labels)
 
     def get_outputs_and_loss(self, batch, loss=None):
         inputs = (batch["identity_inputs"], batch["expression_inputs"])
