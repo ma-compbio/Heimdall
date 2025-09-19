@@ -1,11 +1,28 @@
-from Heimdall.models._head import ExpressionOnlyCellPredHead, LinearCellPredHead, LinearSeqPredHead, TransformerOutput
-from Heimdall.models._models import Average, ExpressionOnly, ExpressionWeightedSum, HeimdallModel, Transformer
+from Heimdall.models._head import (
+    ExpressionOnlyCellPredHead,
+    ExpressionPredHeadMixin,
+    LinearCellPredHead,
+    LinearSeqPredHead,
+    SeqPredHeadMixin,
+    TransformerOutput,
+)
+from Heimdall.models._models import (
+    Average,
+    ExpressionOnly,
+    ExpressionWeightedSum,
+    HeimdallModel,
+    Transformer,
+    TransformerEncoder,
+)
 from Heimdall.models._reducers import AsymmetricConcatReducer, MeanReducer, SumReducer, SymmetricConcatReducer
 from Heimdall.models._setup import setup_experiment
 
 __all__ = [
     HeimdallModel.__name__,
     Transformer.__name__,
+    TransformerEncoder.__name__,
+    SeqPredHeadMixin.__name__,
+    ExpressionPredHeadMixin.__name__,
     Average.__name__,
     ExpressionWeightedSum.__name__,
     ExpressionOnly.__name__,
