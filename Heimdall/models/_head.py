@@ -74,17 +74,6 @@ class ExpressionPredHeadMixin:
         )
 
 
-class SeqHeadPredHeadMixin:
-    def forward(self, encoder_output) -> TransformerOutput:
-        logits = self.decoder(encoder_output)
-        logits = logits.squeeze(1)
-        return TransformerOutput(
-            logits=logits,
-            sequence_embeddings=logits,
-            cls_embeddings=logits,
-        )
-
-
 class LinearDecoderMixin(nn.Module):
     def __init__(self, dim_in: int, dim_out: Optional[int] = None, dropout: float = 0.0, **kwargs):
         super().__init__()

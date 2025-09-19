@@ -289,7 +289,6 @@ class Transformer(CellSentenceModel):
         self.cell_sentence_model = TransformerEncoder(
             d_model=d_model,
             nhead=nhead,
-            num_attention_heads=num_encoder_layers,
             hidden_dropout_prob=hidden_dropout_prob,
             use_flash_attn=use_flash_attn,
             hidden_act=hidden_act,
@@ -377,7 +376,6 @@ class TransformerEncoder(nn.Module):
         self,
         d_model: int,
         nhead: int,
-        num_attention_heads: int,
         hidden_dropout_prob: float,
         use_flash_attn: bool,
         num_encoder_layers: int,
@@ -402,7 +400,6 @@ class TransformerEncoder(nn.Module):
             fa_config = BertConfig(
                 hidden_size=d_model,
                 num_hidden_layers=num_encoder_layers,
-                num_attention_heads=nhead,
                 intermediate_size=d_model * 4,
                 hidden_act=hidden_act,
                 hidden_dropout_prob=hidden_dropout_prob,
