@@ -1,4 +1,4 @@
-type: Heimdall.models.HeimdallTransformer
+type: Heimdall.models.Transformer
 name: transformer
 args:
   d_model: 128
@@ -7,6 +7,5 @@ args:
   nhead: 4
   hidden_act: gelu
   hidden_dropout_prob: 0.1
-  attention_probs_dropout_prob: 0.1
   use_flash_attn: true
   pooling: cls_pooling # or "mean_pooling"

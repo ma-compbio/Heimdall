@@ -268,7 +268,6 @@ class Transformer(CellSentenceModel):
         pooling: str,
         nhead: int,
         hidden_dropout_prob: float,
-        attention_probs_dropout_prob: float,
         hidden_act: str,
         use_flash_attn: bool,
         num_encoder_layers: int,
