@@ -609,6 +609,11 @@ class HeimdallTrainer:
 
         y_true_batches, preds_batches = [], []
 
+
+        # top-k per batch (indices and scores)
+        max_k_cfg = 20
+        topk_idx_batches, topk_score_batches = [], []
+
         with torch.no_grad():
             for batch in tqdm(dataloader, disable=not self.accelerator.is_main_process):
                 inputs = (batch["identity_inputs"], batch["expression_inputs"])
@@ -633,6 +638,18 @@ class HeimdallTrainer:
 
                 else:
                     raise ValueError(f"Unsupported task_type: {self.cfg.tasks.args.task_type}")
+
+                # compute top-k per example
+                if self.cfg.tasks.args.task_type in ["multiclass", "binary"]:
+                    C = logits.shape[-1]
+                    max_k = min(max_k_cfg, int(C))
+                    if self.cfg.tasks.args.task_type == "multiclass":
+                        vals, idx = torch.topk(logits, k=max_k, dim=-1)
+                    else:
+                        vals, idx = torch.topk(torch.sigmoid(logits), k=max_k, dim=-1)
+                    topk_idx_batches.append(idx.detach().cpu())
+                    topk_score_batches.append(vals.detach().cpu())
+
 
                 y_true_batches.append(labels.cpu())
                 preds_batches.append(preds.cpu())
@@ -682,16 +699,92 @@ class HeimdallTrainer:
         y_true_all = torch.cat(y_true_batches, 0)
         preds_all = torch.cat(preds_batches, 0)
 
+
+        # concat topk arrays if collected
+        have_topk = len(topk_idx_batches) > 0
+        if have_topk:
+            topk_idx_all = torch.cat(topk_idx_batches, 0).numpy()
+            topk_scores_all = torch.cat(topk_score_batches, 0).numpy()
+            K_eff = topk_idx_all.shape[1]
+        else:
+            topk_idx_all = None
+            topk_scores_all = None
+            K_eff = 0
+
+
         if self.accelerator.num_processes > 1:
             loss = self.accelerator.gather(torch.tensor(loss)).mean().item()
 
         log = {f"{dataset_type}_loss": loss}
-        for metric_name, metric in metrics.items():
+        for  metric_name, metric in metrics.items():
             if metric_name != "ConfusionMatrix":
                 # Built-in metric
                 log[f"{dataset_type}_{metric_name}"] = metric.compute().item()
                 if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
                     log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
+
+        # compute and log Top-k metrics + CSV
+        if have_topk and K_eff > 0:
+            ks = [k for k in [1, 5, 10, 15, 20] if k <= K_eff]
+            
+            if self.cfg.tasks.args.task_type == "multiclass":
+                y_true_np = y_true_all.numpy().astype(int).ravel()
+                accs = []
+                for k in ks:
+                    hits = (topk_idx_all[:, :k] == y_true_np[:, None]).any(axis=1)
+                    accs.append(float(hits.mean()))
+                    log[f"{dataset_type}_top{k}_acc"] = accs[-1]
+
+                if self.run_wandb and self.accelerator.is_main_process:
+                    tbl = wandb.Table(data=[[k, a] for k, a in zip(ks, accs)], columns=["k", "topk_acc"])
+                    chart = wandb.plot.line(tbl, "k", "topk_acc", title=f"{dataset_type}: Top-k Accuracy")
+                    self.accelerator.log({f"{dataset_type}_topk_acc_curve": chart}, step=self.step)
+
+            elif self.cfg.tasks.args.task_type == "binary":
+                # y_true is [N, C] multi-hot
+                y_true_np = y_true_all.numpy().astype(int)
+                rel_counts = np.clip(y_true_np.sum(axis=1), 1, None)  # avoid div-by-zero
+                precisions, recalls = []
+                precisions, recalls = [], []
+                for k in ks:
+                    tk = topk_idx_all[:, :k]                     # [N, k]
+                    rows = np.arange(tk.shape[0])[:, None]
+                    rel_at_k = y_true_np[rows, tk]               # [N, k] 0/1
+                    p_k = rel_at_k.sum(axis=1) / float(k)
+                    r_k = rel_at_k.sum(axis=1) / rel_counts
+                    precisions.append(float(p_k.mean()))
+                    recalls.append(float(r_k.mean()))
+                    log[f"{dataset_type}_P@{k}"] = precisions[-1]
+                    log[f"{dataset_type}_R@{k}"] = recalls[-1]
+
+                if self.run_wandb and self.accelerator.is_main_process:
+                    tbl_p = wandb.Table(data=[[k, v] for k, v in zip(ks, precisions)], columns=["k", "precision"])
+                    tbl_r = wandb.Table(data=[[k, v] for k, v in zip(ks, recalls)],   columns=["k", "recall"])
+                    chart_p = wandb.plot.line(tbl_p, "k", "precision", title=f"{dataset_type}: Precision@k")
+                    chart_r = wandb.plot.line(tbl_r, "k", "recall",    title=f"{dataset_type}: Recall@k")
+                    self.accelerator.log(
+                        {f"{dataset_type}_precision_at_k": chart_p,
+                         f"{dataset_type}_recall_at_k": chart_r},
+                        step=self.step,
+                    )
+
+            # Save compact per-example top-20 (or K_eff) CSV
+            if self.accelerator.is_main_process:
+                cols = ["true_label"]
+                for i in range(1, K_eff + 1):
+                    cols += [f"top{i}_idx", f"top{i}_score"]
+                y_true_int = y_true_all.numpy().astype(int).ravel()
+                rows = []
+                for n in range(topk_idx_all.shape[0]):
+                    row = [int(y_true_int[n])]
+                    for i in range(K_eff):
+                        row += [int(topk_idx_all[n, i]), float(topk_scores_all[n, i])]
+                    rows.append(row)
+                df = pd.DataFrame(rows, columns=cols)
+                csv_path = self.results_folder / f"{dataset_type}_top{K_eff}.csv"
+                df.to_csv(csv_path, index=False)
+                if self.run_wandb:
+                    wandb.save(str(csv_path)) 
 
         if "ConfusionMatrix" in metrics:
             # 1. Gather counts from all processes and sum

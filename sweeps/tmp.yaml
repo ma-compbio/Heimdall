@@ -4,17 +4,17 @@ command:
 - --mixed_precision=bf16
 - ${program}
 - ${args_no_hyphens}
-- model=transformer
+- model=transformer_flash
 - fg=identity
 - fg.args.frozen=TRUE
-- fe=scfoundation
-- fc=geneformer
-- model.args.pos_enc=BERT
+- fe=binning_scgpt
+- fc=scgpt
+- model.args.pos_enc=NONE
 - fc.args.max_input_length=1024
-- +experiments=sctab_split1_all
+- +experiments=rp20_mean
 - user=ehaber
-- seed=60
-- project_name=autobin_ablation
+- seed=55
+- project_name=rp_scgpt_mean
 method: grid
 metric:
   goal: maximize
