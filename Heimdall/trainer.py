@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import psutil
 import torch
-import torch.nn as nn
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from omegaconf import OmegaConf
