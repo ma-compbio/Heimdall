@@ -75,7 +75,7 @@ class HeimdallTrainer:
         set_seed(cfg.seed)
 
         self.optimizer = self._initialize_optimizer()
-        self.loss_fn = self.instantiate_loss_from_config(self.cfg.loss)
+        self.loss_fn = self.instantiate_loss_from_config()
 
         self.accelerator.wait_for_everyone()
         self.print_r0(f"> Using Device: {self.accelerator.device}")
@@ -323,13 +323,13 @@ class HeimdallTrainer:
         if self.accelerator.is_main_process:
             self.print_r0("> Model has finished Training")
 
-    def instantiate_loss_from_config(self, config):
+    def instantiate_loss_from_config(self):
         loss_kwargs = {}
         loss_name = self.cfg.tasks.args.loss.type.split(".")[-1]
         if loss_name.startswith("Flatten"):
             loss_kwargs["num_labels"] = self.num_labels
 
-        return instantiate_from_config(self.cfg.loss, **loss_kwargs)
+        return instantiate_from_config(self.cfg.tasks.args.loss, **loss_kwargs)
 
     def get_loss(self, logits, labels, *args):
         if args:
