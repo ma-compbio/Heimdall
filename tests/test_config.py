@@ -3,7 +3,7 @@ from omegaconf import OmegaConf
 
 
 def test_config_with_overrides():
-    with initialize(version_base=None, config_path="../config", job_name="test"):
+    with initialize(version_base=None, config_path="../Heimdall/config", job_name="test"):
         cfg = compose(config_name="config", overrides=["fg=identity", "fe=binning_scgpt"])
         resolved_config = OmegaConf.create(OmegaConf.to_yaml(cfg, resolve=True))
 

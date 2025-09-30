@@ -49,11 +49,10 @@ model_configs = [
           args:
             d_model: 128
             pos_enc: BERT
-            num_encoder_layers: 6
+            num_encoder_layers: 2
             nhead: 4
             hidden_act: gelu
             hidden_dropout_prob: 0.1
-            attention_probs_dropout_prob: 0.1
             use_flash_attn: false
             pooling: cls_pooling # or "mean_pooling"
     """,
@@ -134,11 +133,10 @@ def paired_task_config(request, toy_paried_data_path):
       args:
         d_model: 128
         pos_enc: BERT
-        num_encoder_layers: 6
+        num_encoder_layers: 2
         nhead: 4
         hidden_act: gelu
         hidden_dropout_prob: 0.1
-        attention_probs_dropout_prob: 0.1
         use_flash_attn: false
         pooling: cls_pooling # or "mean_pooling"
     dataset:

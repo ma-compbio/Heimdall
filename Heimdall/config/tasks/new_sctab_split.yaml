@@ -17,10 +17,10 @@ args:
   epochs: 50
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
+  cell_rep_config:
+    type: Heimdall.cell_representations.CellRepresentation
   head_config:
     type: Heimdall.models.LinearCellPredHead
     args:
-  cell_rep_config:
-    type: Heimdall.cell_representations.CellRepresentation
   loss:
     type: Heimdall.losses.FlattenCrossEntropyLoss
