@@ -15,7 +15,7 @@ try:
     from flash_attn.bert_padding import pad_input, unpad_input
     from flash_attn.modules.mha import MHA
 except ImportError:
-    warnings.warn("`flash-attn` is not available.", UserWarning)
+    warnings.warn("`flash-attn` is not available.", UserWarning, stacklevel=1)
 
 
 class HeimdallModel(nn.Module):
@@ -376,10 +376,6 @@ class ExpressionWeightedSumEncoder(nn.Module):
         weighted_sum = masked_embeds.mul(masked_expression_inputs)
 
         return weighted_sum
-
-
-import torch
-import torch.nn as nn
 
 
 class FlashTransformerEncoderLayer(nn.Module):
