@@ -433,19 +433,23 @@ class FlashTransformerEncoder(nn.Module):
     def forward(self, x, src_key_padding_mask=None):
         if src_key_padding_mask is None:
             src_key_padding_mask = None
+            x_unpad, cu_seqlens, max_seqlen_in_batch = x, None, None
         else:
             # convert to bool then invert: PyTorch True(pad) -> flash True(keep)
             src_key_padding_mask = ~src_key_padding_mask.bool()
 
-        batch, seq_len, d_model = x.size()
+            batch, seq_len, d_model = x.size()
 
-        x_unpad, indices, cu_seqlens, max_seqlen_in_batch, _ = unpad_input(x, src_key_padding_mask)
+            x_unpad, indices, cu_seqlens, max_seqlen_in_batch, _ = unpad_input(x, src_key_padding_mask)
 
         # x: (batch, seq_len, d_model)
         for layer in self.layers:
             x_unpad = layer(x_unpad, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen_in_batch)
 
-        x = pad_input(x_unpad, indices, batch, seq_len)
+        if src_key_padding_mask is None:
+            x = x_unpad
+        else:
+            x = pad_input(x_unpad, indices, batch, seq_len)
 
         return x
 
