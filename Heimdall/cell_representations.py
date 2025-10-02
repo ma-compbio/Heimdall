@@ -94,14 +94,12 @@ class CellRepresentation(SpecialTokenMixin):
         self._cfg = config
 
         self.dataset_preproc_cfg = config.dataset.preprocess_args
-        self.dataset_task_cfg = config.tasks.args
+        # self.dataset_task_cfg = config.tasks.args
+        self.task = instantiate_from_config(config.tasks, self)
+
         self.fg_cfg = config.fg
         self.fc_cfg = config.fc
         self.fe_cfg = config.fe
-        self.model_cfg = config.model
-        self.optimizer_cfg = config.optimizer
-        self.trainer_cfg = config.trainer
-        self.scheduler_cfg = config.scheduler
         self.float_dtype = config.float_dtype
         self.adata = None
         self.processed_fcfg = False
@@ -122,59 +120,10 @@ class CellRepresentation(SpecialTokenMixin):
         #     self.prepare_dataset_loaders()
         self.cr_setup = True
 
-    # @property
-    # @check_states(adata=True, processed_fcfg=True)
-    # def cell_representations(self) -> NDArray[np.float32]:
-    #     return self.fc[:]
-
     @property
     @check_states(labels=True)
     def labels(self) -> Union[NDArray[np.int_], NDArray[np.float32]]:
-        return self._labels
-
-    @property
-    @check_states(labels=True)
-    def num_tasks(self) -> int:
-        if "_num_tasks" not in self.__dict__:
-            warnings.warn(
-                "Need to improve to explicitly handle multiclass vs. multilabel",
-                UserWarning,
-                stacklevel=2,
-            )
-            assert self.dataset_task_cfg.task_type in [
-                "regression",
-                "binary",
-                "multiclass",
-                "mlm",
-            ], "task type must be regression, binary, multiclass or mlm. Check the task config file."
-
-            task_type = self.dataset_task_cfg.task_type
-            if task_type == "regression":
-                if len(self.labels.shape) == 1:
-                    out = 1
-                else:
-                    out = self._labels.shape[1]
-            elif task_type == "binary":
-                if len(self.labels.shape) == 1:
-                    out = 1
-                else:
-                    out = self._labels.shape[1]
-            elif task_type == "multiclass":
-                out = self._labels.max() + 1
-            elif task_type == "mlm":
-                # out = self._labels.max() + 1
-                out = self._labels.shape[0] + 1  # TODO why +1 ?
-            else:
-                raise ValueError(
-                    f"Unknown task type {task_type!r}. Valid options are: 'multiclass', 'binary', 'regression', 'mlm'.",
-                )
-
-            self._num_tasks = out = int(out)
-            print(
-                f"> Task dimension: {out} " f"(task type {self.dataset_task_cfg.task_type!r}, {self.labels.shape=})",
-            )
-
-        return self._num_tasks
+        return self.task._labels
 
     @property
     @check_states(splits=True)
@@ -195,20 +144,6 @@ class CellRepresentation(SpecialTokenMixin):
             - symbol_to_ensembl_mapping: mapping dictionary from symbols to Ensembl IDs
 
         """
-        # symbol_to_ensembl_mapping = symbol_to_ensembl_from_ensembl(
-        #     data_dir=data_dir,
-        #     genes=self.adata.var.index.tolist(),
-        #     species=species,
-        # )
-
-        # self.adata.uns["gene_mapping:symbol_to_ensembl"] = symbol_to_ensembl_mapping.mapping_full
-
-        # self.adata.var["gene_symbol"] = self.adata.var.index
-        # self.adata.var["gene_ensembl"] = self.adata.var["gene_symbol"].map(
-        #     symbol_to_ensembl_mapping.mapping_combined.get,
-        # )
-        # self.adata.var.index = self.adata.var.index.map(symbol_to_ensembl_mapping.mapping_reduced)
-        # self.adata.var.index.name = "index"
 
         _, gene_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
         return self.adata, gene_mapping
@@ -334,7 +269,7 @@ class CellRepresentation(SpecialTokenMixin):
     def prepare_full_dataset(self):
         # Set up full dataset given the processed cell representation data
         # This will prepare: labels, splits
-        full_dataset: Dataset = instantiate_from_config(self._cfg.tasks.args.dataset_config, self)
+        full_dataset: Dataset = instantiate_from_config(self.task.dataset_config, self)
         self.datasets = {"full": full_dataset}
 
     @check_states(adata=True, processed_fcfg=True)
@@ -351,7 +286,7 @@ class CellRepresentation(SpecialTokenMixin):
             split: DataLoader(
                 dataset,
                 batch_size=self._cfg.trainer.per_device_batch_size,
-                shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
+                shuffle=self.task.shuffle if split == "train" else False,
                 collate_fn=heimdall_collate_fn,
                 **dataloader_kwargs,
             )
@@ -590,8 +525,6 @@ class PartitionedCellRepresentation(CellRepresentation):
     @check_states(adata=True, processed_fcfg=True)
     def prepare_dataset_loaders(self):
         full_dataset = self.datasets["full"]
-        # TODO: implement. It may be okay to just inherit from `CellRepresentation`, if we
-        # implement `PartitionedDataset` correctly, actually...
 
         # Set up dataset splits given the data splits
         overall_splits = defaultdict(dict)
@@ -610,7 +543,7 @@ class PartitionedCellRepresentation(CellRepresentation):
                         dataset,
                         num_replicas=self.num_replicas,
                         rank=self.rank,
-                        shuffle=self.dataset_task_cfg.shuffle if split == "train" else False,
+                        shuffle=self.task.shuffle if split == "train" else False,
                     ),
                     batch_size=self._cfg.trainer.per_device_batch_size,
                     drop_last=False,

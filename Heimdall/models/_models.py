@@ -23,7 +23,6 @@ class HeimdallModel(nn.Module):
         self,
         data: CellRepresentation,
         model_config: DictConfig,
-        task_config: DictConfig,
     ):
         super().__init__()
         """Heimdall model. Combines language model and task-specific head.
@@ -31,7 +30,6 @@ class HeimdallModel(nn.Module):
         Args:
             data: Cell representation data object.
             model_config: The language model config.
-            task_config: The task config.
 
         """
         self.encoder = instantiate_from_config(
@@ -39,18 +37,18 @@ class HeimdallModel(nn.Module):
             data,
         )
 
-        self.num_labels = data.num_tasks
+        self.num_labels = data.task.num_tasks
         dim_in = self.encoder.d_encoded
 
         self.reducer = self.reduction_name = None
         if isinstance(data.datasets["full"], PairedInstanceDataset):
             self.reducer, self.reduction_name = instantiate_from_config(
-                task_config.reduction,
+                data.task.reducer_config,
                 dim_in=dim_in,
                 return_name=True,
             )
 
-        self.head = instantiate_from_config(task_config.head_config, dim_in=dim_in, dim_out=self.num_labels)
+        self.head = instantiate_from_config(data.task.head_config, dim_in=dim_in, dim_out=self.num_labels)
 
     def forward(self, inputs, labels=None, attention_mask=None):
         # print(inputs, attention_mask)
@@ -83,7 +81,6 @@ class ExpressionOnly(nn.Module):
         Args:
             data: Cell representation data object.
             model_config: The language model config.
-            task_config: The task config.
 
         """
 

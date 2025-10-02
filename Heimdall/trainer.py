@@ -40,14 +40,13 @@ class HeimdallTrainer:
         self.accelerator = accelerator
 
         self.check_flash_attn()
-        args = self.cfg.tasks.args
 
         # TODO: since we use the label_key in the CellRepresentation setup, we shouldn't need it here.
         # It should all be accessible in the data.labels... Delete the block below if possible...?
 
         # Unified label key handling: support .obs or .obsm
-        label_key = getattr(args, "label_col_name", None)
-        label_obsm_key = getattr(args, "label_obsm_name", None)
+        label_key = self.data.task.label_col_name
+        label_obsm_key = self.data.task.label_obsm_name
 
         if label_key is not None:
             # Single-label classification using .obs[label_key]
@@ -61,11 +60,11 @@ class HeimdallTrainer:
                 self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
                 self.num_labels = len(self.class_names)
             else:
-                self.num_labels = data.num_tasks
+                self.num_labels = data.task.num_tasks
         else:
             # Auto infering
             self.class_names = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
-            self.num_labels = data.num_tasks
+            self.num_labels = data.task.num_tasks
 
         self.run_wandb = run_wandb
         self.process = psutil.Process()
@@ -150,7 +149,7 @@ class HeimdallTrainer:
             print("==> Initialized Run")
 
     def _initialize_lr_scheduler(self):
-        dataset_config = self.cfg.tasks.args
+        dataset_config = self.data.task
         global_batch_size = dataset_config.batchsize
         total_steps = len(self.dataloader_train.dataset) // global_batch_size * dataset_config.epochs
         warmup_ratio = self.cfg.scheduler.warmup_ratio
@@ -172,7 +171,7 @@ class HeimdallTrainer:
     def _initialize_metrics(self):
         """Initializing the metrics based on the hydra config."""
         metrics = {}
-        task_type = self.cfg.tasks.args.task_type
+        task_type = self.data.task.task_type
 
         # First, add custom metrics if provided, TODO this is not implemented yet
         assert self.custom_metrics == {}, "Custom metrics not implemented yet"
@@ -181,7 +180,7 @@ class HeimdallTrainer:
         # Then, add built-in metrics if not overridden by custom metrics
         if task_type in ("mlm", "multiclass"):
             num_classes = self.num_labels
-            for metric_name in self.cfg.tasks.args.metrics:
+            for metric_name in self.data.task.metrics:
                 if metric_name not in metrics:
                     if metric_name == "Accuracy":
                         metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
@@ -196,7 +195,7 @@ class HeimdallTrainer:
                     elif metric_name == "ConfusionMatrix":
                         metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
         elif task_type == "regression":
-            for metric_name in self.cfg.tasks.args.metrics:
+            for metric_name in self.data.task.metrics:
                 if metric_name not in metrics:
                     if metric_name == "R2Score":
                         metrics[metric_name] = R2Score()
@@ -205,7 +204,7 @@ class HeimdallTrainer:
         elif task_type == "binary":
             # num_labels = self.num_labels
             num_labels = 2
-            for metric_name in self.cfg.tasks.args.metrics:
+            for metric_name in self.data.task.metrics:
                 if metric_name not in metrics:
                     if metric_name == "Accuracy":
                         metrics[metric_name] = Accuracy(task="binary", num_labels=num_labels)
@@ -232,26 +231,26 @@ class HeimdallTrainer:
 
         # If the tracked parameter is specified
         track_metric = None
-        if self.cfg.tasks.args.get("track_metric", False):
-            track_metric = self.cfg.tasks.args.track_metric
+        if self.data.task.track_metric is not None:
+            track_metric = self.data.task.track_metric
             best_metric = {
                 f"best_val_{track_metric}": float("-inf"),
                 f"reported_test_{track_metric}": float("-inf"),
             }
             assert (
-                track_metric in self.cfg.tasks.args.metrics
+                track_metric in self.data.task.metrics
             ), "The tracking metric is not in the list of metrics, please check your configuration task file"
 
         # Initialize early stopping parameters
-        early_stopping = self.cfg.tasks.args.get("early_stopping", False)
-        early_stopping_patience = self.cfg.tasks.args.get("early_stopping_patience", 5)
+        early_stopping = self.data.task.early_stopping
+        early_stopping_patience = self.data.task.early_stopping_patience
         patience_counter = 0
 
         best_val_embed = None
         best_test_embed = None
         best_epoch = 0
 
-        for epoch in range(start_epoch, self.cfg.tasks.args.epochs):
+        for epoch in range(start_epoch, self.data.task.epochs):
             # Validation and test evaluation
             valid_log, val_embed = self.validate_model(self.dataloader_val, dataset_type="valid")
             test_log, test_embed = self.validate_model(self.dataloader_test, dataset_type="test")
@@ -267,7 +266,7 @@ class HeimdallTrainer:
                     best_metric[f"best_val_{track_metric}"] = val_metric
                     self.print_r0(f"New best validation {track_metric}: {val_metric}")
                     best_metric["reported_epoch"] = epoch  # log the epoch for convenience
-                    for metric in self.cfg.tasks.args.metrics:
+                    for metric in self.data.task.metrics:
                         best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
                     patience_counter = 0  # Reset patience counter since we have a new best
 
@@ -310,7 +309,7 @@ class HeimdallTrainer:
             self.accelerator.is_main_process
             and self.cfg.model.name != "logistic_regression"
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-            and self.cfg.tasks.args.task_type != "mlm"
+            and self.data.task.task_type != "mlm"
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
             if best_test_embed is not None and best_val_embed is not None and not self.cfg.trainer.fastdev:
@@ -325,11 +324,11 @@ class HeimdallTrainer:
 
     def instantiate_loss_from_config(self):
         loss_kwargs = {}
-        loss_name = self.cfg.tasks.args.loss.type.split(".")[-1]
+        loss_name = self.data.task.loss_config.type.split(".")[-1]
         if loss_name.startswith("Flatten"):
             loss_kwargs["num_labels"] = self.num_labels
 
-        return instantiate_from_config(self.cfg.tasks.args.loss, **loss_kwargs)
+        return instantiate_from_config(self.data.task.loss_config, **loss_kwargs)
 
     def get_loss(self, logits, labels, *args):
         if args:
@@ -397,18 +396,18 @@ class HeimdallTrainer:
                     logits = batch_outputs.logits
                     labels = batch["labels"].to(batch_outputs.device)
 
-                    if self.cfg.tasks.args.task_type == "multiclass":
+                    if self.data.task.task_type == "multiclass":
                         preds = logits.argmax(dim=1)
-                    elif self.cfg.tasks.args.task_type == "mlm":
+                    elif self.data.task.task_type == "mlm":
                         preds = logits.argmax(dim=2)
-                    elif self.cfg.tasks.args.task_type == "binary":
+                    elif self.data.task.task_type == "binary":
                         # multi-label binary classification → use sigmoid + threshold
                         probs = torch.sigmoid(logits)
                         preds = (probs > 0.5).float()
-                    elif self.cfg.tasks.args.task_type == "regression":
+                    elif self.data.task.task_type == "regression":
                         preds = logits
                     else:
-                        raise ValueError(f"Unsupported task_type: {self.cfg.tasks.args.task_type}")
+                        raise ValueError(f"Unsupported task_type: {self.data.task.task_type}")
 
                     if training:
                         self.accelerator.backward(loss)
@@ -452,9 +451,9 @@ class HeimdallTrainer:
                     if metrics is not None:
                         for metric_name, metric in metrics.items():  # noqa: B007
                             # Built-in metric
-                            if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
+                            if self.data.task.task_type in ["multiclass", "mlm"]:
                                 labels = labels.to(torch.int)
-                            if self.cfg.tasks.args.task_type in ["binary"]:
+                            if self.data.task.task_type in ["binary"]:
                                 # Step 1: Flatten the tensor
                                 flattened_labels = labels.flatten()
                                 flattened_preds = preds.flatten()

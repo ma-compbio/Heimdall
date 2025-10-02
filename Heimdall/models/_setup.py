@@ -41,7 +41,6 @@ def setup_experiment(config, cpu=False):
     model = HeimdallModel(
         data=cr,
         model_config=config.model,
-        task_config=config.tasks.args,
     ).to(float_dtype)
 
     if accelerator.is_main_process:

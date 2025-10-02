@@ -1,3 +1,5 @@
+type: Heimdall.task.Task
+
 args:
   task_type: mlm
   label_obsm_name: mlm
@@ -15,5 +17,5 @@ args:
     args:
   cell_rep_config:
     type: Heimdall.cell_representations.PartitionedCellRepresentation
-  loss:
+  loss_config:
     type: Heimdall.losses.FlattenCrossEntropyLoss

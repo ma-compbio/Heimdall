@@ -13,7 +13,7 @@ from omegaconf import OmegaConf, open_dict
 from pytest import fixture
 
 from Heimdall.cell_representations import CellRepresentation
-from Heimdall.models import HeimdallModel, setup_experiment
+from Heimdall.models import setup_experiment
 from Heimdall.utils import get_dtype, instantiate_from_config
 
 load_dotenv()
@@ -149,6 +149,7 @@ def paired_task_config(request, toy_paried_data_path):
         scale_data: false
         species: mouse
     tasks:
+      type: Heimdall.task.Task
       args:
         task_type: binary
         interaction_type: _all_
@@ -164,8 +165,7 @@ def paired_task_config(request, toy_paried_data_path):
         shuffle: true
         batchsize: 32
         epochs: 10
-        prediction_dim: 14
-        reduction:
+        reducer_config:
           type: {request.param}
         dataset_config:
           type: Heimdall.datasets.PairedInstanceDataset
@@ -174,6 +174,8 @@ def paired_task_config(request, toy_paried_data_path):
           args: null
         cell_rep_config:
           type: Heimdall.cell_representations.CellRepresentation
+        loss_config:
+          name: CrossEntropyLoss
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -218,8 +220,6 @@ def paired_task_config(request, toy_paried_data_path):
             embedding_dim: 128
         d_embedding: 128
 {format_for_config(fg_config)}j
-    loss:
-      name: CrossEntropyLoss
     """
     conf = OmegaConf.create(config_string)
 
@@ -250,6 +250,7 @@ def single_task_config(request, toy_single_data_path):
         scale_data: false
         species: mouse
     tasks:
+      type: Heimdall.task.Task
       args:
         task_type: multiclass
         label_col_name: class
@@ -260,7 +261,6 @@ def single_task_config(request, toy_single_data_path):
         shuffle: true
         batchsize: 32
         epochs: 10
-        prediction_dim: 14
         dataset_config:
           type: Heimdall.datasets.SingleInstanceDataset
         head_config:
@@ -268,6 +268,8 @@ def single_task_config(request, toy_single_data_path):
           args: null
         cell_rep_config:
           type: Heimdall.cell_representations.CellRepresentation
+        loss_config:
+          name: CrossEntropyLoss
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -299,8 +301,6 @@ def single_task_config(request, toy_single_data_path):
         d_embedding: null
         drop_zeros: False
 {format_for_config(fg_config)}j
-    loss:
-      name: CrossEntropyLoss
     """
     conf = OmegaConf.create(config_string)
 
@@ -332,6 +332,7 @@ def partition_config(request, toy_partitioned_data_path):
         scale_data: false
         species: mouse
     tasks:
+      type: Heimdall.task.Task
       args:
         task_type: multiclass
         label_col_name: class
@@ -342,7 +343,6 @@ def partition_config(request, toy_partitioned_data_path):
         shuffle: true
         batchsize: 32
         epochs: 10
-        prediction_dim: 14
         dataset_config:
           type: Heimdall.datasets.PartitionedDataset
         head_config:
@@ -350,6 +350,8 @@ def partition_config(request, toy_partitioned_data_path):
           args: null
         cell_rep_config:
           type: Heimdall.cell_representations.PartitionedCellRepresentation
+        loss_config:
+          name: CrossEntropyLoss
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -381,8 +383,6 @@ def partition_config(request, toy_partitioned_data_path):
         d_embedding: null
         drop_zeros: False
 {format_for_config(fg_config)}j
-    loss:
-      name: CrossEntropyLoss
     """
     conf = OmegaConf.create(config_string)
 

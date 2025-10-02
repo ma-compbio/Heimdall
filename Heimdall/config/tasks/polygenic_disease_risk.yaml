@@ -1,3 +1,5 @@
+type: Heimdall.task.Task
+
 args:
   task_type: binary
   label_obsm_name: disease_classification
@@ -21,5 +23,5 @@ args:
     args:
   cell_rep_config:
     type: Heimdall.cell_representations.CellRepresentation
-  loss:
+  loss_config:
     type: Heimdall.losses.MaskedBCEWithLogitsLoss

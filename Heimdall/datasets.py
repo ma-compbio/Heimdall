@@ -50,11 +50,11 @@ class Dataset(PyTorchDataset, ABC):
 
     @property
     def labels(self) -> NDArray:
-        return getattr(self.data, "_labels", None)
+        return getattr(self.data.task, "_labels", None)
 
     @labels.setter
     def labels(self, val):
-        self.data._labels = val
+        self.data.task._labels = val
 
     @property
     def splits(self) -> NDArray:
@@ -103,32 +103,33 @@ class SingleInstanceDataset(Dataset):
 
     def _setup_labels_and_pre_splits(self):
         adata = self.data.adata
-        dataset_task_cfg = self.data.dataset_task_cfg
+        # dataset_task_cfg = self.data.dataset_task_cfg
+        task = self.data.task
 
-        if "label_col_name" in dataset_task_cfg:
-            assert "label_obsm_name" not in dataset_task_cfg
+        if task.label_col_name is not None:
+            assert task.label_obsm_name is None
             df = adata.obs
             class_mapping = {
                 label: idx
                 for idx, label in enumerate(
-                    df[dataset_task_cfg.label_col_name].unique(),
+                    df[task.label_col_name].unique(),
                     start=0,
                 )
             }
-            df["class_id"] = df[dataset_task_cfg.label_col_name].map(class_mapping)
+            df["class_id"] = df[task.label_col_name].map(class_mapping)
             labels = np.array(df["class_id"])
-            if dataset_task_cfg.task_type == "regression":
+            if task.task_type == "regression":
                 labels = labels.reshape(-1, 1).astype(np.float32)
 
-        elif "label_obsm_name" in dataset_task_cfg:
-            assert "label_col_name" not in dataset_task_cfg
-            df = adata.obsm[dataset_task_cfg.label_obsm_name]
+        elif task.label_obsm_name is not None:
+            assert task.label_col_name is None
+            df = adata.obsm[task.label_obsm_name]
 
-            if dataset_task_cfg.task_type == "binary":
+            if task.task_type == "binary":
                 (labels := np.empty(df.shape, dtype=np.float32)).fill(np.nan)
                 labels[np.where(df == 1)] = 1
                 labels[np.where(df == -1)] = 0
-            elif dataset_task_cfg.task_type == "regression":
+            elif task.task_type == "regression":
                 labels = np.array(df).astype(np.float32)
 
             print(f"labels shape {labels.shape}")
@@ -138,19 +139,19 @@ class SingleInstanceDataset(Dataset):
         self.labels = labels
 
         # Set up splits and task mask
-        splits = dataset_task_cfg.get("splits", None)
-        if splits is None:
+        # splits = dataset_task_cfg.get("splits", None)
+        if task.splits is None:
             return
 
-        split_type = splits.get("type", None)
+        split_type = task.splits.get("type", None)
         if split_type == "predefined":
             self.splits = {}
-            if hasattr(dataset_task_cfg.splits, "col"):
-                split_col = adata.obs[dataset_task_cfg.splits.col]
+            if hasattr(task.splits, "col"):
+                split_col = adata.obs[task.splits.col]
             else:
                 split_col = adata.obs["split"]
             for split in self.SPLITS:
-                if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+                if (split_key := task.splits.keys_.get(split)) is None:
                     warnings.warn(
                         f"Skipping {split!r} split as the corresponding key is not found",
                         UserWarning,
@@ -181,7 +182,7 @@ class PairedInstanceDataset(Dataset):
 
     def _setup_labels_and_pre_splits(self):
         adata = self.data.adata
-        dataset_task_cfg = self.data.dataset_task_cfg
+        task = self.data.task
 
         all_obsp_task_keys, obsp_mask_keys = [], []
         for key in adata.obsp:
@@ -191,7 +192,7 @@ class PairedInstanceDataset(Dataset):
         obsp_mask_keys = sorted(obsp_mask_keys)
 
         # Select task keys
-        candidate_obsp_task_keys = dataset_task_cfg.interaction_type
+        candidate_obsp_task_keys = task.interaction_type
         if candidate_obsp_task_keys == "_all_":
             obsp_task_keys = all_obsp_task_keys
         else:
@@ -208,14 +209,14 @@ class PairedInstanceDataset(Dataset):
             obsp_task_keys = candidate_obsp_task_keys
 
         # Set up splits and task mask
-        if "splits" not in dataset_task_cfg:  # no predefined splits specified
+        if task.splits is None:  # no predefined splits specified
             full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
             nz = np.nonzero(full_mask)
 
-        elif (split_type := dataset_task_cfg.splits.type) == "predefined":
+        elif (split_type := task.splits.type) == "predefined":
             masks = {}
             for split in self.SPLITS:
-                if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+                if (split_key := task.splits.keys_.get(split)) is None:
                     warnings.warn(
                         f"Skipping {split!r} split as the corresponding key is not found",
                         UserWarning,
@@ -235,7 +236,7 @@ class PairedInstanceDataset(Dataset):
         adata.obsp["full_mask"] = full_mask
 
         # Task type specific handling
-        task_type = dataset_task_cfg.task_type
+        task_type = task.task_type
         if task_type == "multiclass":
             if len(obsp_task_keys) > 1:
                 raise ValueError(f"{task_type!r} only supports a single task key, provided task keys: {obsp_task_keys}")
@@ -374,8 +375,8 @@ class PartitionedDataset(SeqMaskedMLMDataset):
         return self.partition_sizes[self.partition]
 
     def _setup_labels_and_pre_splits(self):
-        dataset_task_cfg = self.data.dataset_task_cfg
-        splits = dataset_task_cfg.get("splits", None)
+        task = self.data.task
+        splits = task.splits
 
         # Dummy labels to indicate task size
         self.labels = np.empty(self._data.fg.vocab_size)
@@ -401,17 +402,17 @@ class PartitionedDataset(SeqMaskedMLMDataset):
         self.partition = 0
 
     def _get_partition_splits(self, part_id):
-        dataset_task_cfg = self.data.dataset_task_cfg
+        task = self.data.task
         adata = self.data.adata
 
         partition_splits = {}
-        if hasattr(dataset_task_cfg.splits, "col"):
-            split_col = adata.obs[dataset_task_cfg.splits.col]
+        if "col" in task.splits:
+            split_col = adata.obs[task.splits.col]
         else:
             split_col = adata.obs["split"]
 
         for split in self.SPLITS:
-            if (split_key := dataset_task_cfg.splits.keys_.get(split)) is None:
+            if (split_key := task.splits.keys_.get(split)) is None:
                 warnings.warn(
                     f"Skipping {split!r} split as the corresponding key is not found",
                     UserWarning,
@@ -431,13 +432,7 @@ class PartitionedDataset(SeqMaskedMLMDataset):
 
         train_idx, test_val_idx = train_test_split(
             np.arange(num_samples_partition),
-            train_size=float(
-                getattr(
-                    self._data._cfg.tasks.args,
-                    "train_split",
-                    0.8,
-                ),
-            ),
+            train_size=float(getattr(self._data.task, "train_split", 0.8)),
             random_state=seed,
         )
         val_idx, test_idx = train_test_split(test_val_idx, test_size=0.5, random_state=seed)
