@@ -7,14 +7,14 @@ command:
 - model=transformer_flash
 - fg=identity
 - fg.args.frozen=TRUE
-- fe=binning_scgpt
-- fc=scgpt
-- model.args.pos_enc=NONE
+- fe=zero
+- fc=geneformer
+- model.args.pos_enc=BERT
 - fc.args.max_input_length=1024
-- +experiments=rp20_mean
+- +experiments=rp20_sum
 - user=ehaber
-- seed=55
-- project_name=rp_scgpt_mean
+- seed=60
+- project_name=rp_geneformer_sum
 method: grid
 metric:
   goal: maximize

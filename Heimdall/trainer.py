@@ -261,6 +261,16 @@ class HeimdallTrainer:
         if resume_from_checkpoint:
             start_epoch = self.load_checkpoint()
 
+        if start_epoch >= self.cfg.tasks.args.epochs:
+            last_epoch = max(0, start_epoch - 1)
+            # Run one eval pass on the loaded weights to get embeddings
+            _, val_embed  = self.validate_model(self.dataloader_val,  "valid")
+            _, test_embed = self.validate_model(self.dataloader_test, "test")
+    
+            if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
+                #self.save_adata_umap(test_embed, val_embed)
+                self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
+            return
         # If the tracked parameter is specified
         track_metric = None
         if self.cfg.tasks.args.get("track_metric", False):
@@ -338,14 +348,13 @@ class HeimdallTrainer:
                 self.accelerator.log(best_metric, step=self.step)
             self.accelerator.end_training()
 
-        #if (
-         #   self.accelerator.is_main_process
-         #   and self.cfg.model.name != "logistic_regression"
-         #   and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-       # ):
-            #self.save_adata_umap(best_test_embed, best_val_embed)
-            #self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
-
+        #if (self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression"
+        #         and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
+        # ):
+        #     self.save_adata_umap(best_test_embed, best_val_embed)
+        #     self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
+        #self.save_adata_umap(best_test_embed, best_val_embed)
+        #self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
         if self.accelerator.is_main_process:
             self.print_r0("> Model has finished Training")
 
@@ -425,39 +434,172 @@ class HeimdallTrainer:
                 if self.cfg.trainer.fastdev:
                     break
 
-    # Add these methods to the HeimdallTrainer class
     def save_adata_umap(self, best_test_embed, best_val_embed):
-        # Case 1: predefined splits
-        if hasattr(self.cfg.tasks.args, "splits"):
-            test_adata = self.data.adata[
-                self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
-            ].copy()
-            val_adata = self.data.adata[
-                self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
-            ].copy()
+        """
+        Attach pair-level embeddings to the *perturbed* cell of each example and save UMAPs.
+        All logic stays here:
+          1) Prefer per-example indices from dataloader batches/datasets (index_perturbed).
+          2) Else derive from dataset left/right indices + obs['ko'] rule (A|B → pick after '|', else pick right).
+          3) As a last resort, error with a precise message (we avoid using obsp counts that won't align).
+        """
+        import numpy as np
+        import scanpy as sc
+        from torch.utils.data import Subset
+    
+        ad = self.data.adata
+    
+        # ---------- helpers (local to this function) ----------
+        def _unwrap_subset(ds):
+            # unwrap nested torch Subset to reach the base dataset
+            base = ds
+            chain = []
+            while isinstance(base, Subset):
+                chain.append(base)
+                base = base.dataset
+            return base, chain
+    
+        def _get_len(x):
+            try:
+                return len(x)
+            except Exception:
+                return None
+    
+        def _right_token(a, b):
+            # A|B rule: if either has a pipe, perturbed = token after '|'; else treat as A|B → choose right label (b)
+            a = str(a); b = str(b)
+            if "|" in a: return a.split("|", 1)[1]
+            if "|" in b: return b.split("|", 1)[1]
+            return b
+    
+        def _choose_perturbed_indices_from_left_right(left_idx, right_idx, ko_col="ko"):
+            ko = ad.obs[ko_col].astype(str).to_numpy()
+            labL, labR = ko[left_idx], ko[right_idx]
+            rt = np.fromiter((_right_token(a, b) for a, b in zip(labL, labR)), dtype=object, count=len(left_idx))
+            pickR = (labR == rt); pickL = (labL == rt)
+            return np.where(pickR & ~pickL, right_idx, np.where(pickL & ~pickR, left_idx, right_idx)).astype(int)
+    
+        def _find_example_ordered_perturbed_indices(dataloader, expected_n, split_name):
+            ...
+            # [A] try dataset.index_perturbed (as before)
+            # [B] try dataset left/right arrays + rule (as before)
+        
+            # [C] FALLBACK: recover from batch dicts (keeps everything inside save_adata_umap)
+            # Assumes val/test dataloaders have shuffle=False so order matches embeddings
+            ex = []
+            import numpy as np
+            ko = ad.obs["ko"].astype(str).to_numpy()
+        
+            def right_token(a, b):
+                if "|" in a: return a.split("|", 1)[1]
+                if "|" in b: return b.split("|", 1)[1]
+                return b
+        
+            for batch in dataloader:
+                # 1) ideal: batch already exposes perturbed indices
+                for k in ("index_perturbed", "perturbed_indices", "idx_perturbed"):
+                    if k in batch:
+                        ex.append(batch[k].detach().cpu().numpy())
+                        break
+                else:
+                    # 2) derive from left/right indices in the batch
+                    if ("index_left" in batch and "index_right" in batch):
+                        Li = batch["index_left"].detach().cpu().numpy()
+                        Ri = batch["index_right"].detach().cpu().numpy()
+                    elif ("idx_a" in batch and "idx_b" in batch):
+                        Li = batch["idx_a"].detach().cpu().numpy()
+                        Ri = batch["idx_b"].detach().cpu().numpy()
+                    else:
+                        # nothing we can use in this batch; skip (or raise)
+                        continue
+        
+                    labL, labR = ko[Li], ko[Ri]
+                    rt = np.fromiter((right_token(a, b) for a, b in zip(labL, labR)),
+                                     dtype=object, count=len(Li))
+                    pickR = (labR == rt); pickL = (labL == rt)
+                    chosen = np.where(pickR & ~pickL, Ri, np.where(pickL & ~pickR, Li, Ri)).astype(int)
+                    ex.append(chosen)
+        
+            if ex:
+                arr = np.concatenate(ex, axis=0)
+                if len(arr) == expected_n:
+                    return arr
+        
+            # If we get here, we truly cannot reconstruct the example order.
+            raise ValueError(
+                f"[{split_name}] Cannot recover per-example perturbed indices within save_adata_umap.\n"
+                f"- Expected {expected_n} examples (from embeddings).\n"
+                f"- Tried dataset attrs, then batch fields (index_perturbed / idx_* or index_left/right / idx_a/idx_b).\n"
+                f"→ Ensure val/test dataloaders have shuffle=False, or expose 'index_perturbed' per example."
+            )
 
-        # Case 2: random splits
-        elif hasattr(self.data, "splits"):
-            # breakpoint()
-            test_adata = self.data.adata[self.splits["test"]].copy()
-            val_adata = self.data.adata[self.splits["val"]].copy()
+    
+        # ---------- per-split worker ----------
+        def _process_split(name, embed, dataloader):
+            if embed is None:
+                return None
+            n = embed.shape[0]
+            idx = _find_example_ordered_perturbed_indices(dataloader, n, split_name=name)
+            # build adata and compute UMAP
+            ad_split = ad[np.asarray(idx, dtype=int)].copy()
+            ad_split.obsm["heimdall_latents"] = embed
+            sc.pp.neighbors(ad_split, use_rep="heimdall_latents")
+            sc.tl.leiden(ad_split)
+            sc.tl.umap(ad_split)
+            return ad_split
+    
+        # ---------- run for test/val ----------
+        out = (self.results_folder / "umap"); out.mkdir(parents=True, exist_ok=True)
+        wrote_any = False
+    
+        # TEST
+        if best_test_embed is not None:
+            ad_test = _process_split("test", best_test_embed, self.dataloader_test)
+            ad_test.write(out / "test_adata_perturbed.h5ad")
+            wrote_any = True
+    
+        # VAL
+        if best_val_embed is not None:
+            ad_val = _process_split("val", best_val_embed, self.dataloader_val)
+            ad_val.write(out / "val_adata_perturbed.h5ad")
+            wrote_any = True
+    
+        return wrote_any
+    
 
-        else:
-            raise ValueError("No split information found in config")
 
-        test_adata.obsm["heimdall_latents"] = best_test_embed
-        val_adata.obsm["heimdall_latents"] = best_val_embed
+    # Add these methods to the HeimdallTrainer class
+    # def save_adata_umap(self, best_test_embed, best_val_embed):
+    #     # Case 1: predefined splits
+    #     if hasattr(self.cfg.tasks.args, "splits"):
+    #         test_adata = self.data.adata[
+    #             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.test
+    #         ].copy()
+    #         val_adata = self.data.adata[
+    #             self.data.adata.obs[self.cfg.tasks.args.splits.col] == self.cfg.tasks.args.splits.keys_.val
+    #         ].copy()
 
-        sc.pp.neighbors(test_adata, use_rep="heimdall_latents")
-        sc.tl.leiden(test_adata)
-        sc.tl.umap(test_adata)
+    #     # Case 2: random splits
+    #     elif hasattr(self.data, "splits"):
+    #         # breakpoint()
+    #         test_adata = self.data.adata[self.splits["test"]].copy()
+    #         val_adata = self.data.adata[self.splits["val"]].copy()
 
-        sc.pp.neighbors(val_adata, use_rep="heimdall_latents")
-        sc.tl.leiden(val_adata)
-        sc.tl.umap(val_adata)
+    #     else:
+    #         raise ValueError("No split information found in config")
 
-        AnnData.write(test_adata, self.results_folder / "test_adata.h5ad")
-        AnnData.write(val_adata, self.results_folder / "val_adata.h5ad")
+    #     test_adata.obsm["heimdall_latents"] = best_test_embed
+    #     val_adata.obsm["heimdall_latents"] = best_val_embed
+
+    #     sc.pp.neighbors(test_adata, use_rep="heimdall_latents")
+    #     sc.tl.leiden(test_adata)
+    #     sc.tl.umap(test_adata)
+
+    #     sc.pp.neighbors(val_adata, use_rep="heimdall_latents")
+    #     sc.tl.leiden(val_adata)
+    #     sc.tl.umap(val_adata)
+
+    #     AnnData.write(test_adata, self.results_folder / "test_adata.h5ad")
+    #     AnnData.write(val_adata, self.results_folder / "val_adata.h5ad")
 
     def initialize_checkpointing(self, results_folder_path=None):
         """Initialize checkpoint directory."""
