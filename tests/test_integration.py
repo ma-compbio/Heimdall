@@ -46,7 +46,8 @@ def test_default_hydra_train():
 
     valid_log, _ = trainer.validate_model(trainer.dataloader_val, dataset_type="valid")
 
-    assert valid_log["valid_MatthewsCorrCoef"] > 0.25
+    for subtask_name, subtask in trainer.data.tasklist:
+        assert valid_log[f"valid_{subtask_name}_MatthewsCorrCoef"] > 0.25
 
 
 @pytest.mark.integration
@@ -75,4 +76,5 @@ def test_partitioned_hydra_train():
 
     valid_log, _ = trainer.validate_model(trainer.dataloader_val, dataset_type="valid")
 
-    assert valid_log["valid_MatthewsCorrCoef"] > 0
+    for subtask_name, subtask in trainer.data.tasklist:
+        assert valid_log[f"valid_{subtask_name}_MatthewsCorrCoef"] > 0

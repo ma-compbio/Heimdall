@@ -1,4 +1,4 @@
-type: Heimdall.task.Task
+type: Heimdall.task.SingleInstanceTask
 
 args:
   task_type: multiclass
@@ -22,7 +22,8 @@ args:
   head_config:
     type: Heimdall.models.LinearCellPredHead
     args:
-  cell_rep_config:
-    type: Heimdall.cell_representations.CellRepresentation
   loss_config:
     type: Heimdall.losses.FlattenCrossEntropyLoss
+
+cell_rep_config:
+  type: Heimdall.cell_representations.CellRepresentation

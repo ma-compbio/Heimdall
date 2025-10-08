@@ -1,6 +1,7 @@
 """Heimdall trainer."""
 
 import random
+from collections import defaultdict
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -20,7 +21,7 @@ import Heimdall.datasets
 import Heimdall.losses
 import wandb
 from Heimdall.models import setup_experiment
-from Heimdall.utils import instantiate_from_config, save_umap
+from Heimdall.utils import INPUT_KEYS, instantiate_from_config, save_umap
 
 
 class HeimdallTrainer:
@@ -45,8 +46,9 @@ class HeimdallTrainer:
         # It should all be accessible in the data.labels... Delete the block below if possible...?
 
         # Unified label key handling: support .obs or .obsm
-        label_key = self.data.task.label_col_name
-        label_obsm_key = self.data.task.label_obsm_name
+        task = self.data.tasklist[None]
+        label_key = task.label_col_name
+        label_obsm_key = task.label_obsm_name
 
         if label_key is not None:
             # Single-label classification using .obs[label_key]
@@ -60,11 +62,11 @@ class HeimdallTrainer:
                 self.class_names = self.data.adata.obsm[label_obsm_key].columns.tolist()
                 self.num_labels = len(self.class_names)
             else:
-                self.num_labels = data.task.num_tasks
+                self.num_labels = task.num_tasks
         else:
             # Auto infering
             self.class_names = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
-            self.num_labels = data.task.num_tasks
+            self.num_labels = task.num_tasks
 
         self.run_wandb = run_wandb
         self.process = psutil.Process()
@@ -74,7 +76,7 @@ class HeimdallTrainer:
         set_seed(cfg.seed)
 
         self.optimizer = self._initialize_optimizer()
-        self.loss_fn = self.instantiate_loss_from_config()
+        self.loss_functions = self.instantiate_loss_functions_from_config()
 
         self.accelerator.wait_for_everyone()
         self.print_r0(f"> Using Device: {self.accelerator.device}")
@@ -87,17 +89,17 @@ class HeimdallTrainer:
         (
             self.model,
             self.optimizer,
+            self.lr_scheduler,
             self.dataloader_train,
             self.dataloader_val,
             self.dataloader_test,
-            self.lr_scheduler,
         ) = self.accelerator.prepare(
             self.model,
             self.optimizer,
+            self.lr_scheduler,
             self.dataloader_train,
             self.dataloader_val,
             self.dataloader_test,
-            self.lr_scheduler,
         )
 
         if self.accelerator.is_main_process:
@@ -149,9 +151,9 @@ class HeimdallTrainer:
             print("==> Initialized Run")
 
     def _initialize_lr_scheduler(self):
-        dataset_config = self.data.task
-        global_batch_size = dataset_config.batchsize
-        total_steps = len(self.dataloader_train.dataset) // global_batch_size * dataset_config.epochs
+        tasklist = self.data.tasklist
+        global_batch_size = tasklist.batchsize
+        total_steps = len(self.dataloader_train.dataset) // global_batch_size * tasklist.epochs
         warmup_ratio = self.cfg.scheduler.warmup_ratio
         warmup_step = int(warmup_ratio * total_steps)
 
@@ -170,54 +172,81 @@ class HeimdallTrainer:
 
     def _initialize_metrics(self):
         """Initializing the metrics based on the hydra config."""
-        metrics = {}
-        task_type = self.data.task.task_type
+        metrics = defaultdict(dict)
+        for subtask_name, subtask in self.data.tasklist:
+            subtask_metrics = metrics[subtask_name]
+            task = self.data.tasklist[None]
+            task_type = task.task_type
 
-        # First, add custom metrics if provided, TODO this is not implemented yet
-        assert self.custom_metrics == {}, "Custom metrics not implemented yet"
-        metrics.update(self.custom_metrics)
+            # First, add custom metrics if provided, TODO this is not implemented yet
+            assert self.custom_metrics == {}, "Custom metrics not implemented yet"
+            subtask_metrics.update(self.custom_metrics)
 
-        # Then, add built-in metrics if not overridden by custom metrics
-        if task_type in ("mlm", "multiclass"):
-            num_classes = self.num_labels
-            for metric_name in self.data.task.metrics:
-                if metric_name not in metrics:
-                    if metric_name == "Accuracy":
-                        metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
-                    elif metric_name == "Precision":
-                        metrics[metric_name] = Precision(task="multiclass", num_classes=num_classes, average="macro")
-                    elif metric_name == "Recall":
-                        metrics[metric_name] = Recall(task="multiclass", num_classes=num_classes, average="macro")
-                    elif metric_name == "F1Score":
-                        metrics[metric_name] = F1Score(task="multiclass", num_classes=num_classes, average="macro")
-                    elif metric_name == "MatthewsCorrCoef":
-                        metrics[metric_name] = MatthewsCorrCoef(task="multiclass", num_classes=num_classes)
-                    elif metric_name == "ConfusionMatrix":
-                        metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
-        elif task_type == "regression":
-            for metric_name in self.data.task.metrics:
-                if metric_name not in metrics:
-                    if metric_name == "R2Score":
-                        metrics[metric_name] = R2Score()
-                    elif metric_name == "MSE":
-                        metrics[metric_name] = MeanSquaredError()
-        elif task_type == "binary":
-            # num_labels = self.num_labels
-            num_labels = 2
-            for metric_name in self.data.task.metrics:
-                if metric_name not in metrics:
-                    if metric_name == "Accuracy":
-                        metrics[metric_name] = Accuracy(task="binary", num_labels=num_labels)
-                    elif metric_name == "Precision":
-                        metrics[metric_name] = Precision(task="binary", num_labels=num_labels, average="macro")
-                    elif metric_name == "Recall":
-                        metrics[metric_name] = Recall(task="binary", num_labels=num_labels, average="macro")
-                    elif metric_name == "F1Score":
-                        metrics[metric_name] = F1Score(task="binary", num_labels=num_labels, average="macro")
-                    elif metric_name == "MatthewsCorrCoef":
-                        metrics[metric_name] = MatthewsCorrCoef(task="binary", num_labels=num_labels)
+            # Then, add built-in metrics if not overridden by custom metrics
+            if task_type in ("mlm", "multiclass"):
+                num_classes = self.num_labels
+                for metric_name in task.metrics:
+                    if metric_name not in metrics:
+                        if metric_name == "Accuracy":
+                            subtask_metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
+                        elif metric_name == "Precision":
+                            subtask_metrics[metric_name] = Precision(
+                                task="multiclass",
+                                num_classes=num_classes,
+                                average="macro",
+                            )
+                        elif metric_name == "Recall":
+                            subtask_metrics[metric_name] = Recall(
+                                task="multiclass",
+                                num_classes=num_classes,
+                                average="macro",
+                            )
+                        elif metric_name == "F1Score":
+                            subtask_metrics[metric_name] = F1Score(
+                                task="multiclass",
+                                num_classes=num_classes,
+                                average="macro",
+                            )
+                        elif metric_name == "MatthewsCorrCoef":
+                            subtask_metrics[metric_name] = MatthewsCorrCoef(task="multiclass", num_classes=num_classes)
+                        elif metric_name == "ConfusionMatrix":
+                            subtask_metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+            elif task_type == "regression":
+                for metric_name in task.metrics:
+                    if metric_name not in metrics:
+                        if metric_name == "R2Score":
+                            subtask_metrics[metric_name] = R2Score()
+                        elif metric_name == "MSE":
+                            subtask_metrics[metric_name] = MeanSquaredError()
+            elif task_type == "binary":
+                # num_labels = self.num_labels
+                num_labels = 2
+                for metric_name in task.metrics:
+                    if metric_name not in metrics:
+                        if metric_name == "Accuracy":
+                            subtask_metrics[metric_name] = Accuracy(task="binary", num_labels=num_labels)
+                        elif metric_name == "Precision":
+                            subtask_metrics[metric_name] = Precision(
+                                task="binary",
+                                num_labels=num_labels,
+                                average="macro",
+                            )
+                        elif metric_name == "Recall":
+                            subtask_metrics[metric_name] = Recall(task="binary", num_labels=num_labels, average="macro")
+                        elif metric_name == "F1Score":
+                            subtask_metrics[metric_name] = F1Score(
+                                task="binary",
+                                num_labels=num_labels,
+                                average="macro",
+                            )
+                        elif metric_name == "MatthewsCorrCoef":
+                            subtask_metrics[metric_name] = MatthewsCorrCoef(task="binary", num_labels=num_labels)
 
-        return {k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in metrics.items()}
+            metrics[subtask_name] = {
+                k: v.to(self.accelerator.device) if hasattr(v, "to") else v for k, v in subtask_metrics.items()
+            }
+
+        return metrics
 
     def fit(self, resume_from_checkpoint=True, checkpoint_every_n_epochs=1):
         """Train the model with automatic checkpointing and resumption."""
@@ -231,26 +260,27 @@ class HeimdallTrainer:
 
         # If the tracked parameter is specified
         track_metric = None
-        if self.data.task.track_metric is not None:
-            track_metric = self.data.task.track_metric
+        task = self.data.tasklist[None]
+        if task.track_metric is not None:
+            track_metric = task.track_metric
             best_metric = {
                 f"best_val_{track_metric}": float("-inf"),
                 f"reported_test_{track_metric}": float("-inf"),
             }
             assert (
-                track_metric in self.data.task.metrics
+                track_metric in task.metrics
             ), "The tracking metric is not in the list of metrics, please check your configuration task file"
 
         # Initialize early stopping parameters
-        early_stopping = self.data.task.early_stopping
-        early_stopping_patience = self.data.task.early_stopping_patience
+        early_stopping = task.early_stopping
+        early_stopping_patience = task.early_stopping_patience
         patience_counter = 0
 
         best_val_embed = None
         best_test_embed = None
         best_epoch = 0
 
-        for epoch in range(start_epoch, self.data.task.epochs):
+        for epoch in range(start_epoch, task.epochs):
             # Validation and test evaluation
             valid_log, val_embed = self.validate_model(self.dataloader_val, dataset_type="valid")
             test_log, test_embed = self.validate_model(self.dataloader_test, dataset_type="test")
@@ -266,7 +296,7 @@ class HeimdallTrainer:
                     best_metric[f"best_val_{track_metric}"] = val_metric
                     self.print_r0(f"New best validation {track_metric}: {val_metric}")
                     best_metric["reported_epoch"] = epoch  # log the epoch for convenience
-                    for metric in self.data.task.metrics:
+                    for metric in task.metrics:
                         best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
                     patience_counter = 0  # Reset patience counter since we have a new best
 
@@ -309,7 +339,7 @@ class HeimdallTrainer:
             self.accelerator.is_main_process
             and self.cfg.model.name != "logistic_regression"
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-            and self.data.task.task_type != "mlm"
+            and task.task_type != "mlm"
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
             if best_test_embed is not None and best_val_embed is not None and not self.cfg.trainer.fastdev:
@@ -322,43 +352,65 @@ class HeimdallTrainer:
         if self.accelerator.is_main_process:
             self.print_r0("> Model has finished Training")
 
-    def instantiate_loss_from_config(self):
-        loss_kwargs = {}
-        loss_name = self.data.task.loss_config.type.split(".")[-1]
-        if loss_name.startswith("Flatten"):
-            loss_kwargs["num_labels"] = self.num_labels
+    def instantiate_loss_functions_from_config(self):
+        loss_functions = {}
+        for subtask_name, subtask in self.data.tasklist:
+            loss_kwargs = {}
+            loss_name = subtask.loss_config.type.split(".")[-1]
+            if loss_name.startswith("Flatten"):
+                loss_kwargs["num_labels"] = self.num_labels
 
-        return instantiate_from_config(self.data.task.loss_config, **loss_kwargs)
+            loss_functions[subtask_name] = instantiate_from_config(subtask.loss_config, **loss_kwargs)
 
-    def get_loss(self, logits, labels, *args):
-        if args:
-            return self.loss_fn(logits, labels, *args)
-
-        return self.loss_fn(logits, labels)
+        return loss_functions
 
     def get_outputs_and_loss(self, batch, loss=None):
-        inputs = (batch["identity_inputs"], batch["expression_inputs"])
+        inputs = {input_key: batch[input_key] for input_key in INPUT_KEYS if input_key in batch}
+
+        # inputs = (batch["identity_inputs"], batch["expression_inputs"])
 
         outputs = self.model(
             inputs=inputs,
             attention_mask=batch.get("expression_padding"),
         )
 
-        logits = outputs.logits
-        labels = batch["labels"].to(outputs.device)
+        batch_loss = 0
+        preds = {}
+        labels = batch["labels"]
+        for subtask_name, subtask in self.data.tasklist:
+            logits = outputs[subtask_name].logits
+            subtask_labels = labels[subtask_name].to(logits.device)
 
-        if (masks := batch.get("masks")) is not None:
-            masks = masks.to(outputs.device)
-            logits, labels = logits[masks], labels[masks]
+            if subtask.task_type == "multiclass":
+                subtask_preds = logits.argmax(dim=1)
+            elif subtask.task_type == "mlm":
+                subtask_preds = logits.argmax(dim=2)
+            elif subtask.task_type == "binary":
+                # multi-label binary classification → use sigmoid + threshold
+                probs = torch.sigmoid(logits)
+                subtask_preds = (probs > 0.5).float()
+            elif subtask.task_type == "regression":
+                subtask_preds = logits
+            else:
+                raise ValueError(f"Unsupported task_type: {subtask.task_type}")
 
-        # perform a .clone() so that the labels are not updated in-place
-        batch_loss = self.get_loss(logits, labels.clone())
+            preds[subtask_name] = subtask_preds
+
+            if (masks := batch.get("masks")) is not None:
+                masks = masks[subtask_name].to(logits.device)
+                logits, subtask_labels = logits[masks], subtask_labels[masks]
+
+            # perform a .clone() so that the subtask_labels are not updated in-place
+            # TODO: weight task-specific loss_functions somehow
+            loss_function = self.loss_functions[subtask_name]
+            batch_loss += loss_function(logits, subtask_labels.clone())
+
         if loss is None:
             loss = batch_loss
         else:
             loss += batch_loss
 
-        return outputs, loss
+        return outputs, labels, preds, loss
 
     def iterate_dataloader(
         self,
@@ -379,11 +431,12 @@ class HeimdallTrainer:
             step = 0
 
             outputs = {
-                "all_embeddings": [],
-                "all_labels": [],
-                "all_preds": [],
+                "all_embeddings": defaultdict(list),
+                "all_labels": defaultdict(list),
+                "all_preds": defaultdict(list),
             }
 
+        task = self.data.tasklist[None]
         with tqdm(dataloader, disable=not self.accelerator.is_main_process) as pbar:
             for batch in pbar:
                 step += 1
@@ -392,22 +445,7 @@ class HeimdallTrainer:
                 lr = self.lr_scheduler.get_last_lr()[0]
 
                 with self.accelerator.accumulate(self.model) if training else nullcontext():
-                    batch_outputs, loss = self.get_outputs_and_loss(batch, loss)
-                    logits = batch_outputs.logits
-                    labels = batch["labels"].to(batch_outputs.device)
-
-                    if self.data.task.task_type == "multiclass":
-                        preds = logits.argmax(dim=1)
-                    elif self.data.task.task_type == "mlm":
-                        preds = logits.argmax(dim=2)
-                    elif self.data.task.task_type == "binary":
-                        # multi-label binary classification → use sigmoid + threshold
-                        probs = torch.sigmoid(logits)
-                        preds = (probs > 0.5).float()
-                    elif self.data.task.task_type == "regression":
-                        preds = logits
-                    else:
-                        raise ValueError(f"Unsupported task_type: {self.data.task.task_type}")
+                    batch_outputs, labels, preds, loss = self.get_outputs_and_loss(batch, loss)
 
                     if training:
                         self.accelerator.backward(loss)
@@ -441,38 +479,49 @@ class HeimdallTrainer:
                                     self.accelerator.log(log, step=self.step)
                         loss = None
                     else:
-                        if self.cfg.model.name != "logistic_regression":
-                            outputs["all_embeddings"].append(batch_outputs.cls_embeddings.detach().cpu().numpy())
+                        for subtask_name, subtask in self.data.tasklist:
+                            if self.cfg.model.name != "logistic_regression":
+                                outputs["all_embeddings"][subtask_name].append(
+                                    batch_outputs[subtask_name].cls_embeddings.detach().cpu().numpy(),
+                                )
 
-                        outputs["all_labels"].append(labels.detach().cpu().numpy())
-                        outputs["all_preds"].append(preds.detach().cpu().numpy())
+                            outputs["all_labels"][subtask_name].append(labels[subtask_name].detach().cpu().numpy())
+                            outputs["all_preds"][subtask_name].append(preds[subtask_name].detach().cpu().numpy())
+
                         outputs["loss"] = loss
 
                     if metrics is not None:
-                        for metric_name, metric in metrics.items():  # noqa: B007
-                            # Built-in metric
-                            if self.data.task.task_type in ["multiclass", "mlm"]:
-                                labels = labels.to(torch.int)
-                            if self.data.task.task_type in ["binary"]:
-                                # Step 1: Flatten the tensor
-                                flattened_labels = labels.flatten()
-                                flattened_preds = preds.flatten()
-                                mask = ~torch.isnan(flattened_labels)
+                        for subtask_name, subtask in self.data.tasklist:
+                            for metric_name, metric in metrics[subtask_name].items():  # noqa: B007
+                                # Built-in metric
+                                subtask_labels = labels[subtask_name]
+                                subtask_preds = preds[subtask_name]
+                                if subtask.task_type in ["multiclass", "mlm"]:
+                                    subtask_labels = subtask_labels.to(torch.int)
+                                if subtask.task_type in ["binary"]:
+                                    # Step 1: Flatten the tensor
+                                    flattened_labels = subtask_labels.flatten()
+                                    flattened_preds = subtask_preds.flatten()
+                                    mask = ~torch.isnan(flattened_labels)
 
-                                no_nans_flattened_labels = flattened_labels[mask]
-                                no_nans_flattened_preds = flattened_preds[mask]
-                                labels = no_nans_flattened_labels.to(torch.int)
-                                preds = no_nans_flattened_preds
+                                    no_nans_flattened_labels = flattened_labels[mask]
+                                    no_nans_flattened_preds = flattened_preds[mask]
+                                    subtask_labels = no_nans_flattened_labels.to(torch.int)
+                                    subtask_preds = no_nans_flattened_preds
 
-                            metric.update(preds, labels)
+                                metric.update(subtask_preds, subtask_labels)
 
                 if self.cfg.trainer.fastdev:
                     break
 
         if not training:
-            outputs["all_embeddings"] = np.concatenate(outputs["all_embeddings"], axis=0)
-            outputs["all_labels"] = np.concatenate(outputs["all_embeddings"], axis=0)
-            outputs["all_preds"] = np.concatenate(outputs["all_embeddings"], axis=0)
+            for subtask_name, subtask in self.data.tasklist:
+                outputs["all_embeddings"][subtask_name] = np.concatenate(
+                    outputs["all_embeddings"][subtask_name],
+                    axis=0,
+                )
+                outputs["all_labels"][subtask_name] = np.concatenate(outputs["all_embeddings"][subtask_name], axis=0)
+                outputs["all_preds"][subtask_name] = np.concatenate(outputs["all_embeddings"][subtask_name], axis=0)
 
         return outputs
 
@@ -502,44 +551,47 @@ class HeimdallTrainer:
             loss = self.accelerator.gather(loss_tensor).mean().item()
 
         log = {f"{dataset_type}_loss": loss}
-        for metric_name, metric in metrics.items():
-            if metric_name != "ConfusionMatrix":
-                # Built-in metric
-                log[f"{dataset_type}_{metric_name}"] = metric.compute().item()
-                if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
-                    log[f"{dataset_type}_{metric_name}"] *= 100  # Convert to percentage for these metrics
+        for subtask_name, subtask in self.data.tasklist:
+            for metric_name, metric in metrics[subtask_name].items():
+                if metric_name != "ConfusionMatrix":
+                    # Built-in metric
+                    log[f"{dataset_type}_{subtask_name}_{metric_name}"] = metric.compute().item()
+                    if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
+                        log[
+                            f"{dataset_type}_{subtask_name}_{metric_name}"
+                        ] *= 100  # Convert to percentage for these metrics
 
-        if "ConfusionMatrix" in metrics:
-            # 1. Gather counts from all processes and sum
-            cm_local = metrics["ConfusionMatrix"].compute()  # (C, C) tensor
-            cm_counts = self.accelerator.reduce(cm_local, reduction="sum")  # global counts
+            if "ConfusionMatrix" in metrics[subtask_name]:
+                # 1. Gather counts from all processes and sum
+                cm_local = metrics[subtask_name]["ConfusionMatrix"].compute()  # (C, C) tensor
+                cm_counts = self.accelerator.reduce(cm_local, reduction="sum")  # global counts
 
-            # 3) If binary and flat, reshape to (2, 2)
-            if cm_counts.dim() == 1:
-                c = int(cm_counts.numel() ** 0.5)  # should be 2
-                cm_counts = cm_counts.view(c, c)
+                # 3) If binary and flat, reshape to (2, 2)
+                if cm_counts.dim() == 1:
+                    c = int(cm_counts.numel() ** 0.5)  # should be 2
+                    cm_counts = cm_counts.view(c, c)
 
-            # 2. Row-wise normalisation → per-class accuracy matrix
-            cm_norm = cm_counts.float()
-            cm_norm = cm_norm / (cm_norm.sum(dim=1, keepdim=True) + 1e-8)
+                # 2. Row-wise normalisation → per-class accuracy matrix
+                cm_norm = cm_counts.float()
+                cm_norm = cm_norm / (cm_norm.sum(dim=1, keepdim=True) + 1e-8)
 
-            # 3. Per-class accuracy vector (for dashboard scalars)
-            per_class_acc = cm_norm.diag().cpu().numpy() * 100
-            log[f"{dataset_type}_per_class_accuracy"] = {
-                name: float(acc) for name, acc in zip(self.class_names, per_class_acc)
-            }
+                # 3. Per-class accuracy vector (for dashboard scalars)
+                per_class_acc = cm_norm.diag().cpu().numpy() * 100
+                log[f"{dataset_type}_{subtask_name}_per_class_accuracy"] = {
+                    name: float(acc) for name, acc in zip(self.class_names, per_class_acc)
+                }
 
-            # 4. Log interactive confusion matrix to WandB (main process only)
-            if self.run_wandb and self.accelerator.is_main_process:
-                wandb_cm = wandb.plot.confusion_matrix(
-                    y_true=outputs["all_labels"],
-                    preds=outputs["all_preds"],
-                    class_names=self.class_names,  # same order as metric
-                )
-                self.accelerator.log(
-                    {f"{dataset_type}_confusion_matrix": wandb_cm},
-                    step=self.step,
-                )
+                # 4. Log interactive confusion matrix to WandB (main process only)
+                if self.run_wandb and self.accelerator.is_main_process:
+                    wandb_cm = wandb.plot.confusion_matrix(
+                        y_true=outputs["all_labels"][subtask_name],
+                        preds=outputs["all_preds"][subtask_name],
+                        class_names=self.class_names,  # same order as metric
+                    )
+                    self.accelerator.log(
+                        {f"{dataset_type}_{subtask_name}_confusion_matrix": wandb_cm},
+                        step=self.step,
+                    )
 
         rss = self.process.memory_info().rss / (1024**3)
         log["Process_mem_rss"] = rss

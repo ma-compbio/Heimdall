@@ -14,7 +14,7 @@ from pytest import fixture
 
 from Heimdall.cell_representations import CellRepresentation
 from Heimdall.models import setup_experiment
-from Heimdall.utils import get_dtype, instantiate_from_config
+from Heimdall.utils import INPUT_KEYS, get_dtype, instantiate_from_config
 
 load_dotenv()
 
@@ -149,7 +149,7 @@ def paired_task_config(request, toy_paried_data_path):
         scale_data: false
         species: mouse
     tasks:
-      type: Heimdall.task.Task
+      type: Heimdall.task.PairedInstanceTask
       args:
         task_type: binary
         interaction_type: _all_
@@ -172,10 +172,10 @@ def paired_task_config(request, toy_paried_data_path):
         head_config:
           type: Heimdall.models.LinearCellPredHead
           args: null
-        cell_rep_config:
-          type: Heimdall.cell_representations.CellRepresentation
         loss_config:
           name: CrossEntropyLoss
+      cell_rep_config:
+        type: Heimdall.cell_representations.CellRepresentation
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -219,7 +219,7 @@ def paired_task_config(request, toy_paried_data_path):
             num_embeddings: "max_seq_length"
             embedding_dim: 128
         d_embedding: 128
-{format_for_config(fg_config)}j
+{format_for_config(fg_config)}
     """
     conf = OmegaConf.create(config_string)
 
@@ -250,7 +250,7 @@ def single_task_config(request, toy_single_data_path):
         scale_data: false
         species: mouse
     tasks:
-      type: Heimdall.task.Task
+      type: Heimdall.task.SingleInstanceTask
       args:
         task_type: multiclass
         label_col_name: class
@@ -266,10 +266,10 @@ def single_task_config(request, toy_single_data_path):
         head_config:
           type: Heimdall.models.ExpressionOnlyCellPredHead
           args: null
-        cell_rep_config:
-          type: Heimdall.cell_representations.CellRepresentation
         loss_config:
           name: CrossEntropyLoss
+      cell_rep_config:
+        type: Heimdall.cell_representations.CellRepresentation
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -300,7 +300,7 @@ def single_task_config(request, toy_single_data_path):
           type: torch.nn.Module
         d_embedding: null
         drop_zeros: False
-{format_for_config(fg_config)}j
+{format_for_config(fg_config)}
     """
     conf = OmegaConf.create(config_string)
 
@@ -332,7 +332,7 @@ def partition_config(request, toy_partitioned_data_path):
         scale_data: false
         species: mouse
     tasks:
-      type: Heimdall.task.Task
+      type: Heimdall.task.SingleInstanceTask
       args:
         task_type: multiclass
         label_col_name: class
@@ -348,10 +348,10 @@ def partition_config(request, toy_partitioned_data_path):
         head_config:
           type: Heimdall.models.ExpressionOnlyCellPredHead
           args: null
-        cell_rep_config:
-          type: Heimdall.cell_representations.PartitionedCellRepresentation
         loss_config:
           name: CrossEntropyLoss
+      cell_rep_config:
+        type: Heimdall.cell_representations.PartitionedCellRepresentation
     scheduler:
       name: cosine
       lr_schedule_type: cosine
@@ -382,15 +382,18 @@ def partition_config(request, toy_partitioned_data_path):
           type: torch.nn.Module
         d_embedding: null
         drop_zeros: False
-{format_for_config(fg_config)}j
+{format_for_config(fg_config)}
     """
     conf = OmegaConf.create(config_string)
 
     return conf
 
 
+# @fixture(scope="module")
+# def accelerator(config):
+#     setup
 def instantiate_and_run_model(config):
-    experiment_primitives = setup_experiment(config, cpu=True)
+    experiment_primitives = setup_experiment(config, cpu=False)
 
     if experiment_primitives is None:
         return
@@ -399,8 +402,9 @@ def instantiate_and_run_model(config):
 
     # Test execution
     batch = next(iter(cr.dataloaders["train"]))
+    inputs = {input_key: batch[input_key] for input_key in INPUT_KEYS if input_key in batch}
     model(
-        inputs=(batch["identity_inputs"], batch["expression_inputs"]),
+        inputs=inputs,
         attention_mask=batch["expression_padding"],
     )
 

@@ -29,12 +29,16 @@ from tqdm.auto import tqdm
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
 
-MAIN_KEYS = {
+INPUT_KEYS = {
     "identity_inputs",
     "expression_inputs",
-    "labels",
     "masks",
+}
+
+MAIN_KEYS = {
+    *INPUT_KEYS,
     "expression_padding",
+    "labels",
     "adjacency_matrix",
     "subgraph_indices",
 }

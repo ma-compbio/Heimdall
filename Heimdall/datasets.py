@@ -1,5 +1,6 @@
 import warnings
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from pprint import pformat
 from typing import TYPE_CHECKING, Tuple, Union
 
@@ -9,14 +10,13 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset as PyTorchDataset
 from torch.utils.data import Subset
 
+from Heimdall.task import CellFeatType, FeatType, LabelType, Task, Tasklist
+from Heimdall.utils import MAIN_KEYS
+
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
 
 SPLIT_MASK_KEYS = {"full_mask", "train_mask", "val_mask", "test_mask", "full", "train", "val", "test"}
-
-CellFeatType = Union[NDArray[np.int_], NDArray[np.float32]]
-FeatType = Union[CellFeatType, Tuple[CellFeatType, CellFeatType]]
-LabelType = Union[NDArray[np.int_], NDArray[np.float32]]
 
 
 class Dataset(PyTorchDataset, ABC):
@@ -26,35 +26,30 @@ class Dataset(PyTorchDataset, ABC):
         super().__init__()
         self._data = data
 
-        if self.labels is None:
-            self._setup_labels_and_pre_splits()  # predefined splits may be set up here
+        self.splits = {}
+        split_type = "predefined"
+        self._setup_predefined_splits()  # predefined splits may be set up here
+
+        for _, subtask in self.data.tasklist:
+            subtask.setup_labels()
 
         # NOTE: need to setup labels first, index sizes might depend on it
         self._setup_idx()
 
         # Set up random splits if predefined splits are unavailable
-        split_type = "predefined"
-        if self.splits is None:
-            self._setup_random_splits()
+        if not self.splits:
             split_type = "random"
+            self._setup_random_splits()
         split_size_str = "\n  ".join(f"{i}: {len(j):,}" for i, j in self.splits.items())
         print(f"> Dataset splits sizes ({split_type}):\n  {split_size_str}")
 
     @property
     def idx(self) -> NDArray[np.int_]:
-        return self._idx
+        return self.data._idx
 
     @property
     def data(self) -> "CellRepresentation":
         return self._data
-
-    @property
-    def labels(self) -> NDArray:
-        return getattr(self.data.task, "_labels", None)
-
-    @labels.setter
-    def labels(self, val):
-        self.data.task._labels = val
 
     @property
     def splits(self) -> NDArray:
@@ -86,10 +81,28 @@ class Dataset(PyTorchDataset, ABC):
     def _setup_idx(self): ...
 
     @abstractmethod
-    def _setup_labels_and_pre_splits(self): ...
+    def _setup_predefined_splits(self, task: Task): ...
 
-    @abstractmethod
-    def __getitem__(self, idx) -> Tuple[FeatType, LabelType]: ...
+    def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
+        identity_inputs, expression_inputs, expression_padding = self.get_tokens(idx)
+
+        collated_subtask_inputs = defaultdict(dict)
+        for subtask_name, subtask in self.data.tasklist:
+            subtask_inputs = subtask.get_inputs(idx, identity_inputs, expression_inputs, expression_padding)
+            for key in MAIN_KEYS:
+                subtask_input = subtask_inputs.get(key, None)
+                collated_subtask_inputs[key][subtask_name] = subtask_input
+
+        for key in MAIN_KEYS:
+            if all(value is None for value in collated_subtask_inputs[key].values()):
+                del collated_subtask_inputs[key]
+
+        return {
+            "identity_inputs": identity_inputs,
+            "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
+            **collated_subtask_inputs,
+        }
 
 
 def filter_list(input_list):
@@ -99,90 +112,54 @@ def filter_list(input_list):
 
 class SingleInstanceDataset(Dataset):
     def _setup_idx(self):
-        self._idx = np.arange(self.data.adata.shape[0])
+        self.data._idx = np.arange(self.data.adata.shape[0])
 
-    def _setup_labels_and_pre_splits(self):
+    def _setup_predefined_splits(self):
         adata = self.data.adata
-        # dataset_task_cfg = self.data.dataset_task_cfg
-        task = self.data.task
-
-        if task.label_col_name is not None:
-            assert task.label_obsm_name is None
-            df = adata.obs
-            class_mapping = {
-                label: idx
-                for idx, label in enumerate(
-                    df[task.label_col_name].unique(),
-                    start=0,
-                )
-            }
-            df["class_id"] = df[task.label_col_name].map(class_mapping)
-            labels = np.array(df["class_id"])
-            if task.task_type == "regression":
-                labels = labels.reshape(-1, 1).astype(np.float32)
-
-        elif task.label_obsm_name is not None:
-            assert task.label_col_name is None
-            df = adata.obsm[task.label_obsm_name]
-
-            if task.task_type == "binary":
-                (labels := np.empty(df.shape, dtype=np.float32)).fill(np.nan)
-                labels[np.where(df == 1)] = 1
-                labels[np.where(df == -1)] = 0
-            elif task.task_type == "regression":
-                labels = np.array(df).astype(np.float32)
-
-            print(f"labels shape {labels.shape}")
-
-        else:
-            raise ValueError("Either 'label_col_name' or 'label_obsm_name' needs to be set.")
-        self.labels = labels
 
         # Set up splits and task mask
         # splits = dataset_task_cfg.get("splits", None)
-        if task.splits is None:
+        if self.data.tasklist.splits is None or self.splits:
             return
 
-        split_type = task.splits.get("type", None)
+        split_type = self.data.tasklist.splits.get("type", None)
         if split_type == "predefined":
-            self.splits = {}
-            if hasattr(task.splits, "col"):
-                split_col = adata.obs[task.splits.col]
+            splits = {}
+            if hasattr(self.data.tasklist.splits, "col"):
+                split_col = adata.obs[self.data.tasklist.splits.col]
             else:
                 split_col = adata.obs["split"]
             for split in self.SPLITS:
-                if (split_key := task.splits.keys_.get(split)) is None:
+                if (split_key := self.data.tasklist.splits.keys_.get(split)) is None:
                     warnings.warn(
                         f"Skipping {split!r} split as the corresponding key is not found",
                         UserWarning,
                         stacklevel=2,
                     )
                     continue
-                self.splits[split] = np.where(split_col == split_key)[0]
-
+                splits[split] = np.where(split_col == split_key)[0]
+            self.splits = splits
         else:
             raise ValueError(f"Unknown split type {split_type!r}")
 
-    def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
+    def get_tokens(self, idx):
         identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
 
-        return {
-            "identity_inputs": identity_inputs,
-            "expression_inputs": expression_inputs,
-            "expression_padding": expression_padding,
-            "labels": self.data.labels[idx],
-        }
+        return identity_inputs, expression_inputs, expression_padding
 
 
 class PairedInstanceDataset(Dataset):
+    def __init__(self, data: "CellRepresentation"):
+        self._setup_obsp_task_keys(data)
+        super().__init__(data)
+
     def _setup_idx(self):
         # NOTE: full mask is set up during runtime given split masks or the data
         mask = self.data.adata.obsp["full_mask"]
-        self._idx = np.vstack(np.nonzero(mask)).T  # pairs x 2
+        self.data._idx = np.vstack(np.nonzero(mask)).T  # pairs x 2
 
-    def _setup_labels_and_pre_splits(self):
-        adata = self.data.adata
-        task = self.data.task
+    def _setup_obsp_task_keys(self, data: "CellRepresentation"):
+        adata = data.adata
 
         all_obsp_task_keys, obsp_mask_keys = [], []
         for key in adata.obsp:
@@ -192,9 +169,9 @@ class PairedInstanceDataset(Dataset):
         obsp_mask_keys = sorted(obsp_mask_keys)
 
         # Select task keys
-        candidate_obsp_task_keys = task.interaction_type
+        candidate_obsp_task_keys = data.tasklist.interaction_type
         if candidate_obsp_task_keys == "_all_":
-            obsp_task_keys = all_obsp_task_keys
+            data.obsp_task_keys = all_obsp_task_keys
         else:
             # NOTE: in hydra, this can be either a list or a string
             if isinstance(candidate_obsp_task_keys, str):
@@ -206,17 +183,19 @@ class PairedInstanceDataset(Dataset):
                     f"specified interaction types are invalid: {invalid_obsp_task_keys}\n"
                     f"Valid options are: {pformat(all_obsp_task_keys)}",
                 )
-            obsp_task_keys = candidate_obsp_task_keys
+            data.obsp_task_keys = candidate_obsp_task_keys
+
+    def _setup_predefined_splits(self):
+        adata = self.data.adata
 
         # Set up splits and task mask
-        if task.splits is None:  # no predefined splits specified
-            full_mask = np.sum([np.abs(adata.obsp[i]) for i in obsp_task_keys], axis=-1) > 0
+        if self.data.tasklist.splits is None:  # no predefined splits specified
+            full_mask = np.sum([np.abs(adata.obsp[i]) for i in self.data.obsp_task_keys], axis=-1) > 0
             nz = np.nonzero(full_mask)
-
-        elif (split_type := task.splits.type) == "predefined":
+        elif (split_type := self.data.tasklist.splits.type) == "predefined":
             masks = {}
             for split in self.SPLITS:
-                if (split_key := task.splits.keys_.get(split)) is None:
+                if (split_key := self.data.tasklist.splits.keys_.get(split)) is None:
                     warnings.warn(
                         f"Skipping {split!r} split as the corresponding key is not found",
                         UserWarning,
@@ -235,121 +214,15 @@ class PairedInstanceDataset(Dataset):
 
         adata.obsp["full_mask"] = full_mask
 
-        # Task type specific handling
-        task_type = task.task_type
-        if task_type == "multiclass":
-            if len(obsp_task_keys) > 1:
-                raise ValueError(f"{task_type!r} only supports a single task key, provided task keys: {obsp_task_keys}")
-
-            task_mat = adata.obsp[obsp_task_keys[0]]
-            num_tasks = task_mat.max()  # class id starts from 1. 0's are ignoreed
-            labels = np.array(task_mat[nz]).ravel().astype(np.int64) - 1  # class 0 is not used
-
-        elif task_type == "binary":
-            num_tasks = len(obsp_task_keys)
-
-            (labels := np.empty((len(nz[0]), num_tasks), dtype=np.float32)).fill(np.nan)
-            for i, task in enumerate(obsp_task_keys):
-                label_i = np.array(adata.obsp[task][nz]).ravel()
-                labels[:, i][label_i == 1] = 1
-                labels[:, i][label_i == -1] = 0
-
-        elif task_type == "regression":
-            num_tasks = len(obsp_task_keys)
-
-            labels = np.zeros((len(nz[0]), num_tasks), dtype=np.float32)
-            for i, task in enumerate(obsp_task_keys):
-                labels[:, i] = np.array(adata.obsp[task][nz]).ravel()
-
-        else:
-            raise ValueError(f"task_type must be one of: 'multiclass', 'binary', 'regression'. Got: {task_type!r}")
-
-        self.labels = labels
-
-    def __getitem__(self, idx) -> Tuple[Tuple[CellFeatType, CellFeatType], LabelType]:
+    def get_tokens(self, idx):
         identity_inputs, expression_inputs, expression_padding = zip(
             *[self.data.fc[cell_idx] for cell_idx in self.idx[idx]],
         )
 
-        return {
-            "identity_inputs": identity_inputs,
-            "expression_inputs": expression_inputs,
-            "expression_padding": expression_padding,
-            "labels": self.data.labels[idx],
-        }
+        return identity_inputs, expression_inputs, expression_padding
 
 
-class MLMMixin:
-    def __getitem__(self, idx):
-        identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
-
-        data = {
-            "identity_inputs": identity_inputs,
-            "expression_inputs": expression_inputs,
-            "expression_padding": expression_padding,
-            "labels": identity_inputs.astype(int),
-        }
-        return data
-
-
-class ExpressionReconstructionMixin:
-    def __getitem__(self, idx):
-        # TODO: currently not used, can delete
-        identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
-
-        data = {
-            "identity_inputs": identity_inputs,
-            "expression_inputs": expression_inputs,
-            "expression_padding": expression_padding,
-            "labels": self.data.adata.X[idx],
-        }
-        return data
-
-
-class MaskedMixin(ABC):
-    def __init__(self, *args, mask_ratio: float = 0.15, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.mask_ratio = mask_ratio
-
-    @property
-    @abstractmethod
-    def mask_token(self): ...
-
-
-class TransformationMixin(ABC):
-    def __getitem__(self, idx):
-        data = super().__getitem__(idx)
-        return self._transform(data)
-
-    @abstractmethod
-    def _transform(self, data): ...
-
-
-class SeqMaskedMLMDataset(TransformationMixin, MaskedMixin, MLMMixin, SingleInstanceDataset):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # self._num_tasks = self.data.adata.n_vars  # number of genes
-
-    @property
-    def mask_token(self):
-        return self.data.special_tokens["mask"]
-
-    def _transform(self, data):
-        size = data["labels"].size
-        mask = np.random.random(size) < self.mask_ratio
-
-        # Ignore padding tokens
-        is_padding = data["labels"] == self.data.special_tokens["pad"]
-        mask[is_padding] = False
-
-        data["identity_inputs"][mask] = self.mask_token
-        # data["expression_inputs"][mask] = self.mask_token
-        data["masks"] = mask
-
-        return data
-
-
-class PartitionedDataset(SeqMaskedMLMDataset):
+class PartitionedDataset(SingleInstanceDataset):
     def __init__(self, data, *args, **kwargs):
         self.partition_splits = {}
         super().__init__(data, *args, **kwargs)
@@ -374,12 +247,8 @@ class PartitionedDataset(SeqMaskedMLMDataset):
     def __len__(self):
         return self.partition_sizes[self.partition]
 
-    def _setup_labels_and_pre_splits(self):
-        task = self.data.task
-        splits = task.splits
-
-        # Dummy labels to indicate task size
-        self.labels = np.empty(self._data.fg.vocab_size)
+    def _setup_predefined_splits(self):
+        splits = self.data.tasklist.splits
 
         if splits is None:
             return
@@ -396,23 +265,22 @@ class PartitionedDataset(SeqMaskedMLMDataset):
         for partition in range(self.num_partitions):
             self.partition = partition
             self.partition_splits[partition] = self._get_random_splits_partition(
-                partition,
+                partition,  # TODO: pass train_split correctly via self.data.tasklist.splits
             )
 
         self.partition = 0
 
     def _get_partition_splits(self, part_id):
-        task = self.data.task
         adata = self.data.adata
 
         partition_splits = {}
-        if "col" in task.splits:
-            split_col = adata.obs[task.splits.col]
+        if "col" in self.data.tasklist.splits:
+            split_col = adata.obs[self.data.tasklist.splits.col]
         else:
             split_col = adata.obs["split"]
 
         for split in self.SPLITS:
-            if (split_key := task.splits.keys_.get(split)) is None:
+            if (split_key := self.data.tasklist.splits.keys_.get(split)) is None:
                 warnings.warn(
                     f"Skipping {split!r} split as the corresponding key is not found",
                     UserWarning,
@@ -423,7 +291,7 @@ class PartitionedDataset(SeqMaskedMLMDataset):
 
         return partition_splits
 
-    def _get_random_splits_partition(self, part_id):
+    def _get_random_splits_partition(self, part_id, train_split: float = 0.8):
         num_samples_partition = self.partition_sizes[part_id]
 
         warnings.warn("Pre-defined split unavailable, using random split", UserWarning, stacklevel=2)
@@ -432,7 +300,7 @@ class PartitionedDataset(SeqMaskedMLMDataset):
 
         train_idx, test_val_idx = train_test_split(
             np.arange(num_samples_partition),
-            train_size=float(getattr(self._data.task, "train_split", 0.8)),
+            train_size=train_split,
             random_state=seed,
         )
         val_idx, test_idx = train_test_split(test_val_idx, test_size=0.5, random_state=seed)

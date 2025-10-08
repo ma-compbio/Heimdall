@@ -13,7 +13,7 @@ defaults:
   - /trainer: default  # contains optimizer and trainer details
   - /optimizer: AdamW
   - /fc: geneformer
-  - /fe: sorting
+  - /fe: dummy
   - /fg: identity
   - /loss: CrossEntropyLoss
   - /user: none  # user specific overwrites, e.g., paths

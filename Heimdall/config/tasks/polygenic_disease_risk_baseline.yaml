@@ -1,4 +1,4 @@
-type: Heimdall.task.Task
+type: Heimdall.task.SingleInstanceTask
 
 args:
   task_type: binary
@@ -21,7 +21,8 @@ args:
   head_config:
     type: Heimdall.models.ExpressionOnlyCellPredHead
     args:
-  cell_rep_config:
-    type: Heimdall.cell_representations.CellRepresentation
   loss_config:
     type: Heimdall.losses.MaskedBCEWithLogitsLoss
+
+cell_rep_config:
+  type: Heimdall.cell_representations.CellRepresentation

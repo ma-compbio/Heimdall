@@ -24,6 +24,7 @@ from Heimdall.fc import Fc
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
 from Heimdall.samplers import PartitionedBatchSampler, PartitionedDistributedSampler
+from Heimdall.task import Tasklist
 
 # from Heimdall.samplers import PartitionedDistributedSampler
 from Heimdall.utils import (
@@ -93,8 +94,14 @@ class CellRepresentation(SpecialTokenMixin):
         self._cfg = config
 
         self.dataset_preproc_cfg = config.dataset.preprocess_args
-        # self.dataset_task_cfg = config.tasks.args
-        self.task = instantiate_from_config(config.tasks, self)
+        if hasattr(config.tasks.args, "subtype_configs"):
+            self.tasklist = instantiate_from_config(config.tasks, self)
+        else:
+            self.tasklist = Tasklist(self, subtask_configs={"default": config.tasks})
+            # task = instantiate_from_config(config.tasks, self)
+            # self.tasklist["default"] = task
+
+        self.num_subtasks = self.tasklist.num_subtasks
 
         self.fg_cfg = config.fg
         self.fc_cfg = config.fc
@@ -122,7 +129,13 @@ class CellRepresentation(SpecialTokenMixin):
     @property
     @check_states(labels=True)
     def labels(self) -> Union[NDArray[np.int_], NDArray[np.float32]]:
-        return self.task._labels
+        labels = {subtask_name: subtask.labels for subtask_name, subtask in self.tasklist}
+        return labels
+
+    @labels.setter
+    def labels(self, val) -> Union[NDArray[np.int_], NDArray[np.float32]]:
+        for subtask_name, subtask in self.tasklist:
+            subtask.labels = val[subtask_name]
 
     @property
     @check_states(splits=True)
@@ -268,7 +281,7 @@ class CellRepresentation(SpecialTokenMixin):
     def prepare_full_dataset(self):
         # Set up full dataset given the processed cell representation data
         # This will prepare: labels, splits
-        full_dataset: Dataset = instantiate_from_config(self.task.dataset_config, self)
+        full_dataset: Dataset = instantiate_from_config(self.tasklist.dataset_config, self)
         self.datasets = {"full": full_dataset}
 
     @check_states(adata=True, processed_fcfg=True)
@@ -285,7 +298,7 @@ class CellRepresentation(SpecialTokenMixin):
             split: DataLoader(
                 dataset,
                 batch_size=self._cfg.trainer.per_device_batch_size,
-                shuffle=self.task.shuffle if split == "train" else False,
+                shuffle=self.tasklist.shuffle if split == "train" else False,
                 collate_fn=heimdall_collate_fn,
                 **dataloader_kwargs,
             )
@@ -523,17 +536,19 @@ class PartitionedCellRepresentation(CellRepresentation):
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_dataset_loaders(self):
-        full_dataset = self.datasets["full"]
 
         # Set up dataset splits given the data splits
-        overall_splits = defaultdict(dict)
+        overall_splits = defaultdict(lambda: defaultdict(dict))
+        full_dataset = self.datasets["full"]
         for partition, splits in full_dataset.partition_splits.items():
             for split, split_idx in splits.items():
                 overall_splits[split][partition] = split_idx
 
-        for split in overall_splits:
-            self.datasets[split] = PartitionedSubset(full_dataset, overall_splits[split])
+        full_dataset = self.datasets["full"]
+        for split, partition_splits in overall_splits.items():
+            self.datasets[split] = PartitionedSubset(full_dataset, partition_splits)
 
+        self.dataloaders = {}
         self.dataloaders = {
             split: DataLoader(
                 dataset,
@@ -542,7 +557,7 @@ class PartitionedCellRepresentation(CellRepresentation):
                         dataset,
                         num_replicas=self.num_replicas,
                         rank=self.rank,
-                        shuffle=self.task.shuffle if split == "train" else False,
+                        shuffle=self.tasklist[None].shuffle if split == "train" else False,
                     ),
                     batch_size=self._cfg.trainer.per_device_batch_size,
                     drop_last=False,

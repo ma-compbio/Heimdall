@@ -1,3 +1,5 @@
+type: Heimdall.task.SingleInstanceTask
+
 args:
   task_type: multiclass
   label_col_name: cell_type
@@ -17,10 +19,11 @@ args:
   epochs: 50
   dataset_config:
     type: Heimdall.datasets.SingleInstanceDataset
-  cell_rep_config:
-    type: Heimdall.cell_representations.CellRepresentation
   head_config:
     type: Heimdall.models.LinearCellPredHead
     args:
-  loss:
+  loss_config:
     type: Heimdall.losses.FlattenCrossEntropyLoss
+
+cell_rep_config:
+  type: Heimdall.cell_representations.CellRepresentation

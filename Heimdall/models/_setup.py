@@ -5,12 +5,10 @@ from Heimdall.models import HeimdallModel
 from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config
 
 
-def setup_experiment(config, cpu=False):
-    """Set up Heimdall experiment based on config, including cr, model and
-    trainer."""
+def setup_accelerator(config, cpu=False, run_wandb=False):
     # get accelerate context
     accelerator_log_kwargs = {}
-    if run_wandb := getattr(config, "run_wandb", False):
+    if run_wandb:
         accelerator_log_kwargs["log_with"] = "wandb"
         accelerator_log_kwargs["project_dir"] = config.work_dir
 
@@ -21,6 +19,17 @@ def setup_experiment(config, cpu=False):
         **accelerator_log_kwargs,
     )
 
+    return accelerator
+
+
+def setup_experiment(config, cpu=False, accelerator=None):
+    """Set up Heimdall experiment based on config, including cr, model and
+    trainer."""
+
+    run_wandb = getattr(config, "run_wandb", False)
+    if accelerator is None:
+        accelerator = setup_accelerator(config, cpu=cpu, run_wandb=run_wandb)
+
     if accelerator.is_main_process:
         print(OmegaConf.to_yaml(config, resolve=True))
 
@@ -28,7 +37,7 @@ def setup_experiment(config, cpu=False):
         only_preprocess_data = config.pop("only_preprocess_data", None)
         # pop so hash of cfg is not changed depending on value
 
-    cr = instantiate_from_config(config.tasks.args.cell_rep_config, config, accelerator)
+    cr = instantiate_from_config(config.tasks.cell_rep_config, config, accelerator)
 
     if only_preprocess_data:
         return

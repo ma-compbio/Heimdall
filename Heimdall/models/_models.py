@@ -32,40 +32,70 @@ class HeimdallModel(nn.Module):
             model_config: The language model config.
 
         """
+        self.num_subtasks = data.num_subtasks
+        self.tasklist = data.tasklist
+
         self.encoder = instantiate_from_config(
             model_config,
             data,
         )
 
-        self.num_labels = data.task.num_tasks
         dim_in = self.encoder.d_encoded
 
-        self.reducer = self.reduction_name = None
-        if isinstance(data.datasets["full"], PairedInstanceDataset):
-            self.reducer, self.reduction_name = instantiate_from_config(
-                data.task.reducer_config,
-                dim_in=dim_in,
-                return_name=True,
-            )
+        self.reducers = nn.ModuleDict()
+        self.heads = nn.ModuleDict()
+        for subtask_name, subtask in data.tasklist:
+            if isinstance(data.datasets["full"], PairedInstanceDataset):
+                self.reducers[subtask_name] = instantiate_from_config(
+                    subtask.reducer_config,
+                    dim_in=dim_in,
+                )
 
-        self.head = instantiate_from_config(data.task.head_config, dim_in=dim_in, dim_out=self.num_labels)
+            num_labels = subtask.num_tasks
+            head = instantiate_from_config(subtask.head_config, dim_in=dim_in, dim_out=num_labels)
+            self.heads[subtask_name] = head
 
-    def forward(self, inputs, labels=None, attention_mask=None):
-        # print(inputs, attention_mask)
-        if self.reducer is not None:
-            all_cell_inputs = zip(*inputs)
-            first_cell_mask, second_cell_mask = attention_mask
+    def encode_cell(self, cell_inputs, attention_mask=None):
+        outputs = {}
+        for subtask_name, subtask in self.tasklist:
+            masks = cell_inputs.pop("masks", None)
+            if masks is None:
+                encoded_cell = self.encoder(cell_inputs, attention_mask=attention_mask)
+                outputs[subtask_name] = encoded_cell
+            else:
+                for subtask_name, subtask in self.tasklist:
+                    mask = masks[subtask_name]
+                    subtask_inputs = cell_inputs.copy()
+                    subtask_inputs["identity_inputs"] = subtask_inputs["identity_inputs"].clone()
+                    subtask_inputs["identity_inputs"][mask] = self.tasklist.data.special_tokens["mask"]
 
-            encoded_cells = tuple(
-                self.encoder(cell_inputs, attention_mask=cell_mask)
-                for cell_inputs, cell_mask in zip(all_cell_inputs, attention_mask)
-            )
+                    outputs[subtask_name] = self.encoder(subtask_inputs, attention_mask)
 
-            encoded = self.reducer(encoded_cells)
+        return outputs
+
+    def forward(self, inputs, attention_mask=None):
+        if self.reducers:
+            encoded_cells = []
+            for index in range(2):  # Two cells (can be generalized to more
+                if attention_mask is None:
+                    cell_mask = None
+                else:
+                    cell_mask = attention_mask[index]
+
+                cell_inputs = {}
+                for key, value in inputs.items():
+                    cell_inputs[key] = value[index]
+
+                encoded_cell = self.encode_cell(cell_inputs, attention_mask=cell_mask)
+                encoded_cells.append(encoded_cell)
+
+            outputs = {}
+            for subtask_name, reducer in self.reducers.items():
+                outputs[subtask_name] = reducer([encoded_cell[subtask_name] for encoded_cell in encoded_cells])
         else:
-            encoded = self.encoder(inputs, attention_mask)
+            outputs = self.encode_cell(inputs, attention_mask)
 
-        outputs = self.head(encoded)
+        outputs = {subtask_name: self.heads[subtask_name](output) for subtask_name, output in outputs.items()}
 
         return outputs
 
@@ -89,7 +119,7 @@ class ExpressionOnly(nn.Module):
         _, self.d_encoded = data.adata.shape
 
     def forward(self, inputs, labels=None, attention_mask=None):
-        _, outputs = inputs  # extract expression only
+        outputs = inputs["expression_inputs"]  # extract expression only
 
         return outputs.to(get_dtype(self.float_dtype))  # convert to float32?
 
@@ -158,7 +188,7 @@ class CellSentenceModel(nn.Module):
 
     def embed_inputs(self, inputs):
         """Embed inputs using the `Fc` reduce function."""
-        identity_inputs, expression_inputs = inputs
+        identity_inputs, expression_inputs = inputs["identity_inputs"], inputs["expression_inputs"]
 
         input_embeds = self.fc.reduce(
             identity_inputs,
@@ -255,7 +285,7 @@ class ExpressionWeightedSum(CellSentenceModel):
             torch.tensor: The predicted outputs before cross entropy loss.
 
         """
-        _, expression_inputs = inputs
+        expression_inputs = inputs["expression_inputs"]
         input_embeds = self.embed_inputs(inputs)
 
         # Encoder

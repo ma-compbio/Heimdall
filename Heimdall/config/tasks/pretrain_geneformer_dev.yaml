@@ -1,4 +1,4 @@
-type: Heimdall.task.Task
+type: Heimdall.task.SeqMaskedMLMTask
 
 args:
   task_type: mlm
@@ -15,7 +15,8 @@ args:
   head_config:
     type: Heimdall.models.LinearSeqPredHead
     args:
-  cell_rep_config:
-    type: Heimdall.cell_representations.PartitionedCellRepresentation
   loss_config:
     type: Heimdall.losses.FlattenCrossEntropyLoss
+
+cell_rep_config:
+  type: Heimdall.cell_representations.PartitionedCellRepresentation
