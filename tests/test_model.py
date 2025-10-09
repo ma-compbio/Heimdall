@@ -76,6 +76,34 @@ def single_task_config(request, toy_single_data_path):
 
 
 @fixture(scope="module")
+def multitask_config(request, toy_single_data_path):
+    model_config, fc_config = request.param
+    with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
+        conf = hydra.compose(
+            config_name="config",
+            overrides=[
+                f"model={model_config}",
+                f"model.args.d_model=128",
+                f"data_path={os.environ['DATA_PATH']}",
+                f"ensembl_dir={os.environ['DATA_PATH']}",
+                f"dataset=test",
+                f"tasks=tasklist_placeholder",
+                f"+tasks@tasks.args.subtask_configs.1=test",
+                f"+tasks@tasks.args.subtask_configs.2=test",
+                f"dataset.preprocess_args.data_path={toy_single_data_path}",
+                f"cache_preprocessed_dataset_dir=null",
+                f"work_dir=work_dir",
+                "fg=identity",
+                "fe=dummy",
+                f"fc={fc_config}",
+            ],
+        )
+        OmegaConf.resolve(conf)
+
+    return conf
+
+
+@fixture(scope="module")
 def expression_only_config(request, toy_single_data_path):
     with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
         conf = hydra.compose(
@@ -155,6 +183,15 @@ def instantiate_and_run_model(config):
 )
 def test_single_task_model_instantiation(single_task_config):
     instantiate_and_run_model(single_task_config)
+
+
+@pytest.mark.parametrize(
+    "multitask_config",
+    zip(model_configs, fc_configs),
+    indirect=True,
+)
+def test_multitask_model_instantiation(multitask_config):
+    instantiate_and_run_model(multitask_config)
 
 
 def test_expression_only_instantiation(expression_only_config):

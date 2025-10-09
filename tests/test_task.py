@@ -40,9 +40,28 @@ def test_instantiate_tasklist():
 
     data = None
     tasklist = Tasklist(data, **conf.tasks.args)
+    for _, subtask in tasklist:
+        print(f"{subtask=}")
 
 
-@pytest.mark.xfail
+def test_instantiate_multitask_tasklist():
+    with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
+        conf = hydra.compose(
+            config_name="config",
+            overrides=[
+                f"tasks=tasklist_placeholder",
+                "+tasks@tasks.args.subtask_configs.1=spatial_cancer_split",
+                "+tasks@tasks.args.subtask_configs.2=spatial_cancer_split",
+            ],
+        )
+        OmegaConf.resolve(conf)
+
+    data = None
+    tasklist = Tasklist(data, **conf.tasks.args)
+    for _, subtask in tasklist:
+        print(f"{subtask=}")
+
+
 def test_invalid_tasklist():
     with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
         conf = hydra.compose(
@@ -56,5 +75,5 @@ def test_invalid_tasklist():
         OmegaConf.resolve(conf)
 
     data = None
-    tasklist = Tasklist(data, **conf.tasks.args)
-    print(tasklist.tasks)
+    with pytest.raises(ValueError):
+        tasklist = Tasklist(data, **conf.tasks.args)

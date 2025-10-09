@@ -94,7 +94,7 @@ class CellRepresentation(SpecialTokenMixin):
         self._cfg = config
 
         self.dataset_preproc_cfg = config.dataset.preprocess_args
-        if hasattr(config.tasks.args, "subtype_configs"):
+        if hasattr(config.tasks.args, "subtask_configs"):
             self.tasklist = instantiate_from_config(config.tasks, self)
         else:
             self.tasklist = Tasklist(self, subtask_configs={"default": config.tasks})
