@@ -246,7 +246,16 @@ class Tasklist:
 
     """
 
-    PROPERTIES = ("splits", "dataset_config", "shuffle", "batchsize", "epochs", "interaction_type")
+    PROPERTIES = (
+        "splits",
+        "dataset_config",
+        "shuffle",
+        "batchsize",
+        "epochs",
+        "interaction_type",
+        "early_stopping",
+        "early_stopping_patience",
+    )
 
     def __init__(
         self,
@@ -270,7 +279,7 @@ class Tasklist:
                 raise ValueError(f"All tasks must use the same `{property_name}` value.")
 
             unique_property = next(iter(unique_properties))
-            setattr(self, property_name, next(iter(unique_properties)))
+            setattr(self, property_name, unique_property)
 
     def __getitem__(self, key: str | None):
         if key is None:

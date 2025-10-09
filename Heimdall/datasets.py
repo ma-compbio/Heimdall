@@ -2,7 +2,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from pprint import pformat
-from typing import TYPE_CHECKING, Tuple, Union
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -10,7 +10,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset as PyTorchDataset
 from torch.utils.data import Subset
 
-from Heimdall.task import CellFeatType, FeatType, LabelType, Task, Tasklist
+from Heimdall.task import CellFeatType, LabelType, Task
 from Heimdall.utils import MAIN_KEYS
 
 if TYPE_CHECKING:

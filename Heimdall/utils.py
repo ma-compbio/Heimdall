@@ -535,20 +535,49 @@ def issparse(x):
     return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
 
 
-def save_umap(cr: "CellRepresentation", embeddings, savepath, split="test"):
+def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="heimdall_latents", split="test"):
+    def save_partition_umap(adata, embeddings, savepath, embedding_name):
+        adata.obsm[embedding_name] = embeddings
+
+        sc.pp.neighbors(adata, use_rep=embedding_name)
+        sc.tl.leiden(adata)
+        sc.tl.umap(adata)
+
+        ad.io.write_h5ad(savepath, adata)
+
     if hasattr(cr, "splits"):
+        full_dataset = cr.datasets["full"]
+        if hasattr(full_dataset, "partition_splits"):
+            cumulative_sizes = np.cumsum(
+                [
+                    len(full_dataset.partition_splits[partition][split])
+                    for partition in range(full_dataset.num_partitions)
+                ],
+            )
+            cumulative_sizes = np.concatenate([[0], cumulative_sizes])
+            for partition in range(full_dataset.num_partitions):
+                start, end = cumulative_sizes[partition : partition + 2]
+                full_dataset.partition = partition
+                adata = cr.adata[cr.splits[split]].copy()
+                partition_savepath = Path(savepath)
+                partition_savepath = partition_savepath.parent / f"partition_{partition}_{partition_savepath.name}"
+                save_partition_umap(
+                    adata=adata,
+                    embeddings=embeddings[start:end],
+                    savepath=partition_savepath,
+                    embedding_name=embedding_name,
+                )
+        else:
+            adata = cr.adata[cr.splits[split]].copy()
+            save_partition_umap(
+                adata=adata,
+                embeddings=embeddings,
+                savepath=savepath,
+                embedding_name=embedding_name,
+            )
         # breakpoint()
-        adata = cr.adata[cr.splits[split]].copy()
     else:
         raise ValueError("No split information found.")
-
-    adata.obsm["heimdall_latents"] = embeddings
-
-    sc.pp.neighbors(adata, use_rep="heimdall_latents")
-    sc.tl.leiden(adata)
-    sc.tl.umap(adata)
-
-    ad.io.write_h5ad(savepath, adata)
 
 
 class AllPartitionsExhausted(Exception):

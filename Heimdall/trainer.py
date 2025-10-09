@@ -39,6 +39,7 @@ class HeimdallTrainer:
         self.model = model
         self.data = data
         self.accelerator = accelerator
+        self.has_embeddings = self.cfg.model.name != "logistic_regression"
 
         self.check_flash_attn()
 
@@ -175,8 +176,7 @@ class HeimdallTrainer:
         metrics = defaultdict(dict)
         for subtask_name, subtask in self.data.tasklist:
             subtask_metrics = metrics[subtask_name]
-            task = self.data.tasklist[None]
-            task_type = task.task_type
+            task_type = subtask.task_type
 
             # First, add custom metrics if provided, TODO this is not implemented yet
             assert self.custom_metrics == {}, "Custom metrics not implemented yet"
@@ -185,7 +185,7 @@ class HeimdallTrainer:
             # Then, add built-in metrics if not overridden by custom metrics
             if task_type in ("mlm", "multiclass"):
                 num_classes = self.num_labels
-                for metric_name in task.metrics:
+                for metric_name in subtask.metrics:
                     if metric_name not in metrics:
                         if metric_name == "Accuracy":
                             subtask_metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
@@ -212,7 +212,7 @@ class HeimdallTrainer:
                         elif metric_name == "ConfusionMatrix":
                             subtask_metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
             elif task_type == "regression":
-                for metric_name in task.metrics:
+                for metric_name in subtask.metrics:
                     if metric_name not in metrics:
                         if metric_name == "R2Score":
                             subtask_metrics[metric_name] = R2Score()
@@ -221,7 +221,7 @@ class HeimdallTrainer:
             elif task_type == "binary":
                 # num_labels = self.num_labels
                 num_labels = 2
-                for metric_name in task.metrics:
+                for metric_name in subtask.metrics:
                     if metric_name not in metrics:
                         if metric_name == "Accuracy":
                             subtask_metrics[metric_name] = Accuracy(task="binary", num_labels=num_labels)
@@ -259,50 +259,66 @@ class HeimdallTrainer:
             start_epoch = self.load_checkpoint()
 
         # If the tracked parameter is specified
-        track_metric = None
+        track_metric = defaultdict(lambda: None)
         task = self.data.tasklist[None]
-        if task.track_metric is not None:
-            track_metric = task.track_metric
-            best_metric = {
-                f"best_val_{track_metric}": float("-inf"),
-                f"reported_test_{track_metric}": float("-inf"),
-            }
-            assert (
-                track_metric in task.metrics
-            ), "The tracking metric is not in the list of metrics, please check your configuration task file"
+        best_metric = defaultdict(dict)
+        for subtask_name, subtask in self.data.tasklist:
+            if subtask.track_metric is not None:
+                track_metric[subtask_name] = subtask.track_metric
+                best_metric[subtask_name] = {
+                    f"best_val_{subtask_name}_{track_metric}": float("-inf"),
+                    f"reported_test_{subtask_name}_{track_metric}": float("-inf"),
+                }
+                assert (
+                    track_metric[subtask_name] in subtask.metrics
+                ), "The tracking metric is not in the list of metrics, please check your configuration task file"
 
         # Initialize early stopping parameters
-        early_stopping = task.early_stopping
-        early_stopping_patience = task.early_stopping_patience
+        early_stopping = self.data.tasklist.early_stopping
+        early_stopping_patience = self.data.tasklist.early_stopping_patience
         patience_counter = 0
 
-        best_val_embed = None
-        best_test_embed = None
-        best_epoch = 0
+        best_val_embed = {}
+        best_test_embed = {}
+        best_epoch = defaultdict(int)
 
-        for epoch in range(start_epoch, task.epochs):
+        for epoch in range(start_epoch, self.data.tasklist.epochs):
             # Validation and test evaluation
             valid_log, val_embed = self.validate_model(self.dataloader_val, dataset_type="valid")
             test_log, test_embed = self.validate_model(self.dataloader_test, dataset_type="test")
 
             # Track the best metric if specified
-            if track_metric:
-                val_metric = valid_log.get(f"valid_{track_metric}", float("-inf"))
-                if val_metric > best_metric[f"best_val_{track_metric}"]:
-                    best_val_embed = val_embed
-                    best_test_embed = test_embed
-                    best_epoch = epoch
+            reset_patience_counter = False
+            for subtask_name, subtask in self.data.tasklist:
+                if track_metric[subtask_name] is not None:
+                    val_metric = valid_log.get(f"valid_{subtask_name}_{track_metric}", float("-inf"))
+                    if val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"]:
+                        best_val_embed[subtask_name] = val_embed[subtask_name]
+                        best_test_embed[subtask_name] = test_embed[subtask_name]
+                        best_epoch[subtask_name] = epoch
 
-                    best_metric[f"best_val_{track_metric}"] = val_metric
-                    self.print_r0(f"New best validation {track_metric}: {val_metric}")
-                    best_metric["reported_epoch"] = epoch  # log the epoch for convenience
-                    for metric in task.metrics:
-                        best_metric[f"reported_test_{metric}"] = test_log.get(f"test_{metric}", float("-inf"))
+                        best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"] = val_metric
+                        self.print_r0(f"New best validation for {subtask_name} {track_metric}: {val_metric}")
+                        best_metric[subtask_name]["reported_epoch"] = epoch  # log the epoch for convenience
+                        for metric in subtask.metrics:
+                            best_metric[subtask_name][f"reported_test_{metric}"] = test_log.get(
+                                f"test_{metric}",
+                                float("-inf"),
+                            )
+
+                        reset_patience_counter = True
+
+                        # Save checkpoint for best model
+                        self.save_checkpoint(epoch)
+                        self.print_r0(f"> Saved best model checkpoint at epoch {epoch}")
+
+                else:
+                    best_val_embed[subtask_name] = val_embed[subtask_name]
+                    best_test_embed[subtask_name] = test_embed[subtask_name]
+                    best_epoch[subtask_name] = epoch
+
+                if reset_patience_counter:
                     patience_counter = 0  # Reset patience counter since we have a new best
-
-                    # Save checkpoint for best model
-                    self.save_checkpoint(epoch)
-                    self.print_r0(f"> Saved best model checkpoint at epoch {epoch}")
                 else:
                     patience_counter += 1
                     if early_stopping:
@@ -310,10 +326,6 @@ class HeimdallTrainer:
                             f"No improvement in validation {track_metric}. "
                             f"Patience counter: {patience_counter}/{early_stopping_patience}",
                         )
-            else:
-                best_val_embed = val_embed
-                best_test_embed = test_embed
-                best_epoch = epoch
 
             # Check early stopping condition
             if early_stopping and patience_counter >= early_stopping_patience:
@@ -331,21 +343,34 @@ class HeimdallTrainer:
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
 
         if self.run_wandb and self.accelerator.is_main_process:
-            if track_metric:  # logging the best val score and the tracked test scores
-                self.accelerator.log(best_metric, step=self.step)
+            for subtask_name, subtask in self.data.tasklist:
+                if track_metric[subtask_name] is not None:  # logging the best val score and the tracked test scores
+                    self.accelerator.log(best_metric[subtask_name], step=self.step)
             self.accelerator.end_training()
 
         if (
             self.accelerator.is_main_process
-            and self.cfg.model.name != "logistic_regression"
+            and self.has_embeddings
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-            and task.task_type != "mlm"
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
-            if best_test_embed is not None and best_val_embed is not None and not self.cfg.trainer.fastdev:
-                save_umap(self.data, best_test_embed, split="test", savepath=self.results_folder / "test_adata.h5ad")
-                save_umap(self.data, best_val_embed, split="val", savepath=self.results_folder / "val_adata.h5ad")
-                self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
+            if best_test_embed and best_val_embed and not self.cfg.trainer.fastdev:
+                for subtask_name, _ in self.data.tasklist:
+                    save_umap(
+                        self.data,
+                        best_test_embed[subtask_name],
+                        embedding_name=f"{subtask_name}_latents",
+                        split="test",
+                        savepath=self.results_folder / "test_adata.h5ad",
+                    )
+                    save_umap(
+                        self.data,
+                        best_val_embed[subtask_name],
+                        embedding_name=f"{subtask_name}_latents",
+                        split="val",
+                        savepath=self.results_folder / "val_adata.h5ad",
+                    )
+                    self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
             else:
                 self.print_r0("> Skipped saving UMAP")
 
@@ -436,7 +461,6 @@ class HeimdallTrainer:
                 "all_preds": defaultdict(list),
             }
 
-        task = self.data.tasklist[None]
         with tqdm(dataloader, disable=not self.accelerator.is_main_process) as pbar:
             for batch in pbar:
                 step += 1
@@ -480,7 +504,7 @@ class HeimdallTrainer:
                         loss = None
                     else:
                         for subtask_name, subtask in self.data.tasklist:
-                            if self.cfg.model.name != "logistic_regression":
+                            if self.has_embeddings:
                                 outputs["all_embeddings"][subtask_name].append(
                                     batch_outputs[subtask_name].cls_embeddings.detach().cpu().numpy(),
                                 )

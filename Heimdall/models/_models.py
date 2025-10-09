@@ -57,13 +57,18 @@ class HeimdallModel(nn.Module):
 
     def encode_cell(self, cell_inputs, attention_mask=None):
         outputs = {}
-        for subtask_name, subtask in self.tasklist:
+        maskless_encoding = None
+        for subtask_name, _ in self.tasklist:
             masks = cell_inputs.pop("masks", None)
             if masks is None:
-                encoded_cell = self.encoder(cell_inputs, attention_mask=attention_mask)
-                outputs[subtask_name] = encoded_cell
+                if maskless_encoding is None:
+                    encoded_cell = self.encoder(cell_inputs, attention_mask=attention_mask)
+                    outputs[subtask_name] = encoded_cell
+                    maskless_encoding = encoded_cell
+                else:
+                    outputs[subtask_name] = maskless_encoding
             else:
-                for subtask_name, subtask in self.tasklist:
+                for subtask_name, _ in self.tasklist:
                     mask = masks[subtask_name]
                     subtask_inputs = cell_inputs.copy()
                     subtask_inputs["identity_inputs"] = subtask_inputs["identity_inputs"].clone()
