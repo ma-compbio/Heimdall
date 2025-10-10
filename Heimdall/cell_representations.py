@@ -557,7 +557,7 @@ class PartitionedCellRepresentation(CellRepresentation):
                         dataset,
                         num_replicas=self.num_replicas,
                         rank=self.rank,
-                        shuffle=self.tasklist[None].shuffle if split == "train" else False,
+                        shuffle=self.tasklist.shuffle if split == "train" else False,
                     ),
                     batch_size=self._cfg.trainer.per_device_batch_size,
                     drop_last=False,
