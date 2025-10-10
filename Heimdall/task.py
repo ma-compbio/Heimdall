@@ -102,7 +102,7 @@ class Task(ABC):
     @abstractmethod
     def setup_labels(self): ...
 
-    def get_inputs(self, idx, identity_inputs, expression_inputs, expression_padding) -> tuple[CellFeatType, LabelType]:
+    def get_inputs(self, idx, shared_inputs):
         return {
             "labels": self.labels[idx],
         }
@@ -186,9 +186,9 @@ class PairedInstanceTask(Task):
 
 
 class MLMMixin:
-    def get_inputs(self, idx, identity_inputs, expression_inputs, expression_padding):
+    def get_inputs(self, idx, shared_inputs):
         return {
-            "labels": identity_inputs.astype(int),
+            "labels": shared_inputs["identity_inputs"].astype(int),
         }
 
     def setup_labels(self):
@@ -207,8 +207,8 @@ class MaskedMixin(ABC):
 
 
 class TransformationMixin(ABC):
-    def get_inputs(self, idx, identity_inputs, expression_inputs, expression_padding):
-        data = super().get_inputs(idx, identity_inputs, expression_inputs, expression_padding)
+    def get_inputs(self, idx, shared_inputs):
+        data = super().get_inputs(idx, shared_inputs)
         return self._transform(data)
 
     @abstractmethod

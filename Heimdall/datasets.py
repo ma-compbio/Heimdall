@@ -84,25 +84,24 @@ class Dataset(PyTorchDataset, ABC):
     def _setup_predefined_splits(self, task: Task): ...
 
     def __getitem__(self, idx) -> Tuple[CellFeatType, LabelType]:
-        identity_inputs, expression_inputs, expression_padding = self.get_tokens(idx)
+        shared_inputs = self.get_shared_inputs(idx)
 
-        collated_subtask_inputs = defaultdict(dict)
+        all_inputs = defaultdict(dict)
         for subtask_name, subtask in self.data.tasklist:
-            subtask_inputs = subtask.get_inputs(idx, identity_inputs, expression_inputs, expression_padding)
+            subtask_inputs = subtask.get_inputs(idx, shared_inputs)
             for key in MAIN_KEYS:
                 subtask_input = subtask_inputs.get(key, None)
-                collated_subtask_inputs[key][subtask_name] = subtask_input
+                all_inputs[key][subtask_name] = subtask_input
 
         for key in MAIN_KEYS:
-            if all(value is None for value in collated_subtask_inputs[key].values()):
-                del collated_subtask_inputs[key]
+            if all(value is None for value in all_inputs[key].values()):
+                del all_inputs[key]
 
-        return {
-            "identity_inputs": identity_inputs,
-            "expression_inputs": expression_inputs,
-            "expression_padding": expression_padding,
-            **collated_subtask_inputs,
-        }
+        for key in shared_inputs:
+            if key not in all_inputs:
+                all_inputs[key] = shared_inputs[key]
+
+        return all_inputs
 
 
 def filter_list(input_list):
@@ -142,10 +141,14 @@ class SingleInstanceDataset(Dataset):
         else:
             raise ValueError(f"Unknown split type {split_type!r}")
 
-    def get_tokens(self, idx):
+    def get_shared_inputs(self, idx):
         identity_inputs, expression_inputs, expression_padding = self.data.fc[idx]
 
-        return identity_inputs, expression_inputs, expression_padding
+        return {
+            "identity_inputs": identity_inputs,
+            "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
+        }
 
 
 class PairedInstanceDataset(Dataset):
@@ -214,12 +217,16 @@ class PairedInstanceDataset(Dataset):
 
         adata.obsp["full_mask"] = full_mask
 
-    def get_tokens(self, idx):
+    def get_shared_inputs(self, idx):
         identity_inputs, expression_inputs, expression_padding = zip(
             *[self.data.fc[cell_idx] for cell_idx in self.idx[idx]],
         )
 
-        return identity_inputs, expression_inputs, expression_padding
+        return {
+            "identity_inputs": identity_inputs,
+            "expression_inputs": expression_inputs,
+            "expression_padding": expression_padding,
+        }
 
 
 class PartitionedDataset(SingleInstanceDataset):
