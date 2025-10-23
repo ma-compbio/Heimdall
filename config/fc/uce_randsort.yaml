@@ -1,0 +1,14 @@
+type: Heimdall.fc.Fc
+
+args:
+  max_input_length: 1200
+  embedding_parameters:
+    type: torch.nn.Module  # Should throw an error if called
+  tailor_config:
+    type: Heimdall.tailor.WeightedResampleTailor
+    args:
+      sample_size: 924
+  order_config:
+    type: Heimdall.order.RandomOrder
+  reduce_config:
+    type: Heimdall.reduce.SumReduce
