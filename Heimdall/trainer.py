@@ -332,8 +332,8 @@ class HeimdallTrainer:
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
             if best_test_embed is not None and best_val_embed is not None and not self.cfg.trainer.fastdev:
-                #save_umap(self.data, best_test_embed, split="test", savepath=self.results_folder / "test_adata.h5ad")
-                #save_umap(self.data, best_val_embed, split="val", savepath=self.results_folder / "val_adata.h5ad")
+                # save_umap(self.data, best_test_embed, split="test", savepath=self.results_folder / "test_adata.h5ad")
+                # save_umap(self.data, best_val_embed, split="val", savepath=self.results_folder / "val_adata.h5ad")
                 self.print_r0(f"> Saved best UMAP checkpoint at epoch {best_epoch}")
             else:
                 self.print_r0("> Skipped saving UMAP")
@@ -350,7 +350,7 @@ class HeimdallTrainer:
         elif self.cfg.loss.name.endswith("CrossEntropyFocalLoss"):
             loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "CrossEntropyLoss":
-            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1)) 
+            loss = self.loss_fn(logits.view(-1, self.num_labels), labels.view(-1))
         elif self.cfg.loss.name == "MSELoss":
             loss = self.loss_fn(logits, labels)
         else:
@@ -471,8 +471,8 @@ class HeimdallTrainer:
                         outputs["loss"] = loss
 
                     if metrics is not None:
-                        #print("Metrics dictionary: ", metrics.keys())
-                      
+                        # print("Metrics dictionary: ", metrics.keys())
+
                         for metric_name, metric in metrics.items():  # noqa: B007
                             # Built-in metric
                             if self.cfg.tasks.args.task_type in ["multiclass", "mlm"]:
@@ -487,8 +487,8 @@ class HeimdallTrainer:
                                 no_nans_flattened_preds = flattened_preds[mask]
                                 labels = no_nans_flattened_labels.to(torch.int)
                                 preds = no_nans_flattened_preds
-                            #print("preds shape: ", preds.shape)
-                            #print("labels shape: ", labels.shape)
+                            # print("preds shape: ", preds.shape)
+                            # print("labels shape: ", labels.shape)
                             metric.update(preds, labels)
 
                 if self.cfg.trainer.fastdev:
@@ -736,6 +736,17 @@ def setup_trainer(config, cpu=True):
         return
 
     accelerator, cr, model, run_wandb = experiment_primitives
+    if "pretrained_ckpt_path" in config:
+        assert Path(config.pretrained_ckpt_path).is_file(), "pretrained checkpoint file does not exist"
+        pretrained_state_dict = torch.load(config.pretrained_ckpt_path)["model"]
+        filtered_pretrained_params = OrderedDict(
+            filter(lambda param_tuple: "head.decoder" not in param_tuple[0], pretrained_state_dict.items()),
+        )  # we drop to pretrained head and load all other params
+
+        model.load_state_dict(filtered_pretrained_params, strict=False)
+
+        if accelerator.is_main_process:
+            print(f">Finished loading pretrained params loaded from {config.pretrained_ckpt_path}")
     trainer = HeimdallTrainer(cfg=config, model=model, data=cr, accelerator=accelerator, run_wandb=run_wandb)
 
     return trainer

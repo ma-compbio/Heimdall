@@ -1,12 +1,13 @@
-from accelerate import Accelerator
-from omegaconf import OmegaConf, open_dict
 from collections import OrderedDict
 from pathlib import Path
 
+import torch
+from accelerate import Accelerator, DistributedDataParallelKwargs
+from omegaconf import OmegaConf, open_dict
+
 from Heimdall.models import HeimdallModel
 from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config
-from accelerate import DistributedDataParallelKwargs
-import torch
+
 
 def setup_experiment(config, cpu=False):
     """Set up Heimdall experiment based on config, including cr, model and
@@ -24,7 +25,7 @@ def setup_experiment(config, cpu=False):
         step_scheduler_with_optimizer=False,
         # cpu=(config.trainer.accelerator == 'cpu'),
         **accelerator_log_kwargs,
-        kwargs_handlers=[ddp_kwargs]
+        kwargs_handlers=[ddp_kwargs],
     )
 
     if accelerator.is_main_process:
@@ -50,21 +51,10 @@ def setup_experiment(config, cpu=False):
         task_config=config.tasks.args,
     )
 
-    if config.pretrained_ckpt_path is not None:
-        assert Path(config.pretrained_ckpt_path).is_file(), 'pretrained checkpoint file does not exist'
-        pretrained_state_dict = torch.load(config.pretrained_ckpt_path)['model']
-        filtered_pretrained_params = OrderedDict(filter(lambda param_tuple: 'head.decoder' not in param_tuple[0], pretrained_state_dict.items())) # we drop to pretrained head and load all other params
-
-        model.load_state_dict(filtered_pretrained_params,strict=False)
-        
-        if accelerator.is_main_process:
-            print(f">Finished loading pretrained params loaded from {config.pretrained_ckpt_path}")
-
-    model.to(float_dtype) # to dtype after potentially loading pretrained weights instead of before
+    model.to(float_dtype)  # to dtype after potentially loading pretrained weights instead of before
 
     if accelerator.is_main_process:
         num_params = count_parameters(model)
         print(f"\nModel constructed:\n{model}\nNumber of trainable parameters {num_params:,}\n")
-            
 
     return accelerator, cr, model, run_wandb
