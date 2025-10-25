@@ -21,7 +21,7 @@ import Heimdall.datasets
 import Heimdall.losses
 import wandb
 from Heimdall.models import setup_experiment
-from Heimdall.utils import INPUT_KEYS, instantiate_from_config, save_umap
+from Heimdall.utils import INPUT_KEYS, instantiate_from_config, project2simplex_, save_umap
 
 
 class HeimdallTrainer:
@@ -451,6 +451,7 @@ class HeimdallTrainer:
         validation)."""
         training = epoch is not None
 
+        constrained_params = [p for name, p in self.model.named_parameters() if "metafeature" in name]
         if training:
             step = len(dataloader) * epoch
             outputs = None
@@ -503,6 +504,12 @@ class HeimdallTrainer:
                                 }
                                 if self.run_wandb and self.accelerator.is_main_process:
                                     self.accelerator.log(log, step=self.step)
+
+                            with torch.no_grad():
+                                for param in constrained_params:
+                                    # TODO: make this more robust to different types of PGD
+                                    project2simplex_(param, dim=1)
+
                         loss = None
                     else:
                         for subtask_name, _ in self.data.tasklist:

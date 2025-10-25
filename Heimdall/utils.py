@@ -578,3 +578,43 @@ def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="he
 class AllPartitionsExhausted(Exception):
     def __init__(self, message: str = "All partitions exhausted"):
         super().__init__(message)
+
+
+def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> Tensor:
+    """(In-place) Projects a matrix such that the columns (or rows) lie on the
+    unit simplex.
+
+    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
+    for a reference.
+
+    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1
+
+    Currently uses Newton's method to optimize || y - mu ||^2
+
+    TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf
+
+    Args:
+        y: list of vectors to be projected to unit simplex
+        dim: dimension along which to project
+        zero_threshold: threshold to treat as zero for numerical stability purposes
+
+    """
+    num_components = y.shape[dim]
+
+    y.sub_(y.sum(dim=dim, keepdim=True).sub_(1), alpha=1 / num_components)
+    mu = y.max(dim=dim, keepdim=True)[0].div_(2)
+    derivative_prev, derivative = None, None
+    for _ in range(num_components):
+        difference = y.sub(mu)
+        objective_value = difference.clip_(min=zero_threshold).sum(dim, keepdim=True).sub_(1)
+        derivative = difference.gt_(zero_threshold).sum(dim, keepdim=True)
+
+        if derivative_prev is not None and (derivative == derivative_prev).all():
+            break
+
+        mu.addcdiv_(objective_value, derivative)
+        derivative_prev = derivative
+
+    y.sub_(mu).clip_(min=zero_threshold)
+    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+    return y
