@@ -63,7 +63,7 @@ class SeqPredHeadMixin:
         )
 
 
-class ExpressionPredHeadMixin:
+class GenericPredHeadMixin:
     def forward(self, encoder_output) -> TransformerOutput:
         logits = self.decoder(encoder_output)
         logits = logits.squeeze(1)
@@ -89,7 +89,7 @@ class LinearCellPredHead(CellPredHeadMixin, LinearDecoderMixin):
     """Linear cell prediction head."""
 
 
-class ExpressionOnlyCellPredHead(ExpressionPredHeadMixin, LinearDecoderMixin):
+class ExpressionOnlyCellPredHead(GenericPredHeadMixin, LinearDecoderMixin):
     """Logistic regression prediction head.
 
     Put expression be the input

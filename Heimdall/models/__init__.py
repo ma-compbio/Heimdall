@@ -1,6 +1,6 @@
 from Heimdall.models._head import (
     ExpressionOnlyCellPredHead,
-    ExpressionPredHeadMixin,
+    GenericPredHeadMixin,
     LinearCellPredHead,
     LinearSeqPredHead,
     SeqPredHeadMixin,
@@ -15,14 +15,14 @@ from Heimdall.models._models import (
     TransformerEncoder,
 )
 from Heimdall.models._reducers import AsymmetricConcatReducer, MeanReducer, SumReducer, SymmetricConcatReducer
-from Heimdall.models._setup import setup_experiment
+from Heimdall.models._setup import setup_accelerator, setup_experiment
 
 __all__ = [
     HeimdallModel.__name__,
     Transformer.__name__,
     TransformerEncoder.__name__,
     SeqPredHeadMixin.__name__,
-    ExpressionPredHeadMixin.__name__,
+    GenericPredHeadMixin.__name__,
     Average.__name__,
     ExpressionWeightedSum.__name__,
     ExpressionOnly.__name__,
@@ -35,4 +35,5 @@ __all__ = [
     SymmetricConcatReducer.__name__,
     AsymmetricConcatReducer.__name__,
     setup_experiment.__name__,
+    setup_accelerator.__name__,
 ]
