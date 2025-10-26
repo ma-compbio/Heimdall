@@ -4,6 +4,8 @@ from typing import Callable, Optional
 import torch
 from torch import nn, no_grad
 
+from Heimdall.utils import project2simplex_
+
 
 @dataclass
 class TransformerOutput:
