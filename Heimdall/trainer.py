@@ -1,7 +1,7 @@
 """Heimdall trainer."""
 
 import random
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -795,7 +795,7 @@ def setup_trainer(config, cpu=True):
     accelerator, cr, model, run_wandb = experiment_primitives
     if "pretrained_ckpt_path" in config:
         if not Path(config.pretrained_ckpt_path).is_file():
-            raise FileNotFoundError(f"{pretrained_ckpt_path=} does not exist.")
+            raise FileNotFoundError(f"{config.pretrained_ckpt_path=} does not exist.")
 
         pretrained_state_dict = torch.load(config.pretrained_ckpt_path)["model"]
         filtered_pretrained_params = OrderedDict(

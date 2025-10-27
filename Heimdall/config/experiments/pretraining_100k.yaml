@@ -25,5 +25,3 @@ project_name: pretraining  # project name for WandB
 optimizer:
   args:
     lr: 2e-3
-
-pretrained_ckpt_path:

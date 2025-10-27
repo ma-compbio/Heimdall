@@ -75,7 +75,7 @@ class Fg(ABC):
 
         """
         embedding_indices = self.adata.var.loc[gene_names, "identity_embedding_index"]
-        
+
         valid_mask = self.adata.var.loc[gene_names, "identity_valid_mask"]
         if (valid_mask.sum() != len(gene_names)) and not return_mask:
             raise KeyError(
