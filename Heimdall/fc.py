@@ -50,15 +50,10 @@ class Fc:
         self.order = instantiate_from_config(order_config, fc=self)
         self.reduce = instantiate_from_config(reduce_config, fc=self)
 
-    
-        
-    
     def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray, NDArray]:
         """Retrieve `identity_inputs`, `expression_inputs` and `padding_mask`.
-
         Returns:
             A tuple of gene identity embedding indices and gene expression embedding indices for all cells.
-
         """
 
         if cell_index == -1:  # Dummy `cell_index`
@@ -75,29 +70,23 @@ class Fc:
             raise ValueError(
                 "Gene identity and expression inputs do not have the same shape; `Fg` and `Fe` are incompatible.",
             )
-        
-
         # first, drop any `NaN` values here
         # Assuming gene_tokenization is a pandas IntegerArray and expression_tokenization is a numpy array
         # TODO: what does `NaN` represent here?
         expression_inputs = np.asarray(expression_inputs)
         valid_mask = ~np.isnan(expression_inputs)
-
         if not np.all(valid_mask):
             identity_inputs_pd = identity_inputs_pd[valid_mask]
             expression_inputs = expression_inputs[valid_mask]
             identity_indices = np.asarray(identity_indices)[valid_mask]
 
         identity_inputs = identity_inputs_pd.to_numpy()
-
         gene_order = self.order(
-                identity_inputs=identity_inputs,                      
-                expression_inputs=expression_inputs,                  
-                cell_index=cell_index,                                
-                identity_indices=np.asarray(identity_indices, int), 
+            identity_inputs=identity_inputs,
+            expression_inputs=expression_inputs,
+            cell_index=cell_index,
+            identity_indices=np.asarray(identity_indices, int),
         )
-
-
         # Padding and truncating
         identity_inputs, expression_inputs = self.tailor(
             identity_inputs,

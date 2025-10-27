@@ -263,3 +263,105 @@ class WeightedResampleTailor(Tailor):
         identity_inputs, expression_inputs = self.weighted_resampling(identity_inputs, expression_inputs, gene_order)
 
         return super().__call__(identity_inputs, expression_inputs, gene_order)
+
+
+class ChromosomeBlockTailor(Tailor):
+    """
+    Chromosome grouping without any resampling.
+    - Groups genes into blocks per chromosome with open/close tokens.
+    - Within each chromosome, genes are ordered according to `gene_order`.
+    - Uses Tailor.limit (default truncation) and Tailor.pad.
+    """
+    def __init__(self, fc: Fc):
+        super().__init__(fc=fc)
+
+    def _group_by_chromosomes(
+        self,
+        identity_inputs: NDArray,
+        expression_inputs: NDArray,
+        gene_order: NDArray,
+    ) -> tuple[NDArray, NDArray]:
+        # Number of original tokens (no sampling)
+        (input_length,) = identity_inputs.shape
+
+        # Pre-compute ranks (so lower rank = earlier)
+        # Matches your pattern: np.argsort(gene_order) -> ranks used to sort within chrom
+        gene_ranks = np.argsort(gene_order)
+
+        # Map each gene id to its chromosome
+        # Assumes `self.fc.chroms` is a pandas Series indexed by gene id
+        chrom_of_gene = self.fc.chroms.iloc[identity_inputs]
+
+        num_chromosomes = len(self.fc.shuffled_chromosomes)
+        raw_sequence_length = input_length + 2 * num_chromosomes  # open + close for each chrom
+
+        grouped_gene_tokenization = np.full(
+            raw_sequence_length, self.fc.fg.pad_value, dtype=self.fc.float_dtype,
+        )
+        grouped_expression_tokenization = np.full(
+            raw_sequence_length, self.fc.fe.pad_value, dtype=self.fc.float_dtype,
+        )
+
+        sequence_index = 0
+
+        for chromosome in self.fc.shuffled_chromosomes:
+            # indices of genes belonging to this chromosome
+            chrom_idx = np.where(chrom_of_gene == chromosome)[0]
+
+            # open token for this chromosome
+            placeholder_id = -(chromosome + self.fc.chrom_token_offset + 1)
+            grouped_gene_tokenization[sequence_index] = placeholder_id
+            grouped_expression_tokenization[sequence_index] = placeholder_id
+            sequence_index += 1
+
+            # order genes within the chromosome using ranks derived from gene_order
+            if chrom_idx.size > 0:
+                chrom_gene_ranks = gene_ranks[chrom_idx]
+                chrom_order = np.argsort(chrom_gene_ranks)
+
+                chrom_genes = identity_inputs[chrom_idx][chrom_order]
+                chrom_exprs = expression_inputs[chrom_idx][chrom_order]
+
+                n = chrom_genes.shape[0]
+                grouped_gene_tokenization[sequence_index : sequence_index + n] = chrom_genes
+                grouped_expression_tokenization[sequence_index : sequence_index + n] = chrom_exprs
+                sequence_index += n
+
+            # close token
+            grouped_gene_tokenization[sequence_index] = -self.fc.chrom_token_offset
+            grouped_expression_tokenization[sequence_index] = -self.fc.chrom_token_offset
+            sequence_index += 1
+
+        # (sequence_index should equal raw_sequence_length)
+        return grouped_gene_tokenization, grouped_expression_tokenization
+
+    # Use default truncation (like ReorderTailor)
+    def limit(
+        self,
+        identity_inputs: NDArray,
+        expression_inputs: NDArray,
+        gene_order: NDArray,
+    ) -> tuple[NDArray, NDArray]:
+        return super().limit(identity_inputs, expression_inputs, gene_order)
+
+    # Use default padding (like ReorderTailor)
+    def pad(
+        self,
+        identity_inputs: NDArray,
+        expression_inputs: NDArray,
+        gene_order: NDArray,
+    ) -> tuple[NDArray, NDArray]:
+        return super().pad(identity_inputs, expression_inputs, gene_order)
+
+    def __call__(
+        self,
+        identity_inputs: NDArray,
+        expression_inputs: NDArray,
+        gene_order: NDArray,
+    ) -> tuple[NDArray, NDArray]:
+        # Build chromosome-blocked sequence (no resampling)
+        identity_inputs, expression_inputs = self._group_by_chromosomes(
+            identity_inputs, expression_inputs, gene_order,
+            )
+        # Then apply the standard Tailor length control (truncate/pad)
+        return super().__call__(identity_inputs, expression_inputs, gene_order)

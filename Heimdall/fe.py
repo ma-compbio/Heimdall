@@ -285,7 +285,6 @@ class BinningFe(Fe):
         return cell_identity_inputs, cell_expression_inputs_binned
 
 
-
 class ZeroFe(Fe):
     def __getitem__(self, cell_index: int):
         n = self.adata.n_vars
@@ -293,6 +292,7 @@ class ZeroFe(Fe):
         cell_expression_inputs = np.zeros(n, dtype=np.float32)
 
         return cell_identity_inputs, cell_expression_inputs
+
 
 class IdentityFe(Fe):
     """Directly pass the continuous values. Remove zeros.

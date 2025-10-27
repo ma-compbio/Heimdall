@@ -6,12 +6,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import psutil
-import scanpy as sc
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
 from accelerate.utils import set_seed
-from anndata import AnnData
 from omegaconf import OmegaConf
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
@@ -264,9 +262,8 @@ class HeimdallTrainer:
         if start_epoch >= self.cfg.tasks.args.epochs:
             last_epoch = max(0, start_epoch - 1)
             # Run one eval pass on the loaded weights to get embeddings
-            _, val_embed  = self.validate_model(self.dataloader_val,  "valid")
+            _, val_embed = self.validate_model(self.dataloader_val, "valid")
             _, test_embed = self.validate_model(self.dataloader_test, "test")
-    
             if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
                 #self.save_adata_umap(test_embed, val_embed)
                 self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
@@ -783,8 +780,8 @@ class HeimdallTrainer:
 
                 # compute top-k per example
                 if self.cfg.tasks.args.task_type in ["multiclass", "binary"]:
-                    C = logits.shape[-1]
-                    max_k = min(max_k_cfg, int(C))
+                    c = logits.shape[-1]
+                    max_k = min(max_k_cfg, int(c))
                     if self.cfg.tasks.args.task_type == "multiclass":
                         vals, idx = torch.topk(logits, k=max_k, dim=-1)
                     else:

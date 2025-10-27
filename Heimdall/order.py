@@ -32,22 +32,16 @@ class Order(ABC):
 
 
 class ExpressionOrder(Order):
-
-
-    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs,) -> NDArray:
+    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs) -> NDArray:
         """Order cell tokens using metadata.
-
         Gene tokens are reordered based on expression level.
-
         Args:
             cell_tokenization: the stacked gene identity- and gene expression-based tokenization
                 of a cell.
-
         """
         cell_index = kwargs.get("cell_index", None)
         if cell_index is None:
             raise ValueError("ExpressionOrder needs `cell_index` in **kwargs`.")
-        
         cols = np.asarray(identity_inputs, dtype=int)
 
         n_vars = self.fc.adata.shape[1]
@@ -56,21 +50,19 @@ class ExpressionOrder(Order):
             if alt is None:
                 raise ValueError(
                     "identity_inputs do not appear to be var indices. "
-                    "Either ensure Fg=identity (tokens == var positions) or pass `identity_indices`."
+                    "Either ensure Fg=identity (tokens == var positions) or pass `identity_indices`.",
                 )
             cols = np.asarray(alt, dtype=int)
 
-        X = self.fc.adata.X
-        sub = X.getrow(cell_index)[:, cols] if hasattr(X, "getrow") else X[cell_index, cols]
-        
+        raw_x = self.fc.adata.X
+        sub = raw_x.getrow(cell_index)[:, cols] if hasattr(raw_x, "getrow") else raw_x[cell_index, cols]
 
-        if hasattr(sub, "toarray"): 
+        if hasattr(sub, "toarray"):
             x = sub.toarray().ravel()
         elif hasattr(sub, "A"):
             x = np.asarray(sub.A).ravel()
         else:
             x = np.asarray(sub).ravel()
-        
         dtype = np.dtype(getattr(self.fc, "float_dtype", "float32"))
         x = x.astype(dtype, copy=False)
 
@@ -85,7 +77,7 @@ class ExpressionOrder(Order):
 
 
 class RandomOrder(Order):
-    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs,) -> NDArray:
+    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs) -> NDArray:
         # TODO: consider cleaning up sampling (just sample all nonzero and all zero, then concat
         (nonzero_indices,) = np.where(expression_inputs != 0)
         (zero_indices,) = np.where(expression_inputs == 0)
@@ -114,7 +106,7 @@ class RandomOrder(Order):
 
 
 class ChromosomeOrder(Order):
-    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs,) -> NDArray:
+    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs) -> NDArray:
         """Order cell tokens using metadata.
 
         Gene tokens are reordered based on chromosome location.

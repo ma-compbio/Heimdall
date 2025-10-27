@@ -84,7 +84,6 @@ class SumReduce(Reduce):
         """
         # Convert str float_dtype -> actual torch dtype
         # torch_dtype = getattr(torch, self.float_dtype)
-
         # Cast expression_inputs to float_dtype
         expression_inputs = expression_inputs.to(torch.float32)
 
@@ -138,8 +137,12 @@ class ChromosomeSumReduce(Reduce):
 
         gene_embeddings = gene_embedding_layer(identity_inputs)
         expression_embeddings = expression_embedding_layer(expression_inputs)
+        meta_emb = metadata_embedding_layer(chrom_token_indices)
 
-        gene_embeddings[chrom_token_mask] = metadata_embedding_layer(chrom_token_indices)
-        expression_embeddings[chrom_token_mask] = metadata_embedding_layer(chrom_token_indices)
+        meta_emb_gene = meta_emb.to(dtype=gene_embeddings.dtype, device=gene_embeddings.device)
+        meta_emb_expr = meta_emb.to(dtype=expression_embeddings.dtype, device=expression_embeddings.device)
+
+        gene_embeddings[chrom_token_mask] = meta_emb_gene
+        expression_embeddings[chrom_token_mask] = meta_emb_expr
 
         return gene_embeddings + expression_embeddings
