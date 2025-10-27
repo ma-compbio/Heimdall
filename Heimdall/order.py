@@ -64,7 +64,7 @@ class ExpressionOrder(Order):
         sub = X.getrow(cell_index)[:, cols] if hasattr(X, "getrow") else X[cell_index, cols]
         
 
-        if hasattr(X, "toarray"): 
+        if hasattr(sub, "toarray"): 
             x = sub.toarray().ravel()
         elif hasattr(sub, "A"):
             x = np.asarray(sub.A).ravel()
