@@ -3,10 +3,11 @@ from torch import nn
 try:
     from flash_attn.bert_padding import pad_input, unpad_input
     from flash_attn.modules.mha import MHA
-except ImportError:
+except ImportError as e:
     raise ImportError(
-        "`flash-attn` is not available. Please install `flash-attn`, or default to the standard `model=transformer` config.",
-    )
+        "`flash-attn` is not available. Please install `flash-attn`,"
+        " or default to the standard `model=transformer` config.",
+    ) from e
 
 
 class FlashTransformerEncoderLayer(nn.Module):

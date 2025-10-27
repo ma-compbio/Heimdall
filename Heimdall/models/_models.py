@@ -1,6 +1,5 @@
 """Heimdall model."""
 
-import warnings
 from collections import defaultdict
 
 import torch
