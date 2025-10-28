@@ -52,48 +52,45 @@ class Fc:
 
     def __getitem__(self, cell_index: int) -> tuple[NDArray, NDArray, NDArray]:
         """Retrieve `identity_inputs`, `expression_inputs` and `padding_mask`.
+
         Returns:
             A tuple of gene identity embedding indices and gene expression embedding indices for all cells.
+
         """
 
         if cell_index == -1:  # Dummy `cell_index`
             identity_inputs = pd.array(np.full(self.max_input_length, self.fg.pad_value), dtype="Int64")
             expression_inputs = np.full(self.max_input_length, self.fe.pad_value)
             padding_mask = expression_inputs == self.fe.pad_value
-            return identity_inputs, expression_inputs, padding_mask
+        else:
+            identity_indices, expression_inputs = self.fe[cell_index]
 
-        identity_indices, expression_inputs = self.fe[cell_index]
-        gene_list = self.adata.var_names[identity_indices]  # convert to ENSEMBL Gene Names
-        identity_inputs_pd = self.fg[gene_list]  # convert the genes into fg
+            gene_list = self.adata.var_names[identity_indices]  # convert to ENSEMBL Gene Names
+            identity_inputs = self.fg[gene_list]  # convert the genes into fg
 
-        if len(identity_inputs_pd) != len(expression_inputs):
-            raise ValueError(
-                "Gene identity and expression inputs do not have the same shape; `Fg` and `Fe` are incompatible.",
-            )
-        # first, drop any `NaN` values here
-        # Assuming gene_tokenization is a pandas IntegerArray and expression_tokenization is a numpy array
-        # TODO: what does `NaN` represent here?
-        expression_inputs = np.asarray(expression_inputs)
-        valid_mask = ~np.isnan(expression_inputs)
-        if not np.all(valid_mask):
-            identity_inputs_pd = identity_inputs_pd[valid_mask]
+            if len(identity_inputs) != len(expression_inputs):
+                raise ValueError(
+                    "Gene identity and expression inputs do not have the same shape; `Fg` and `Fe` are incompatible.",
+                )
+
+            # first, drop any `NaN` values here
+            # Assuming gene_tokenization is a pandas IntegerArray and expression_tokenization is a numpy array
+            # TODO: what does `NaN` represent here?
+            valid_mask = ~np.isnan(expression_inputs)
+
+            identity_inputs = identity_inputs[valid_mask].to_numpy()
             expression_inputs = expression_inputs[valid_mask]
-            identity_indices = np.asarray(identity_indices)[valid_mask]
 
-        identity_inputs = identity_inputs_pd.to_numpy()
-        gene_order = self.order(
-            identity_inputs=identity_inputs,
-            expression_inputs=expression_inputs,
-            cell_index=cell_index,
-            identity_indices=identity_indices,
-        )
-        # Padding and truncating
-        identity_inputs, expression_inputs = self.tailor(
-            identity_inputs,
-            expression_inputs,
-            gene_order,
-        )
-        padding_mask = expression_inputs == self.fe.pad_value
+            gene_order = self.order(cell_index, identity_indices, expression_inputs)
+
+            # Padding and truncating
+            identity_inputs, expression_inputs = self.tailor(
+                identity_inputs,
+                expression_inputs,
+                gene_order,
+            )
+            padding_mask = expression_inputs == self.fe.pad_value
+
         return identity_inputs, expression_inputs, padding_mask
 
     @property

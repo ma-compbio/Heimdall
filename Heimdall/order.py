@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
-from typing import Any
+
 from Heimdall.fc import Fc
 
 
@@ -16,9 +17,9 @@ class Order(ABC):
     @abstractmethod
     def __call__(
         self,
-        identity_inputs: NDArray,
+        cell_index: int,
+        identity_indices: NDArray,
         expression_inputs: NDArray,
-        **kwargs: Any,
     ) -> NDArray:
         """Order cell tokens using metadata.
 
@@ -32,48 +33,35 @@ class Order(ABC):
 
 
 class ExpressionOrder(Order):
-    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs: Any) -> NDArray:
+    def __call__(self, cell_index: int, identity_indices: NDArray, expression_inputs: NDArray) -> NDArray:
         """Order cell tokens using metadata.
+
         Gene tokens are reordered based on expression level.
         Args:
             cell_tokenization: the stacked gene identity- and gene expression-based tokenization
                 of a cell.
+
         """
-        cell_index = kwargs.get("cell_index", None)
-        if cell_index is None:
-            raise ValueError("ExpressionOrder needs `cell_index` in **kwargs`.")
-        cols = kwargs.get("identity_indices")
-        if cols is None:
-            raise ValueError(
-                "ExpressionOrder expected `identity_indices` kwarg or non-None `identity_inputs`."
-            )
-        cols = np.asarray(cols, dtype=int)
+        # cols = np.asarray(identity_indices, dtype=int)
 
+        adata = self.fc.adata
+        cell_slice = adata[cell_index].copy()
+        raw_expression_values = np.squeeze(cell_slice.X.toarray())
+        raw_expression_values = raw_expression_values[identity_indices]
 
-        raw_x = self.fc.adata.X
-        sub = raw_x.getrow(cell_index)[:, cols] if hasattr(raw_x, "getrow") else raw_x[cell_index, cols]
-
-        if hasattr(sub, "toarray"):
-            x = sub.toarray().ravel()
-        elif hasattr(sub, "A"):
-            x = np.asarray(sub.A).ravel()
-        else:
-            x = np.asarray(sub).ravel()
-        dtype = np.dtype(getattr(self.fc, "float_dtype", "float32"))
-        x = x.astype(dtype, copy=False)
-
-        if "medians" in self.fc.adata.var:
-            med = self.fc.adata.var["medians"].to_numpy()[cols].astype(dtype, copy=False)
-            x = x - med
+        if "medians" in adata.var:
+            medians = adata.var["medians"][identity_indices].astype(self.fc.dtype)
+            raw_expression_values = raw_expression_values - medians
 
         # Sort non-zero values in descending order
-        x = np.where(np.isnan(x), -np.inf, x)
-        gene_order = np.argsort(x)[::-1]  # Indices for sorting descending
+        raw_expression_values = np.where(np.isnan(raw_expression_values), -np.inf, raw_expression_values)
+        gene_order = np.argsort(raw_expression_values)[::-1]  # Indices for sorting descending
+
         return gene_order
 
 
 class RandomOrder(Order):
-    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs: Any) -> NDArray:
+    def __call__(self, cell_index: int, identity_indices: NDArray, expression_inputs: NDArray) -> NDArray:
         # TODO: consider cleaning up sampling (just sample all nonzero and all zero, then concat
         (nonzero_indices,) = np.where(expression_inputs != 0)
         (zero_indices,) = np.where(expression_inputs == 0)
@@ -102,7 +90,7 @@ class RandomOrder(Order):
 
 
 class ChromosomeOrder(Order):
-    def __call__(self, identity_inputs: NDArray, expression_inputs: NDArray, **kwargs: Any) -> NDArray:
+    def __call__(self, cell_index: int, identity_indices: NDArray, expression_inputs: NDArray) -> NDArray:
         """Order cell tokens using metadata.
 
         Gene tokens are reordered based on chromosome location.
@@ -113,12 +101,12 @@ class ChromosomeOrder(Order):
 
         """
 
-        choosen_chrom = self.fc.chroms.iloc[identity_inputs]
+        choosen_chrom = self.fc.chroms.iloc[identity_indices]
 
         unique_chromosomes = np.unique(choosen_chrom)
         self.fc.shuffled_chromosomes = self.fc.rng.permutation(unique_chromosomes)
 
-        gene_order = np.zeros(len(identity_inputs), dtype=np.int32)
+        gene_order = np.zeros(len(identity_indices), dtype=np.int32)
         for chromosome in self.fc.shuffled_chromosomes:
             (chromosome_index,) = np.where(choosen_chrom == chromosome)
             sort_by_start = np.argsort(
