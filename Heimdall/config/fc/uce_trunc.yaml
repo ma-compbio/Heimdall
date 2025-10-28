@@ -11,10 +11,8 @@ args:
       num_embeddings: 100
       embedding_dim: ${fg.args.d_embedding}
   tailor_config:
-    type: Heimdall.tailor.WeightedResampleTailor
-    args:
-      sample_size: 924
+    type: Heimdall.tailor.ChromosomeBlockTailor
   order_config:
-    type: Heimdall.order.ExpressionOrder
+    type: Heimdall.order.ChromosomeOrder
   reduce_config:
-    type: Heimdall.reduce.ChromosomeSumReduce
+    type: Heimdall.reduce.ChromosomeReduce

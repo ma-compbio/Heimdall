@@ -35,6 +35,7 @@ class Task(ABC):
     head_config: DictConfig
     loss_config: DictConfig
     interaction_type: str | None = None
+    top_k: list[int] | None = None
     label_obsm_name: str | None = None
     label_col_name: str | None = None
     reducer_config: DictConfig | None = None

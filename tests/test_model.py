@@ -66,7 +66,7 @@ def single_task_config(request, toy_single_data_path):
                 f"cache_preprocessed_dataset_dir=null",
                 f"work_dir=work_dir",
                 "fg=identity",
-                "fe=dummy",
+                "fe=zero",
                 f"fc={fc_config}",
             ],
         )
@@ -94,7 +94,7 @@ def multitask_config(request, toy_single_data_path):
                 f"cache_preprocessed_dataset_dir=null",
                 f"work_dir=work_dir",
                 "fg=identity",
-                "fe=dummy",
+                "fe=zero",
                 f"fc={fc_config}",
             ],
         )
@@ -147,7 +147,7 @@ def partition_config(request, toy_partitioned_data_path):
                 f"cache_preprocessed_dataset_dir=null",
                 f"work_dir=work_dir",
                 "fg=identity",
-                "fe=dummy",
+                "fe=zero",
                 f"fc={fc_config}",
             ],
         )

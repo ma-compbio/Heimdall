@@ -1,5 +1,3 @@
-type: Heimdall.task.PairedInstanceTask
-
 args:
   task_type: multiclass
   interaction_type: task_ko
@@ -10,21 +8,15 @@ args:
       val: val
       test: test
   metrics: [Accuracy, MatthewsCorrCoef, F1Score]
-  top_k: [1, 5, 10, 15, 20]
   track_metric: MatthewsCorrCoef
-  # train_split: 0.8
+  train_split: 0.8
   shuffle: true
   batchsize: 32
   epochs: 10
-  reducer_config:
-    type: Heimdall.models.AsymmetricConcatReducer
+  reduction:
+    type: Heimdall.models.SymmetricConcatReducer
   dataset_config:
     type: Heimdall.datasets.PairedInstanceDataset
   head_config:
     type: Heimdall.models.LinearCellPredHead
     args:
-  loss_config:
-    type: Heimdall.losses.FlattenCrossEntropyLoss
-
-cell_rep_config:
-  type: Heimdall.cell_representations.CellRepresentation

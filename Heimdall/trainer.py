@@ -197,6 +197,14 @@ class HeimdallTrainer:
                     if metric_name not in metrics:
                         if metric_name == "Accuracy":
                             subtask_metrics[metric_name] = Accuracy(task="multiclass", num_classes=num_classes)
+                            if subtask.top_k is not None:
+                                for k in subtask.top_k:
+                                    subtask_metrics[f"{metric_name}_top_{k}"] = Accuracy(
+                                        task="multiclass",
+                                        num_classes=num_classes,
+                                        top_k=k,
+                                    )
+
                         elif metric_name == "Precision":
                             subtask_metrics[metric_name] = Precision(
                                 task="multiclass",
@@ -266,6 +274,15 @@ class HeimdallTrainer:
         if resume_from_checkpoint:
             start_epoch = self.load_checkpoint()
 
+        if start_epoch >= self.cfg.tasks.args.epochs:
+            last_epoch = max(0, start_epoch - 1)
+            # Run one eval pass on the loaded weights to get embeddings
+            _, val_embed = self.validate_model(self.dataloader_val, "valid")
+            _, test_embed = self.validate_model(self.dataloader_test, "test")
+            if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
+                # self.save_adata_umap(test_embed, val_embed)
+                self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
+            return
         # If the tracked parameter is specified
         track_metric = defaultdict(lambda: None)
         best_metric = defaultdict(dict)
@@ -584,15 +601,30 @@ class HeimdallTrainer:
             loss = self.accelerator.gather(loss_tensor).mean().item()
 
         log = {f"{dataset_type}_loss": loss}
-        for subtask_name, _ in self.data.tasklist:
+        for subtask_name, subtask in self.data.tasklist:
             for metric_name, metric in metrics[subtask_name].items():
                 if metric_name != "ConfusionMatrix":
                     # Built-in metric
                     log[f"{dataset_type}_{subtask_name}_{metric_name}"] = metric.compute().item()
-                    if metric_name in ["Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef"]:
+                    if metric_name.startswith(("Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef")):
                         log[
                             f"{dataset_type}_{subtask_name}_{metric_name}"
                         ] *= 100  # Convert to percentage for these metrics
+
+            if hasattr(subtask, "top_k"):
+                if self.run_wandb and self.accelerator.is_main_process:
+                    top_k_accuracies = []
+                    for k in subtask.top_k:
+                        top_k_accuracies.append(log[f"{dataset_type}_{subtask_name}_Accuracy_top_{k}"])
+
+                    tbl = wandb.Table(data=list(zip(subtask.top_k, top_k_accuracies)), columns=["k", "topk_acc"])
+                    chart = wandb.plot.line(
+                        tbl,
+                        "k",
+                        "topk_acc",
+                        title=f"{dataset_type}_{subtask_name}: Top-k Accuracy",
+                    )
+                    self.accelerator.log({f"{dataset_type}_{subtask_name}_topk_acc_curve": chart}, step=self.step)
 
             if "ConfusionMatrix" in metrics[subtask_name]:
                 # 1. Gather counts from all processes and sum

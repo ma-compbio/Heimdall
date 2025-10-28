@@ -513,11 +513,11 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
     if drop_zeros is True:
         if issparse(adata.X):
             cell = adata.X[[cell_index], :].toarray().flatten()
-            cell_identity_inputs = cell.nonzero()
+            (cell_identity_inputs,) = cell.nonzero()
             cell_expression_inputs = cell[cell_identity_inputs]
         else:
             cell_expression_inputs_full = adata.X[cell_index, :]
-            cell_identity_inputs = np.nonzero(cell_expression_inputs_full)
+            (cell_identity_inputs,) = np.nonzero(cell_expression_inputs_full)
             cell_expression_inputs = cell_expression_inputs_full[cell_identity_inputs]
     else:
         cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()

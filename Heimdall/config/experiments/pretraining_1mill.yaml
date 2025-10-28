@@ -1,11 +1,10 @@
 # @package _global_
-
 ###
 # Set the experiment parts you would like to import
 ####
 defaults:
   - override /model: transformer  # the chosen model
-  - override /dataset: pretrain_100k  # dataset for the relevant task
+  - override /dataset: pretrain_1mill  # dataset for the relevant task
   - override /tasks: pretrain_geneformer_dev  # dataset for the relevant task
   - override /scheduler: cosine  # contains scheduler
   - override /optimizer: AdamW
@@ -26,3 +25,5 @@ project_name: pretraining  # project name for WandB
 optimizer:
   args:
     lr: 2e-3
+
+pretrained_ckpt_path:

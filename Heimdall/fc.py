@@ -67,28 +67,31 @@ class Fc:
             gene_list = self.adata.var_names[identity_indices]  # convert to ENSEMBL Gene Names
             identity_inputs = self.fg[gene_list]  # convert the genes into fg
 
-        if len(identity_inputs) != len(expression_inputs):
-            raise ValueError(
-                "Gene identity and expression inputs do not have the same shape; `Fg` and `Fe` are incompatible.",
+            if len(identity_inputs) != len(expression_inputs):
+                raise ValueError(
+                    "Gene identity and expression inputs do not have the same shape; `Fg` and `Fe` are incompatible.",
+                )
+
+            # first, drop any `NaN` values here
+            # Assuming gene_tokenization is a pandas IntegerArray and expression_tokenization is a numpy array
+            # TODO: what does `NaN` represent here?
+            valid_mask = ~np.isnan(expression_inputs)
+
+            identity_inputs = identity_inputs[valid_mask].to_numpy()
+            identity_indices = identity_indices[valid_mask]
+            expression_inputs = expression_inputs[valid_mask]
+
+            gene_order = self.order(cell_index, identity_indices, expression_inputs)
+
+            # Padding and truncating
+            identity_inputs, expression_inputs = self.tailor(
+                identity_inputs,
+                expression_inputs,
+                gene_order,
             )
 
-        # first, drop any `NaN` values here
-        # Assuming gene_tokenization is a pandas IntegerArray and expression_tokenization is a numpy array
-        # TODO: what does `NaN` represent here?
-        valid_mask = ~np.isnan(expression_inputs)
-
-        identity_inputs = identity_inputs[valid_mask].to_numpy()
-        expression_inputs = expression_inputs[valid_mask]
-
-        gene_order = self.order(identity_inputs, expression_inputs)
-
-        # Padding and truncating
-        identity_inputs, expression_inputs = self.tailor(
-            identity_inputs,
-            expression_inputs,
-            gene_order,
-        )
         padding_mask = expression_inputs == self.fe.pad_value
+
         return identity_inputs, expression_inputs, padding_mask
 
     @property

@@ -17,4 +17,4 @@ args:
   order_config:
     type: Heimdall.order.ExpressionOrder
   reduce_config:
-    type: Heimdall.reduce.ChromosomeSumReduce
+    type: Heimdall.reduce.IdentityReduce
