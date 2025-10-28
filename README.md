@@ -1,5 +1,4 @@
-![Logo](https://github.com/ma-compbio/Heimdall/blob/workshop_prep/heimdall_logo.svg)
-____
+# ![Logo](https://github.com/ma-compbio/Heimdall/blob/workshop_prep/heimdall_logo.svg)
 
 [![Lint](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml/badge.svg)](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml)
 # Heimdall
