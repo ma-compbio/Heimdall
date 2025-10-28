@@ -1,8 +1,0 @@
-type: Heimdall.fe.IdentityFe
-name: Heimdall.fe.IdentityFe
-
-args:
-  embedding_parameters:
-    type: torch.nn.Module
-  d_embedding: null
-  drop_zeros: False

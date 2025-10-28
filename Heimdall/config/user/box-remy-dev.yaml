@@ -1,0 +1,2 @@
+# @package _global_
+defaults: [box-remy, dev]

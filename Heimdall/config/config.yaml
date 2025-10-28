@@ -1,0 +1,29 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - _self_  # NOTE: init self first
+  - global_vars  # TODO: move to this file (_self_)?
+  - /model: transformer  # the chosen model
+  - /dataset: spatial_cancer_split1  # dataset for the relevant task
+  - /tasks: spatial_cancer_split  # dataset for the relevant task
+  - /scheduler: cosine  # contains scheduler
+  - /trainer: default  # contains optimizer and trainer details
+  - /optimizer: AdamW
+  - /fc: geneformer
+  - /fe: dummy
+  - /fg: identity
+  - /loss: CrossEntropyLoss
+  - /user: none  # user specific overwrites, e.g., paths
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+project_name: Cell_Type_Classification_dev  # project name for WandB
+run_name: run_name  ## what is set for WandB
+work_dir: work_dir  ## set your custom working directory
+run_wandb: true
+float_dtype: float32
+seed: 42

@@ -1,0 +1,12 @@
+type: Heimdall.fe.ScBERTBinningFe
+name: Heimdall.fe.ScBERTBinningFe
+
+args:
+  embedding_parameters:
+    type: Heimdall.embedding.FlexibleTypeEmbedding
+    args:
+      num_embeddings: vocab_size
+      embedding_dim: ${fe.args.d_embedding}
+  num_bins: 7  ## also the number of bins
+  d_embedding: ${model.args.d_model}
+  drop_zeros: true

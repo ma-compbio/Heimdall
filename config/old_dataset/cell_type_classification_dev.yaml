@@ -1,9 +1,0 @@
-dataset_name: "cell_type_classification"
-
-preprocess_args:
-  data_path: "${data_path}/sc_sub_nick.h5ad"
-  top_n_genes: false
-  normalize: true
-  log_1p: true
-  scale_data: false
-  species: 'mouse'

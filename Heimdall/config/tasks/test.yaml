@@ -1,0 +1,20 @@
+type: Heimdall.task.SingleInstanceTask
+
+args:
+  task_type: multiclass
+  label_col_name: class
+  metrics: [Accuracy, MatthewsCorrCoef]
+  train_split: 0.8
+  shuffle: true
+  batchsize: 32
+  epochs: 10
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset
+  head_config:
+    type: Heimdall.models.ExpressionOnlyCellPredHead
+    args:
+  loss_config:
+    name: CrossEntropyLoss
+
+cell_rep_config:
+  type: Heimdall.cell_representations.CellRepresentation

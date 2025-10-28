@@ -1,0 +1,28 @@
+type: Heimdall.task.SingleInstanceTask
+
+args:
+  task_type: binary
+  label_obsm_name: disease_classification
+  splits:
+    type: predefined
+    keys_:
+      train: train
+      val: valid
+      test: test
+  metrics: [F1Score, Accuracy, MatthewsCorrCoef, ConfusionMatrix]
+  track_metric: MatthewsCorrCoef
+  # train_split: 0.8
+  # prediction_dim: 14
+  shuffle: true
+  batchsize: 32
+  epochs: 10
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset
+  head_config:
+    type: Heimdall.models.LinearCellPredHead
+    args:
+  loss_config:
+    type: Heimdall.losses.MaskedBCEWithLogitsLoss
+
+cell_rep_config:
+  type: Heimdall.cell_representations.CellRepresentation

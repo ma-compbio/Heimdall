@@ -1,6 +1,0 @@
-type: Heimdall.models.MaskedAverage
-name: MaskedAverageEncoder
-args:
-  d_model: 128
-  pos_enc: null
-  pooling: mean_pooling # or "mean_pooling"

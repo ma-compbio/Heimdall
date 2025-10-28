@@ -1,0 +1,21 @@
+args:
+  task_type: multiclass
+  label_col_name: task_celltype
+  metrics: [Accuracy, MatthewsCorrCoef]
+  track_metric: MatthewsCorrCoef
+  early_stopping: true
+  early_stopping_patience: 6
+  shuffle: true
+  batchsize: 32
+  epochs: 50
+  splits:
+    type: predefined
+    keys_:
+      train: train
+      val: val
+      test: test
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset
+  head_config:
+    type: Heimdall.models.LinearCellPredHead
+    args:

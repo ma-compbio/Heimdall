@@ -1,0 +1,7 @@
+type: Heimdall.models.ExpressionWeightedSum
+name: ExpressionWeightedSum
+
+args:
+  d_model: 128
+  pos_enc:
+  pooling: mean_pooling # or "mean_pooling"

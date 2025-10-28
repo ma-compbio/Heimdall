@@ -1,9 +1,0 @@
-dataset_name: "new_sctab"
-
-preprocess_args:
-  data_path: "${data_path}/sctab/tissue_splits_spencer/scTab_GItract_train.h5ad"
-  top_n_genes: false
-  normalize: true
-  log_1p: true
-  scale_data: false
-  species: "human"

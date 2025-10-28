@@ -1,0 +1,38 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - override /model: expression_only  # the chosen model
+  - override /dataset: new_sctab  # dataset for the relevant task
+  - override /tasks: new_sctab_split  # dataset for the relevant task
+  - override /scheduler: cosine  # contains scheduler
+  - override /trainer: default  # contains optimizer and trainer details
+  - override /optimizer: AdamW
+  - override /fc: dummy
+  - override /fe: dummy
+  - override /fg: dummy
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+project_name: new_sctab_split2  # project name for WandB
+run_name: ${fg.type}_${fe.type}_${fc.type}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}  ## what is set for WandB
+work_dir: work_dir  ## set your custom working directory
+
+tasks:
+  args:
+    dataset_config:
+      type: Heimdall.datasets.SingleInstanceDataset
+    head_config:
+      type: Heimdall.models.ExpressionOnlyCellPredHead
+      args:
+    splits:
+      col: split2
+
+seed: 55
+
+optimizer:
+  args:
+    lr: 2e-3

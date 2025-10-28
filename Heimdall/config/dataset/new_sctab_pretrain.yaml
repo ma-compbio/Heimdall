@@ -1,0 +1,9 @@
+dataset_name: new_sctab_full
+
+preprocess_args:
+  data_path: ${data_path}/sctab_full_dataset_mod
+  top_n_genes: false
+  normalize: true
+  log_1p: true
+  scale_data: false
+  species: human

@@ -1,0 +1,9 @@
+dataset_name: sctab_tissue_split_1mil
+
+preprocess_args:
+  data_path: ${data_path}/sctab/tissue_split_1mil/full_data.h5ad
+  top_n_genes: false
+  normalize: true
+  log_1p: true
+  scale_data: false
+  species: human

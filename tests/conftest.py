@@ -30,7 +30,7 @@ def valid_gene_names():
 @fixture(scope="module")
 def plain_toy_data(valid_gene_names):
     adata = ad.AnnData(
-        X=csr_array(np.arange(3 * 5).reshape(5, 3)),
+        X=csr_array(np.arange(3 * 10).reshape(10, 3).astype(np.float32)),
         var=pd.DataFrame(index=valid_gene_names),
     )
 
@@ -53,7 +53,7 @@ def toy_single_data_path(pytestconfig, plain_toy_data):
 
 
 @fixture(scope="module")
-def toy_paried_data_path(pytestconfig, plain_toy_data):
+def toy_paired_data_path(pytestconfig, plain_toy_data):
     data_path = pytestconfig.cache.mkdir("toy_data")
 
     adata = plain_toy_data.copy()
@@ -63,10 +63,28 @@ def toy_paried_data_path(pytestconfig, plain_toy_data):
         if key != "task":
             adata.obsp[key][i, i] = 1
 
-    path = data_path / "toy_single_adata.h5ad"
+    path = data_path / "toy_paired_adata.h5ad"
     adata.write_h5ad(path)
 
     return path
+
+
+@fixture(scope="module")
+def toy_partitioned_data_path(pytestconfig, plain_toy_data):
+    data_path = pytestconfig.cache.mkdir("toy_data")
+
+    num_partitions = 5
+    partition_directory = data_path / "toy_partitioned_adata"
+    partition_directory.mkdir(exist_ok=True)
+    for partition in range(num_partitions):
+        adata = plain_toy_data.copy()
+        adata.obs["split"] = "train"
+        adata.obs["class"] = 0
+
+        path = partition_directory / f"{partition}.h5ad"
+        adata.write_h5ad(path)
+
+    return partition_directory
 
 
 @fixture

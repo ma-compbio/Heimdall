@@ -1,26 +1,31 @@
 command:
-  - python
+  - accelerate
+  - launch
+  - --mixed_precision=bf16
   - ${program}
   - ${args_no_hyphens}
-  - model=expression_only
-  - fg=dummy
-  - fe=dummy
-  - fc=dummy
-  - fc.args.max_input_length=
-  - +experiments_baseline=new_sctab_split1
-  - user=lane-nick
+  - model=transformer_flash
+  - fg=identity
+  - fg.args.frozen=TRUE
+  - fe=binning_scgpt
+  - fc=scgpt
+  - model.args.pos_enc=NONE
+  - fc.args.max_input_length=1024
+  - +experiments=reverse_perturbation
+  - user=ehaber
+  - seed=61
+  - project_name=scgpt_reverse_perturb
+
 method: grid
+
 metric:
   goal: maximize
   name: valid_MatthewsCorrCoef
+
 parameters:
   optimizer.args.lr:
-    values:
-      - 1e-2
-      - 1e-3
-      - 3e-4
+    values: [1e-2, 1e-3, 3e-4]
   tasks.args.batchsize:
-    values:
-      - 32
-      - 64
+    values: [32, 64]
+
 program: train.py

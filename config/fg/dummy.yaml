@@ -1,6 +1,0 @@
-type: Heimdall.fg.IdentityFg
-args:
-  embedding_parameters:
-    type: torch.nn.module
-  d_embedding: null
-  frozen: False

@@ -1,0 +1,7 @@
+type: Heimdall.task.Tasklist
+
+args:
+  subtask_configs: {}
+
+cell_rep_config:
+  type: Heimdall.cell_representations.CellRepresentation

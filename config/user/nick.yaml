@@ -1,9 +1,0 @@
-# @package _global_
-defaults:
-  - sock
-
-
-# hydra:
-#   job:
-#     env_set:
-#       WANDB_MODE: disabled

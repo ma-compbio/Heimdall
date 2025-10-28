@@ -7,9 +7,9 @@ import torch
 from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
-from scipy.sparse import csr_array, issparse
+from scipy.sparse import csr_array
 
-from Heimdall.utils import _get_inputs_from_csr
+from Heimdall.utils import _get_inputs_from_csr, issparse
 
 
 class Fe(ABC):
@@ -43,11 +43,12 @@ class Fe(ABC):
         self.rng = np.random.default_rng(rng)
 
         if not issparse(self.adata.X):
-            print(
-                "> Data was provided in dense format, converting to CSR."
-                " Please consider pre-computing it to save memory.",
-            )
-            self.adata.X = csr_array(self.adata.X)
+            if getattr(self.adata, "isbacked", False):
+                # TODO: use sparse datsets with backed?
+                print("> Data is dense and backed, skipping conversion to CSR to keep memory mapping.")
+            else:
+                print("> Data was provided in dense format, converting to CSR. Consider precomputing.")
+                self.adata.X = csr_array(self.adata.X)
 
     def _get_inputs_from_csr(self, cell_index: int):
         """Get expression values and gene indices from internal CSR
@@ -283,6 +284,15 @@ class BinningFe(Fe):
         cell_expression_inputs_binned = self.binning(cell_expression_inputs, self.num_bins + 1)
 
         return cell_identity_inputs, cell_expression_inputs_binned
+
+
+class ZeroFe(Fe):
+    def __getitem__(self, cell_index: int):
+        n = self.adata.n_vars
+        cell_identity_inputs = np.arange(n, dtype=np.int64)
+        cell_expression_inputs = np.zeros(n, dtype=np.float32)
+
+        return cell_identity_inputs, cell_expression_inputs
 
 
 class IdentityFe(Fe):

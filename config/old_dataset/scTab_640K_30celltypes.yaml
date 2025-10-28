@@ -1,9 +1,0 @@
-dataset_name: "sctab_640K_30celltypes"
-
-preprocess_args:
-  data_path: "${data_path}/sctab/v1_tissue_donor_splits_640K/scTab_640K_tisdonor_splits.h5ad"
-  top_n_genes: false
-  normalize: true
-  log_1p: true
-  scale_data: false
-  species: 'human'

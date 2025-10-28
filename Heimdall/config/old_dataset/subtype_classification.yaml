@@ -1,0 +1,19 @@
+dataset_name: bmnc_subtype_classification
+
+preprocess_args:
+  data_path: /work/magroup/scllm/datasets/bmnc_subtypes_proteins.h5ad
+  top_n_genes: 1000
+  normalize: true
+  log_1p: true
+  scale_data: false
+  species: human
+
+task_args:
+  presplit: false
+  paired: false
+  label_col_name: celltype.l2
+  metric_name: MCC
+  train_split: 0.8
+  shuffle: true
+  batchsize: 32
+  epochs: 10

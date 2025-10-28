@@ -1,0 +1,4 @@
+# @package _global_
+data_path: /work/magroup/shared/Heimdall/data
+ensembl_dir: ${data_path}
+entity: Heimdall

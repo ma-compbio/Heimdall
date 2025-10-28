@@ -1,0 +1,5 @@
+### cosine learning rate scheduler
+name: cosine
+lr_schedule_type: cosine
+warmup_ratio: 0.1  # linear warmup steps = warmup_ratio * total steps
+num_epochs: 20  # number of total epoch

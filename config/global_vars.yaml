@@ -1,6 +1,0 @@
-# global_vars.yaml
-
-data_path: '/work/magroup/shared/Heimdall/data'
-ensembl_dir: ${data_path}
-cache_preprocessed_dataset_dir: null  # dir to save preprocessed dataset, do not cache if set to null
-entity: 'Heimdall'

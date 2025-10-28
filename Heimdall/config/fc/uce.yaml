@@ -1,0 +1,20 @@
+type: Heimdall.fc.ChromosomeAwareFc
+
+args:
+  max_input_length: 1024
+  species: ${dataset.preprocess_args.species}
+  gene_metadata_filepath: ${data_path}/gene_metadata/species_chrom.csv
+  ensembl_dir: ${data_path}
+  embedding_parameters:
+    type: Heimdall.embedding.GaussianInitEmbedding
+    args:
+      num_embeddings: 100
+      embedding_dim: ${fg.args.d_embedding}
+  tailor_config:
+    type: Heimdall.tailor.ChromosomeTailor
+    args:
+      sample_size: 924
+  order_config:
+    type: Heimdall.order.ChromosomeOrder
+  reduce_config:
+    type: Heimdall.reduce.ChromosomeReduce

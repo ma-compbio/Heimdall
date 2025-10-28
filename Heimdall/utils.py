@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from functools import partial, wraps
 from pathlib import Path
 from pprint import pformat
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import anndata as ad
 import awkward as ak
@@ -16,21 +16,31 @@ import mygene
 import numpy as np
 import pandas as pd
 import requests
+import scanpy as sc
+from anndata.abc import CSCDataset, CSRDataset
 from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
+from scipy import sparse as sp
 from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
-MAIN_KEYS = {
+if TYPE_CHECKING:
+    from Heimdall.cell_representations import CellRepresentation
+
+INPUT_KEYS = {
     "identity_inputs",
     "expression_inputs",
-    "labels",
     "masks",
     "expression_padding",
-    "adjacency_matrix",
-    "subgraph_indices",
+}
+
+MAIN_KEYS = {
+    *INPUT_KEYS,
+    "labels",
+    # "adjacency_matrix",
+    # "subgraph_indices",
 }
 
 
@@ -144,56 +154,28 @@ def count_parameters(model):
 
 
 # Dataset Preparation collation tool
-def heimdall_collate_fn(examples):
-    """Heimdall data collate function.
+def get_collation_closure(keys=MAIN_KEYS):
+    """Heimdall data collate function."""
 
-    This function helps the dataloader prepare the dataset into a consistent
-    format, specifically the dataset is likely prepared as such:
+    def collate_fn(batch):
+        collated = {}
+        first_sample = batch[0]
+        for key in keys:
+            inner_dict = {}
+            for subtask_name in first_sample[key]:
+                values = [b[key][subtask_name] for b in batch]
+                # Drop Nones, or replace with zeros
+                is_invalid = [v is None for v in values]
+                if all(is_invalid):
+                    inner_dict[subtask_name] = None
+                elif any(is_invalid):
+                    raise ValueError("Cannot have multiple samples with inhomogenous input validities.")
+                else:
+                    inner_dict[subtask_name] = default_collate(values)
+            collated[key] = inner_dict
+        return dict(collated)
 
-    .. code-block:: python
-
-        ds_train = Dataset.from_dict({"inputs": train_x,
-                                      'labels': train_y,
-                                    )
-
-    This
-    will process the output of a batch to be a dictionary with keys: "inputs",
-    "labels" (these are mandatory).
-
-    """
-    # batch = {}
-    # # Assume all examples have the same keys, use the keys from the first example
-    # keys = examples[0].keys()
-    # conditional_tokens = {}
-
-    # for key in keys:
-    #     if key in ["inputs", "labels"]:
-    #         # Check if the data needs to be stacked or just converted to tensor
-    #         if isinstance(examples[0][key], list):  # or any other condition to decide on stacking
-    #             # Stack tensors if the data type is appropriate (e.g., lists of numbers)
-    #             batch[key] = torch.stack([torch.tensor(example[key]) for example in examples])
-    #         else:
-    #             # Convert to tensor directly if it's a singular item like labels
-    #             batch[key] = torch.tensor([example[key] for example in examples])
-
-    #     else:  # if it is not an input or label, it is automatically processed as a conditional token
-    #         if isinstance(examples[0][key], list):
-    #             conditional_tokens[key] = torch.stack([torch.tensor(example[key]) for example in examples])
-    #         else:
-    #             conditional_tokens[key] = torch.tensor([example[key] for example in examples])
-    # batch["conditional_tokens"] = conditional_tokens
-    # return batch
-
-    # Collate batch using pytorch's default collate function
-    flat_batch = default_collate(examples)
-
-    # Regroup by keys
-    batch = {}
-    for key, val in flat_batch.items():
-        if key in MAIN_KEYS:
-            batch[key] = val
-
-    return batch
+    return collate_fn
 
 
 def deprecate(func: Optional[Callable] = None, raise_error: bool = False):
@@ -529,13 +511,110 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
     """
 
     if drop_zeros is True:
-        expression = adata.X
-        start = expression.indptr[cell_index]
-        end = expression.indptr[cell_index + 1]
-        cell_expression_inputs = expression.data[start:end]
-        cell_identity_inputs = expression.indices[start:end]
+        if issparse(adata.X):
+            cell = adata.X[[cell_index], :].toarray().flatten()
+            (cell_identity_inputs,) = cell.nonzero()
+            cell_expression_inputs = cell[cell_identity_inputs]
+        else:
+            cell_expression_inputs_full = adata.X[cell_index, :]
+            (cell_identity_inputs,) = np.nonzero(cell_expression_inputs_full)
+            cell_expression_inputs = cell_expression_inputs_full[cell_identity_inputs]
     else:
         cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()
         cell_identity_inputs = np.arange(adata.shape[1])
 
     return cell_identity_inputs, cell_expression_inputs
+
+
+def issparse(x):
+    return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
+
+
+def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="heimdall_latents", split="test"):
+    def save_partition_umap(adata, embeddings, savepath, embedding_name):
+        adata.obsm[embedding_name] = embeddings
+
+        sc.pp.neighbors(adata, use_rep=embedding_name)
+        sc.tl.leiden(adata)
+        sc.tl.umap(adata)
+
+        ad.io.write_h5ad(savepath, adata)
+
+    if hasattr(cr, "splits"):
+        full_dataset = cr.datasets["full"]
+        if hasattr(full_dataset, "partition_splits"):
+            cumulative_sizes = np.cumsum(
+                [
+                    len(full_dataset.partition_splits[partition][split])
+                    for partition in range(full_dataset.num_partitions)
+                ],
+            )
+            cumulative_sizes = np.concatenate([[0], cumulative_sizes])
+            for partition in range(full_dataset.num_partitions):
+                start, end = cumulative_sizes[partition : partition + 2]
+                full_dataset.partition = partition
+                adata = cr.adata[cr.splits[split]].copy()
+                partition_savepath = Path(savepath)
+                partition_savepath = partition_savepath.parent / f"partition_{partition}_{partition_savepath.name}"
+                save_partition_umap(
+                    adata=adata,
+                    embeddings=embeddings[start:end],
+                    savepath=partition_savepath,
+                    embedding_name=embedding_name,
+                )
+        else:
+            adata = cr.adata[cr.splits[split]].copy()
+            save_partition_umap(
+                adata=adata,
+                embeddings=embeddings,
+                savepath=savepath,
+                embedding_name=embedding_name,
+            )
+        # breakpoint()
+    else:
+        raise ValueError("No split information found.")
+
+
+class AllPartitionsExhausted(Exception):
+    def __init__(self, message: str = "All partitions exhausted"):
+        super().__init__(message)
+
+
+def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> Tensor:
+    """(In-place) Projects a matrix such that the columns (or rows) lie on the
+    unit simplex.
+
+    See https://math.stackexchange.com/questions/2402504/orthogonal-projection-onto-the-unit-simplex
+    for a reference.
+
+    The goal is to find a scalar mu such that || (y-mu)_+ ||_1 = 1
+
+    Currently uses Newton's method to optimize || y - mu ||^2
+
+    TODO: try implementing it this way instead: https://arxiv.org/pdf/1101.6081.pdf
+
+    Args:
+        y: list of vectors to be projected to unit simplex
+        dim: dimension along which to project
+        zero_threshold: threshold to treat as zero for numerical stability purposes
+
+    """
+    num_components = y.shape[dim]
+
+    y.sub_(y.sum(dim=dim, keepdim=True).sub_(1), alpha=1 / num_components)
+    mu = y.max(dim=dim, keepdim=True)[0].div_(2)
+    derivative_prev, derivative = None, None
+    for _ in range(num_components):
+        difference = y.sub(mu)
+        objective_value = difference.clip_(min=zero_threshold).sum(dim, keepdim=True).sub_(1)
+        derivative = difference.gt_(zero_threshold).sum(dim, keepdim=True)
+
+        if derivative_prev is not None and (derivative == derivative_prev).all():
+            break
+
+        mu.addcdiv_(objective_value, derivative)
+        derivative_prev = derivative
+
+    y.sub_(mu).clip_(min=zero_threshold)
+    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+    return y

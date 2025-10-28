@@ -1,0 +1,9 @@
+dataset_name: reverse_perturbation
+
+preprocess_args:
+  data_path: ${data_path}/reverse_perturbation_prediction/processed/norman_subset_20genes.h5ad
+  top_n_genes: false
+  normalize: true
+  log_1p: true
+  scale_data: false
+  species: human

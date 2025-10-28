@@ -1,5 +1,0 @@
-# @package _global_
-defaults:
-  - lane
-
-cache_preprocessed_dataset_dir: /scratch/remy/Heimdall/cache

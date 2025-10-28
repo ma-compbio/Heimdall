@@ -141,3 +141,7 @@ line, e.g.,
 ```bash
 python train.py +experiments=cta_pancreas cache_preprocessed_dataset_dir=null
 ```
+
+## Distributed Pre-training
+
+When training on the oven cluster if you don't set `export NCCL_P2P_DISABLE=1` you can get the NCCL watchdog timeout errors.

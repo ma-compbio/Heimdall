@@ -1,0 +1,13 @@
+type: Heimdall.models.HeimdallTransformer
+name: transformer
+
+args:
+  d_model: 128
+  pos_enc: BERT
+  num_encoder_layers: 6
+  nhead: 4
+  hidden_act: gelu
+  hidden_dropout_prob: 0.1
+  attention_probs_dropout_prob: 0.1
+  use_flash_attn: true
+  pooling: cls_pooling # or "mean_pooling"

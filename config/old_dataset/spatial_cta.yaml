@@ -1,9 +1,0 @@
-dataset_name: "spatial_cta"
-
-preprocess_args:
-  data_path: "${data_path}/spatial_cta/spatial_cta_Merfish_Merscope_Split.h5ad"
-  top_n_genes: false
-  normalize: true
-  log_1p: true
-  scale_data: false
-  species: "mouse"

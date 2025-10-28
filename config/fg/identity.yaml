@@ -1,9 +1,0 @@
-type: Heimdall.fg.IdentityFg
-args:
-  embedding_parameters:
-    type: Heimdall.embedding.FlexibleTypeEmbedding
-    args:
-      num_embeddings: "vocab_size"
-      embedding_dim: ${fg.args.d_embedding}
-  d_embedding: ${model.args.d_model}
-  frozen: False

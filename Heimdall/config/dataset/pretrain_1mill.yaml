@@ -1,0 +1,9 @@
+dataset_name: pretrain_1mill
+
+preprocess_args:
+  data_path: /work/magroup/shared/Heimdall/pretrain_data/pretrain_subsets/subset_1mill
+  top_n_genes: false
+  normalize: true
+  log_1p: true
+  scale_data: false
+  species: human

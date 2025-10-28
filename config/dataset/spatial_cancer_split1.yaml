@@ -1,9 +1,0 @@
-dataset_name: "ovarian_cancer_pairs_0_1"
-
-preprocess_args:
-  data_path: "${data_path}/ovarian_cancer/pairs_0_1_noMM.h5ad" #_FilledZeros
-  top_n_genes: false
-  normalize: true
-  log_1p: true
-  scale_data: false
-  species: "human"

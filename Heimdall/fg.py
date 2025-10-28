@@ -75,6 +75,7 @@ class Fg(ABC):
 
         """
         embedding_indices = self.adata.var.loc[gene_names, "identity_embedding_index"]
+
         valid_mask = self.adata.var.loc[gene_names, "identity_valid_mask"]
         if (valid_mask.sum() != len(gene_names)) and not return_mask:
             raise KeyError(
@@ -86,6 +87,17 @@ class Fg(ABC):
             return embedding_indices, valid_mask
         else:
             return embedding_indices
+
+    @property
+    def identity_valid_mask(self):
+        return self._identity_valid_mask
+
+    @identity_valid_mask.setter
+    def identity_valid_mask(self, val):
+        self._identity_valid_mask = val
+        self.vocab_size -= self.adata.n_vars - np.sum(val)
+
+        self.adata.var["identity_valid_mask"] = val
 
     def prepare_embedding_parameters(self):
         """Replace config placeholders with values after preprocessing."""
@@ -118,7 +130,7 @@ class Fg(ABC):
         # TODO: add tests
 
         self.adata.var["identity_embedding_index"] = identity_embedding_index
-        self.adata.var["identity_valid_mask"] = identity_valid_mask
+        self.identity_valid_mask = identity_valid_mask
         self.gene_embeddings = gene_embeddings
 
         self.prepare_embedding_parameters()
@@ -182,7 +194,7 @@ class PretrainedFg(Fg, ABC):
         index_map[valid_indices] = np.arange(num_mapped_genes)
 
         self.adata.var["identity_embedding_index"] = index_map
-        self.adata.var["identity_valid_mask"] = valid_mask.to_numpy()
+        self.identity_valid_mask = valid_mask.to_numpy()
 
         self.gene_embeddings = np.zeros((num_mapped_genes, self.d_embedding), dtype=float_dtype)
 
@@ -215,7 +227,7 @@ class IdentityFg(Fg):
     def preprocess_embeddings(self, float_dtype: str = "float32"):
         self.gene_embeddings = None
         self.adata.var["identity_embedding_index"] = np.arange(self.adata.n_vars)
-        self.adata.var["identity_valid_mask"] = np.full(self.adata.n_vars, True)
+        self.identity_valid_mask = np.full(self.adata.n_vars, True)
 
         self.prepare_embedding_parameters()
 

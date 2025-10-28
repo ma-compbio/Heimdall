@@ -1,0 +1,28 @@
+# @package _global_
+
+###
+# Set the experiment parts you would like to import
+####
+defaults:
+  - override /model: transformer_large  # the chosen model
+  - override /dataset: new_sctab_pretrain  # dataset for the relevant task
+  - override /tasks: pretrain_geneformer_dev  # dataset for the relevant task
+  - override /scheduler: cosine  # contains scheduler
+  - override /optimizer: AdamW
+  - override /fc: scbert_randsort
+  - override /fe: binning_scbert
+  - override /fg: identity  #  pca_esm2  # gene2vec
+
+####
+# Set the specific parameters you would like to change from the defaults
+####
+seed: 55
+
+# run_name: ${fg.type}_${fe.type}_${fc.name}_${model.type}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}  ## what is set for WandB
+run_name: test_pretraining
+work_dir: ${project_name}_results/${fg.type}_${fe.name}_${fc.type}_${dataset.dataset_name}_lr${optimizer.args.lr}_bz${tasks.args.batchsize}_seed${seed}_ag${fe.args.drop_zeros}  # set your custom working directory
+project_name: pretraining  # project name for WandB
+
+optimizer:
+  args:
+    lr: 2e-3

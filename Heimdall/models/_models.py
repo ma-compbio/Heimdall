@@ -1,5 +1,7 @@
 """Heimdall model."""
 
+from collections import defaultdict
+
 import torch
 import torch.nn as nn
 from omegaconf import DictConfig
@@ -15,7 +17,6 @@ class HeimdallModel(nn.Module):
         self,
         data: CellRepresentation,
         model_config: DictConfig,
-        task_config: DictConfig,
     ):
         super().__init__()
         """Heimdall model. Combines language model and task-specific head.
@@ -23,43 +24,75 @@ class HeimdallModel(nn.Module):
         Args:
             data: Cell representation data object.
             model_config: The language model config.
-            task_config: The task config.
 
         """
+        self.num_subtasks = data.num_subtasks
+        self.tasklist = data.tasklist
+
         self.encoder = instantiate_from_config(
             model_config,
             data,
         )
 
-        self.num_labels = data.num_tasks
         dim_in = self.encoder.d_encoded
 
-        self.reducer = self.reduction_name = None
-        if isinstance(data.datasets["full"], PairedInstanceDataset):
-            self.reducer, self.reduction_name = instantiate_from_config(
-                task_config.reduction,
-                dim_in=dim_in,
-                return_name=True,
-            )
+        self.reducers = nn.ModuleDict()
+        self.heads = nn.ModuleDict()
+        for subtask_name, subtask in data.tasklist:
+            if isinstance(data.datasets["full"], PairedInstanceDataset):
+                self.reducers[subtask_name] = instantiate_from_config(
+                    subtask.reducer_config,
+                    dim_in=dim_in,
+                )
 
-        self.head = instantiate_from_config(task_config.head_config, dim_in=dim_in, dim_out=self.num_labels)
+            num_labels = subtask.num_tasks
+            head = instantiate_from_config(subtask.head_config, dim_in=dim_in, dim_out=num_labels)
+            self.heads[subtask_name] = head
 
-    def forward(self, inputs, labels=None, attention_mask=None):
-        # print(inputs, attention_mask)
-        if self.reducer is not None:
-            all_cell_inputs = zip(*inputs)
-            first_cell_mask, second_cell_mask = attention_mask
+    def encode_cell(self, cell_inputs):
+        """Given the either single- or multiple-cells, use the cell encoder to
+        embed the cell(s)."""
+        outputs = {}
+        cached_encoding = None
+        masks = cell_inputs.pop("masks", None)
+        for subtask_name, _ in self.tasklist:
+            subtask_inputs = {key: cell_inputs[key][subtask_name] for key in cell_inputs}
+            attention_mask = subtask_inputs.pop("expression_padding", None)
+            if masks is None and cached_encoding is not None:
+                outputs[subtask_name] = cached_encoding  # TODO: only reuses encoding if all are unmasked
+            else:
+                outputs[subtask_name] = self.encoder(subtask_inputs, attention_mask=attention_mask)
+                if masks is None:
+                    cached_encoding = outputs[subtask_name]
 
-            encoded_cells = tuple(
-                self.encoder(cell_inputs, attention_mask=cell_mask)
-                for cell_inputs, cell_mask in zip(all_cell_inputs, attention_mask)
-            )
+        return outputs
 
-            encoded = self.reducer(encoded_cells)
+    def forward(self, inputs):
+        if self.reducers:
+            encoded_cells = []
+            for index in range(2):  # Two cells (can be generalized to more)
+                cell_inputs = defaultdict(dict)
+                for key, value in inputs.items():
+
+                    for subtask_name, _ in self.reducers.items():
+                        cell_value = value[subtask_name]
+                        if cell_value is not None:
+                            cell_value = cell_value[index]
+
+                        cell_inputs[key][subtask_name] = cell_value
+
+                encoded_cell = self.encode_cell(cell_inputs)
+                encoded_cells.append(encoded_cell)
+
+            # Apply reducers
+            outputs = {}
+            for subtask_name, reducer in self.reducers.items():
+                outputs[subtask_name] = reducer([encoded_cell[subtask_name] for encoded_cell in encoded_cells])
         else:
-            encoded = self.encoder(inputs, attention_mask)
+            outputs = self.encode_cell(inputs)
 
-        outputs = self.head(encoded)
+        # Apply heads
+        outputs = {subtask_name: self.heads[subtask_name](output) for subtask_name, output in outputs.items()}
 
         return outputs
 
@@ -75,7 +108,6 @@ class ExpressionOnly(nn.Module):
         Args:
             data: Cell representation data object.
             model_config: The language model config.
-            task_config: The task config.
 
         """
 
@@ -84,7 +116,7 @@ class ExpressionOnly(nn.Module):
         _, self.d_encoded = data.adata.shape
 
     def forward(self, inputs, labels=None, attention_mask=None):
-        _, outputs = inputs  # extract expression only
+        outputs = inputs["expression_inputs"]  # extract expression only
 
         return outputs.to(get_dtype(self.float_dtype))  # convert to float32?
 
@@ -153,7 +185,7 @@ class CellSentenceModel(nn.Module):
 
     def embed_inputs(self, inputs):
         """Embed inputs using the `Fc` reduce function."""
-        identity_inputs, expression_inputs = inputs
+        identity_inputs, expression_inputs = inputs["identity_inputs"], inputs["expression_inputs"]
 
         input_embeds = self.fc.reduce(
             identity_inputs,
@@ -250,7 +282,7 @@ class ExpressionWeightedSum(CellSentenceModel):
             torch.tensor: The predicted outputs before cross entropy loss.
 
         """
-        _, expression_inputs = inputs
+        expression_inputs = inputs["expression_inputs"]
         input_embeds = self.embed_inputs(inputs)
 
         # Encoder
@@ -268,7 +300,6 @@ class Transformer(CellSentenceModel):
         pooling: str,
         nhead: int,
         hidden_dropout_prob: float,
-        attention_probs_dropout_prob: float,
         hidden_act: str,
         use_flash_attn: bool,
         num_encoder_layers: int,
@@ -289,7 +320,6 @@ class Transformer(CellSentenceModel):
         self.cell_sentence_model = TransformerEncoder(
             d_model=d_model,
             nhead=nhead,
-            num_attention_heads=num_encoder_layers,
             hidden_dropout_prob=hidden_dropout_prob,
             use_flash_attn=use_flash_attn,
             hidden_act=hidden_act,
@@ -377,41 +407,25 @@ class TransformerEncoder(nn.Module):
         self,
         d_model: int,
         nhead: int,
-        num_attention_heads: int,
         hidden_dropout_prob: float,
         use_flash_attn: bool,
         num_encoder_layers: int,
         hidden_act: str = "gelu",
     ):
         super().__init__()
-
         self.use_flash_attn = use_flash_attn
 
         if self.use_flash_attn:
-            try:
-                from flash_attn.models.bert import BertEncoder as FABertEncoder
-                from transformers import BertConfig
+            from Heimdall.models._flash_attn import FlashTransformerEncoder
 
-                print("FlashAttention Library Successfully Loaded")
-            except ImportError as e:
-                raise ImportError(
-                    "`FlashAttention` is not installed, "
-                    "when initializing model, make sure to use a default transformer instead.",
-                ) from e
-
-            fa_config = BertConfig(
-                hidden_size=d_model,
-                num_hidden_layers=num_encoder_layers,
-                num_attention_heads=nhead,
-                intermediate_size=d_model * 4,
-                hidden_act=hidden_act,
-                hidden_dropout_prob=hidden_dropout_prob,
-                attention_probs_dropout_prob=hidden_dropout_prob,
-                use_flash_attn=True,  # use this to toggle between flash attention and not
+            self.encoder = FlashTransformerEncoder(
+                d_model,
+                nhead,
+                num_encoder_layers,
+                dropout=hidden_dropout_prob,
+                activation=hidden_act,
             )
-            self.encoder = FABertEncoder(fa_config)
         else:
-            # Encoder layers
             encoder_layer = nn.TransformerEncoderLayer(
                 d_model=d_model,
                 nhead=nhead,
@@ -419,20 +433,9 @@ class TransformerEncoder(nn.Module):
                 dropout=hidden_dropout_prob,
                 activation=hidden_act,
                 batch_first=True,
-                norm_first=True,  # BERT uses LayerNorm before self-attention and feedforward networks
+                norm_first=True,
             )
             self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
 
-    def forward(self, input_embeds, attention_mask):
-        # Encoder
-        if self.use_flash_attn:
-            encoder_output = self.encoder(
-                input_embeds,
-                key_padding_mask=~attention_mask,  # FA uses a flipped mask
-            )
-        else:
-            encoder_output = self.encoder(
-                input_embeds,
-                src_key_padding_mask=attention_mask,
-            )
-        return encoder_output
+    def forward(self, input_embeds, attention_mask=None):
+        return self.encoder(input_embeds, src_key_padding_mask=attention_mask)
