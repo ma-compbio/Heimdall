@@ -103,6 +103,32 @@ class Task(ABC):
     @abstractmethod
     def setup_labels(self): ...
 
+    def to_cache(self, cache_dir, hash_vars, task_name):
+        processed_data_path = self.data.get_tokenizer_cache_path(
+            cache_dir,
+            hash_vars,
+            filename=f"{task_name}_labels.npy",
+        )
+        np.save(processed_data_path, self.labels)
+        self.check_print(f"Finished writing task {task_name} labels at {processed_data_path}", cr_setup=True)
+
+    def from_cache(self, cache_dir, hash_vars, task_name):
+        processed_data_path = self.data.get_tokenizer_cache_path(
+            cache_dir,
+            hash_vars,
+            filename=f"{task_name}_labels.npy",
+        )
+        if processed_data_path is not None:
+            self.check_print(
+                f"> Found already processed labels for task {task_name}: {processed_data_path}",
+                cr_setup=True,
+                rank=True,
+            )
+            self.labels = np.load(processed_data_path)
+            return True
+
+        return False
+
     def get_inputs(self, idx, shared_inputs):
         return {
             "labels": self.labels[idx],

@@ -112,15 +112,21 @@ class CellRepresentation(SpecialTokenMixin):
             self.setup_labels()
             self.prepare_dataset_loaders()
 
-    def setup_labels(self):
+    def setup_labels(self, hash_vars=()):
         """Can only be called after `self.adata` and `self.datasets` is
         populated."""
 
         if not hasattr(self, "datasets"):
             return
 
-        for _, subtask in self.tasklist:
+        for subtask_name, subtask in self.tasklist:
+            if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+                is_cached = subtask.from_cache(cache_dir, hash_vars=hash_vars, subtask_name=subtask_name)
+                if is_cached:
+                    return
             subtask.setup_labels()
+            if cache_dir is not None:
+                subtask.to_cache(cache_dir, hash_vars=hash_vars, subtask_name=subtask_name)
 
     def setup(self):
         self.load_anndata()
@@ -255,7 +261,6 @@ class CellRepresentation(SpecialTokenMixin):
 
         preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
         if preprocessed_data_path is not None:
-            print("Loading non-tokenized AnnData?")
             is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
             if is_cached:
                 return
@@ -410,7 +415,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.check_print(f"> Finished dropping invalid genes, yielding new AnnData: :\n{self.adata}", cr_setup=True)
 
-    def get_tokenizer_cache_path(self, cache_dir, hash_vars):
+    def get_tokenizer_cache_path(self, cache_dir, hash_vars, filename: str = "data.pkl"):
         cfg = DictConfig(
             {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
         )
@@ -418,7 +423,7 @@ class CellRepresentation(SpecialTokenMixin):
         processed_data_path, _ = get_cached_paths(
             cfg,
             Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
-            "data.pkl",
+            filename,
         )
 
         return processed_data_path
@@ -435,6 +440,11 @@ class CellRepresentation(SpecialTokenMixin):
         # )
         processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
         if processed_data_path.is_file():
+            self.check_print(
+                f"> Found already processed `CellRepresentation`: {processed_data_path}",
+                cr_setup=True,
+                rank=True,
+            )
             # loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(processed_cfg_path)).replace("\n", "\n    ")
             # print(f"  Processing config:\n    {loaded_cfg_str}") # TODO: add verbosity levels
 
@@ -525,49 +535,12 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.instantiate_representation_functions()
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-            # cfg = DictConfig(
-            #     {
-            #         key: OmegaConf.to_container(getattr(self, key), resolve=True)
-            #         for key in ("fg_cfg", "fe_cfg", "fc_cfg")
-            #     },
-            # )
-            # cfg = {**cfg, "hash_vars": hash_vars}
-            # processed_data_path, processed_cfg_path = get_cached_paths(
-            #     cfg,
-            #     Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
-            #     "data.pkl",
-            # )
-            # processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
             is_cached = self.load_tokenizer_from_cache(cache_dir, hash_vars=hash_vars)
             if is_cached:
                 return
-            # if processed_data_path.is_file():
-            #     print("Loading tokenized AnnData?")
-            #     # preprocessed_data_path, _, _ = self.get_preprocessed_data_path(hash_data_only=False)
-            #     # self.adata = ad.read_h5ad(
-            #     #     preprocessed_data_path,
-            #     # )
-            #     self.instantiate_representation_functions()
-
-            #     is_cached = self.load_tokenizer_from_cache(cache_dir, hash_vars=hash_vars)
-            #     if is_cached:
-            #         return
-
-            # else:
-            #     if self.adata.isbacked:
-            #         preprocessed_data_path, _, _ = self.get_preprocessed_data_path()
-            #         self.adata = ad.read_h5ad(
-            #             preprocessed_data_path,
-            #         )
-
-        # self.instantiate_representation_functions()
 
         self.fg.preprocess_embeddings()
         self.check_print(f"> Finished calculating fg with {self.fg_cfg.type}", cr_setup=True)
-
-        # print(f"Debugging identity valid mask values {self.adata.var['identity_valid_mask']}")
-        # self.drop_invalid_genes()
-        # self.check_print("> Finished dropping invalid genes from AnnData", cr_setup=True)
 
         self.fe.preprocess_embeddings()
         self.check_print(f"> Finished calculating fe with {self.fe_cfg.type}", cr_setup=True)
@@ -619,12 +592,9 @@ class PartitionedCellRepresentation(CellRepresentation):
         self.num_cells[self.partition] = self.adata.n_obs
 
     def setup(self):
-        print("Loading AnnData...")
         self.load_anndata()
-        print("Setting up tokenizer...")
         self.setup_tokenizer(hash_vars=(int(self.partition),))
-        print("Setting up labels...")
-        self.setup_labels()
+        self.setup_labels(hash_vars=(int(self.partition),))
 
     def close_partition(self):
         """Close current partition."""
