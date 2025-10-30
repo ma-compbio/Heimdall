@@ -35,7 +35,7 @@ def test_geneformer_fc_preprocess_cells_and_getitem(zero_expression_mock_dataset
 
     _, raw_seq_length = identity_expected.shape
 
-    for cell_index in range(len(zero_expression_mock_dataset)):
+    for cell_index in range(len(zero_expression_mock_dataset.adata)):
         identity_inputs, expression_inputs, padding_mask = geneformer_fc[cell_index]
         assert np.allclose(identity_expected[[cell_index], :].toarray(), identity_inputs[:raw_seq_length])
         assert len(identity_inputs) == geneformer_fc.max_input_length
@@ -71,7 +71,7 @@ def test_scgpt_fc_preprocess_cells_and_getitem(zero_expression_mock_dataset, scg
 
     seed = 0
     rng = np.random.default_rng(seed)
-    for cell_index in range(len(zero_expression_mock_dataset)):
+    for cell_index in range(len(zero_expression_mock_dataset.adata)):
         identity_inputs, expression_inputs, padding_mask = scgpt_fc[cell_index]
         sample_indices = rng.choice(raw_seq_length, raw_seq_length, replace=False)
         assert np.allclose(identity_expected[[cell_index], sample_indices], identity_inputs)
@@ -108,7 +108,7 @@ def test_scBERT_fc_preprocess_cells_and_getitem(zero_expression_mock_dataset, sc
 
     seed = 0
     rng = np.random.default_rng(seed)
-    for cell_index in range(len(zero_expression_mock_dataset)):
+    for cell_index in range(len(zero_expression_mock_dataset.adata)):
         identity_inputs, expression_inputs, padding_mask = scbert_fc[cell_index]
         sample_indices = rng.choice(raw_seq_length, raw_seq_length, replace=False)
         assert np.allclose(identity_expected[[cell_index], sample_indices], identity_inputs)
@@ -163,7 +163,7 @@ def test_uce_fc_preprocess_cells_and_getitem(mock_dataset_all_valid_genes, uce_f
 
     _, raw_seq_length = identity_expected.shape
 
-    for cell_index in range(len(mock_dataset_all_valid_genes)):
+    for cell_index in range(len(mock_dataset_all_valid_genes.adata)):
         identity_inputs, expression_inputs, padding_mask = uce_fc[cell_index]
         assert np.allclose(identity_expected[[cell_index], :].toarray(), identity_inputs[:raw_seq_length])
         assert np.allclose(expression_expected[[cell_index], :].toarray(), expression_inputs[:raw_seq_length])

@@ -50,7 +50,7 @@ def check_states(
     @wraps(meth)
     def bounded(self, *args, **kwargs):
         if adata:
-            assert self.adata is not None, "no adata found, Make sure to run preprocess_anndata() first"
+            assert self.adata is not None, "no adata found, Make sure to run load_anndata() first"
 
         if processed_fcfg:
             assert (
@@ -75,7 +75,7 @@ class SpecialTokenMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.special_tokens = {token: self.adata.n_vars + i for i, token in enumerate(self._SPECIAL_TOKENS)}
+        self.special_tokens = {token: self.num_genes + i for i, token in enumerate(self._SPECIAL_TOKENS)}
 
 
 class CellRepresentation(SpecialTokenMixin):
@@ -123,8 +123,8 @@ class CellRepresentation(SpecialTokenMixin):
             subtask.setup_labels()
 
     def setup(self):
-        self.preprocess_anndata()
-        self.tokenize_cells()
+        self.load_anndata()
+        self.setup_tokenizer()
         self.setup_labels()
 
         super().__init__()
@@ -147,6 +147,18 @@ class CellRepresentation(SpecialTokenMixin):
     @check_states(splits=True)
     def splits(self) -> Dict[str, NDArray[np.int_]]:
         return self._splits
+
+    @property
+    def gene_names(self, mask_key: str = "identity_valid_mask"):
+        if mask_key in self.adata.var:
+            valid_mask = self.adata.var[mask_key]
+            return self.adata.var_names[valid_mask]
+
+        return self.adata.var_names
+
+    @property
+    def num_genes(self):
+        return len(self.gene_names)
 
     def convert_to_ensembl_ids(self, data_dir, species="human"):
         """Converts gene symbols in the anndata object to Ensembl IDs using a
@@ -211,9 +223,10 @@ class CellRepresentation(SpecialTokenMixin):
         return False
 
     def anndata_to_cache(self, preprocessed_data_path):
-        print("> Writing preprocessed Anndata Object")
-        self.adata.write(preprocessed_data_path)
-        print("> Finished writing preprocessed Anndata Object")
+        if preprocessed_data_path is not None:
+            print("> Writing preprocessed Anndata Object")
+            self.adata.write(preprocessed_data_path)
+            print("> Finished writing preprocessed Anndata Object")
 
     def create_tasklist(self):
         if hasattr(self._cfg.tasks.args, "subtask_configs"):
@@ -225,24 +238,34 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.num_subtasks = self.tasklist.num_subtasks
 
-    def preprocess_anndata(self):
+    def load_anndata(self):
+        """Load AnnData into memory (and preprocess, if necessary)."""
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path(
-            hash_data_only=False,
-        )
+        # preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path(
+        #     hash_data_only=False,
+        # )
 
-        if preprocessed_data_path_w_cell_cfg is not None and preprocessed_data_path_w_cell_cfg.is_file():
-            is_cached = self.anndata_from_cache(preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg)
-            if is_cached:
-                return
+        # if preprocessed_data_path_w_cell_cfg is not None and preprocessed_data_path_w_cell_cfg.is_file():
+        #     print("Loading tokenized AnnData?")
+        #     is_cached = self.anndata_from_cache(preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg)
+        #     if is_cached:
+        #         return
 
         preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
         if preprocessed_data_path is not None:
+            print("Loading non-tokenized AnnData?")
             is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
             if is_cached:
                 return
+
+        self.preprocess_anndata()
+        self.anndata_to_cache(preprocessed_data_path)
+
+        self.check_print(f"> Finished loading AnnData:\n{self.adata}", cr_setup=True)
+
+    def preprocess_anndata(self):
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
         self.check_print(f"> Finished Loading in {self.dataset_preproc_cfg.data_path}", cr_setup=True)
         # convert gene names to ensembl ids
@@ -305,9 +328,6 @@ class CellRepresentation(SpecialTokenMixin):
             genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
             gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
             self.adata.var["medians"] = gene_medians
-
-        if preprocessed_data_path is not None:
-            self.anndata_to_cache(preprocessed_data_path)
 
         self.check_print(f"> Finished Processing Anndata Object:\n{self.adata}", cr_setup=True)
 
@@ -386,21 +406,34 @@ class CellRepresentation(SpecialTokenMixin):
         self.fc.adata = self.adata
 
         preprocessed_data_path, *_ = self.get_preprocessed_data_path(hash_data_only=False)
-        if preprocessed_data_path is not None:
-            self.anndata_to_cache(preprocessed_data_path)
+        self.anndata_to_cache(preprocessed_data_path)
 
         self.check_print(f"> Finished dropping invalid genes, yielding new AnnData: :\n{self.adata}", cr_setup=True)
 
-    def load_tokenization_from_cache(self, cache_dir, hash_vars):
+    def get_tokenizer_cache_path(self, cache_dir, hash_vars):
         cfg = DictConfig(
             {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
         )
         cfg = {**cfg, "hash_vars": hash_vars}
-        processed_data_path, processed_cfg_path = get_cached_paths(
+        processed_data_path, _ = get_cached_paths(
             cfg,
             Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
             "data.pkl",
         )
+
+        return processed_data_path
+
+    def load_tokenizer_from_cache(self, cache_dir, hash_vars):
+        # cfg = DictConfig(
+        #     {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
+        # )
+        # cfg = {**cfg, "hash_vars": hash_vars}
+        # processed_data_path, processed_cfg_path = get_cached_paths(
+        #     cfg,
+        #     Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
+        #     "data.pkl",
+        # )
+        processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
         if processed_data_path.is_file():
             # loaded_cfg_str = OmegaConf.to_yaml(OmegaConf.load(processed_cfg_path)).replace("\n", "\n    ")
             # print(f"  Processing config:\n    {loaded_cfg_str}") # TODO: add verbosity levels
@@ -423,22 +456,23 @@ class CellRepresentation(SpecialTokenMixin):
         OmegaConf.save(cfg, processed_cfg_path)
         return False
 
-    def save_tokenization_to_cache(self, cache_dir, hash_vars):
+    def save_tokenizer_to_cache(self, cache_dir, hash_vars):
         # Gather things for caching
         identity_embedding_index, identity_valid_mask = self.fg.__getitem__(self.adata.var_names, return_mask=True)
 
         gene_embeddings = self.fg.gene_embeddings
         expression_embeddings = self.fe.expression_embeddings
 
-        cfg = DictConfig(
-            {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
-        )
-        cfg = {**cfg, "hash_vars": hash_vars}
-        processed_data_path, processed_cfg_path = get_cached_paths(
-            cfg,
-            Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
-            "data.pkl",
-        )
+        # cfg = DictConfig(
+        #     {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
+        # )
+        # cfg = {**cfg, "hash_vars": hash_vars}
+        # processed_data_path, processed_cfg_path = get_cached_paths(
+        #     cfg,
+        #     Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
+        #     "data.pkl",
+        # )
+        processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
         if not processed_data_path.is_file():
             with open(processed_data_path, "wb") as rep_file:
                 cache_representation = (
@@ -457,14 +491,14 @@ class CellRepresentation(SpecialTokenMixin):
         self.fc: Fc
         self.fg, fg_name = instantiate_from_config(
             self.fg_cfg,
-            self.adata,
+            self,
             vocab_size=self.adata.n_vars + 2,
             rng=self.rng,
             return_name=True,
         )
         self.fe, fe_name = instantiate_from_config(
             self.fe_cfg,
-            self.adata,
+            self,
             vocab_size=self.adata.n_vars + 2,  # TODO: figure out a way to fix the number of expr tokens
             rng=self.rng,
             return_name=True,
@@ -473,14 +507,14 @@ class CellRepresentation(SpecialTokenMixin):
             self.fc_cfg,
             self.fg,
             self.fe,
-            self.adata,
+            self,
             float_dtype=self.float_dtype,
             rng=self.rng,
             return_name=True,
         )
 
     @check_states(adata=True)
-    def tokenize_cells(self, hash_vars=()):
+    def setup_tokenizer(self, hash_vars=()):
         """Processes the `f_g`, `fe` and `f_c` from the config.
 
         This will first check to see if the cell representations are already
@@ -489,46 +523,51 @@ class CellRepresentation(SpecialTokenMixin):
 
         """
 
-        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-            cfg = DictConfig(
-                {
-                    key: OmegaConf.to_container(getattr(self, key), resolve=True)
-                    for key in ("fg_cfg", "fe_cfg", "fc_cfg")
-                },
-            )
-            cfg = {**cfg, "hash_vars": hash_vars}
-            processed_data_path, processed_cfg_path = get_cached_paths(
-                cfg,
-                Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
-                "data.pkl",
-            )
-            if processed_data_path.is_file():
-                preprocessed_data_path, _, _ = self.get_preprocessed_data_path(hash_data_only=False)
-                self.adata = ad.read_h5ad(
-                    preprocessed_data_path,
-                )
-                self.instantiate_representation_functions()
-
-                if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-                    is_cached = self.load_tokenization_from_cache(cache_dir, hash_vars=hash_vars)
-                    if is_cached:
-                        return
-
-            else:
-                if self.adata.isbacked:
-                    preprocessed_data_path, _, _ = self.get_preprocessed_data_path()
-                    self.adata = ad.read_h5ad(
-                        preprocessed_data_path,
-                    )
-
         self.instantiate_representation_functions()
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            # cfg = DictConfig(
+            #     {
+            #         key: OmegaConf.to_container(getattr(self, key), resolve=True)
+            #         for key in ("fg_cfg", "fe_cfg", "fc_cfg")
+            #     },
+            # )
+            # cfg = {**cfg, "hash_vars": hash_vars}
+            # processed_data_path, processed_cfg_path = get_cached_paths(
+            #     cfg,
+            #     Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
+            #     "data.pkl",
+            # )
+            # processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
+            is_cached = self.load_tokenizer_from_cache(cache_dir, hash_vars=hash_vars)
+            if is_cached:
+                return
+            # if processed_data_path.is_file():
+            #     print("Loading tokenized AnnData?")
+            #     # preprocessed_data_path, _, _ = self.get_preprocessed_data_path(hash_data_only=False)
+            #     # self.adata = ad.read_h5ad(
+            #     #     preprocessed_data_path,
+            #     # )
+            #     self.instantiate_representation_functions()
+
+            #     is_cached = self.load_tokenizer_from_cache(cache_dir, hash_vars=hash_vars)
+            #     if is_cached:
+            #         return
+
+            # else:
+            #     if self.adata.isbacked:
+            #         preprocessed_data_path, _, _ = self.get_preprocessed_data_path()
+            #         self.adata = ad.read_h5ad(
+            #             preprocessed_data_path,
+            #         )
+
+        # self.instantiate_representation_functions()
 
         self.fg.preprocess_embeddings()
         self.check_print(f"> Finished calculating fg with {self.fg_cfg.type}", cr_setup=True)
 
         # print(f"Debugging identity valid mask values {self.adata.var['identity_valid_mask']}")
-        self.drop_invalid_genes()
-        self.check_print("> Finished dropping invalid genes from AnnData", cr_setup=True)
+        # self.drop_invalid_genes()
+        # self.check_print("> Finished dropping invalid genes from AnnData", cr_setup=True)
 
         self.fe.preprocess_embeddings()
         self.check_print(f"> Finished calculating fe with {self.fe_cfg.type}", cr_setup=True)
@@ -536,7 +575,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.processed_fcfg = True
 
         if cache_dir is not None:
-            self.save_tokenization_to_cache(cache_dir, hash_vars=hash_vars)
+            self.save_tokenizer_to_cache(cache_dir, hash_vars=hash_vars)
 
     def check_print(self, message, rank=False, cr_setup=False):
 
@@ -547,6 +586,8 @@ class CellRepresentation(SpecialTokenMixin):
 class PartitionedCellRepresentation(CellRepresentation):
     def __init__(self, config, accelerator: Accelerator, auto_setup: bool = True):
         super().__init__(config, accelerator, auto_setup=False)
+
+        self.dataset_directory = str(self.dataset_preproc_cfg.data_path)
 
         # Expect `data_path` to hold parent directory, not filepath
         self.partition_file_paths = sorted(
@@ -564,6 +605,7 @@ class PartitionedCellRepresentation(CellRepresentation):
 
             self.cr_setup = True
             self.prepare_full_dataset()
+            print("Setting up labels...")
             self.setup_labels()
             self.prepare_dataset_loaders()
 
@@ -577,8 +619,11 @@ class PartitionedCellRepresentation(CellRepresentation):
         self.num_cells[self.partition] = self.adata.n_obs
 
     def setup(self):
-        self.preprocess_anndata()
-        self.tokenize_cells(hash_vars=(int(self.partition),))
+        print("Loading AnnData...")
+        self.load_anndata()
+        print("Setting up tokenizer...")
+        self.setup_tokenizer(hash_vars=(int(self.partition),))
+        print("Setting up labels...")
         self.setup_labels()
 
     def close_partition(self):

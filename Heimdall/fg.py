@@ -23,7 +23,8 @@ class Fg(ABC):
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         embedding_parameters: DictConfig,
         d_embedding: int,
         vocab_size: int,
@@ -32,7 +33,8 @@ class Fg(ABC):
         frozen: bool = False,
         rng: int | np.random.Generator = 0,
     ):
-        self.adata = adata
+        self.data = data
+        # self.adata = adata
         self.d_embedding = d_embedding
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
@@ -104,9 +106,7 @@ class Fg(ABC):
         args = self.embedding_parameters.get("args", {})
 
         for key, value in args.items():
-            if value == "max_seq_length":
-                value = self.adata.n_vars
-            elif value == "vocab_size":
+            if value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
                 gene_embeddings = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
@@ -135,6 +135,10 @@ class Fg(ABC):
 
         self.prepare_embedding_parameters()
 
+    @property
+    def adata(self):
+        return self.data.adata
+
 
 class PretrainedFg(Fg, ABC):
     """Abstraction for pretrained `Fg`s that can be loaded from disk.
@@ -149,12 +153,13 @@ class PretrainedFg(Fg, ABC):
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         embedding_parameters: OmegaConf,
         embedding_filepath: Optional[str | PathLike] = None,
         **fg_kwargs,
     ):
-        super().__init__(adata, embedding_parameters, **fg_kwargs)
+        super().__init__(data, embedding_parameters, **fg_kwargs)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod

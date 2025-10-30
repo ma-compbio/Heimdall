@@ -502,26 +502,26 @@ def get_dtype(dtype_name: str, backend: str = "torch"):
     return dtype
 
 
-def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
+def _get_inputs_from_csr(data: "CellRepresentation", cell_index: int, drop_zeros: bool):
     """Get expression values and gene indices from internal CSR representation.
 
     Args:
         cell_index: cell for which to process expression values and get indices, as stored in `adata`.
 
     """
-
+    adata = data.adata
     if drop_zeros is True:
         if issparse(adata.X):
-            cell = adata.X[[cell_index], :].toarray().flatten()
+            cell = adata[[cell_index], data.gene_names].X.toarray().flatten()
             (cell_identity_inputs,) = cell.nonzero()
             cell_expression_inputs = cell[cell_identity_inputs]
         else:
-            cell_expression_inputs_full = adata.X[cell_index, :]
+            cell_expression_inputs_full = adata[cell_index, data.gene_names].X
             (cell_identity_inputs,) = np.nonzero(cell_expression_inputs_full)
             cell_expression_inputs = cell_expression_inputs_full[cell_identity_inputs]
     else:
-        cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()
-        cell_identity_inputs = np.arange(adata.shape[1])
+        cell_expression_inputs = adata[[cell_index], data.gene_names].X.toarray().flatten()
+        cell_identity_inputs = np.arange(data.num_genes)
 
     return cell_identity_inputs, cell_expression_inputs
 

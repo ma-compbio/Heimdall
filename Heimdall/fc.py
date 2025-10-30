@@ -29,7 +29,8 @@ class Fc:
         self,
         fg: Fg | None,
         fe: Fe | None,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         tailor_config: DictConfig,
         order_config: DictConfig,
         reduce_config: DictConfig,
@@ -40,7 +41,8 @@ class Fc:
     ):
         self.fg = fg
         self.fe = fe
-        self._adata = adata
+        self.data = data
+        # self._adata = adata
         self.max_input_length = max_input_length
         self.float_dtype = float_dtype
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
@@ -58,13 +60,15 @@ class Fc:
 
         """
 
+        gene_names = self.data.gene_names
         if cell_index == -1:  # Dummy `cell_index`
             identity_inputs = pd.array(np.full(self.max_input_length, self.fg.pad_value), dtype="Int64")
             expression_inputs = np.full(self.max_input_length, self.fe.pad_value)
         else:
             identity_indices, expression_inputs = self.fe[cell_index]
 
-            gene_list = self.adata.var_names[identity_indices]  # convert to ENSEMBL Gene Names
+            gene_list = gene_names[identity_indices]
+            # gene_list = cell_slice.var_names[identity_indices]  # convert to ENSEMBL Gene Names
             identity_inputs = self.fg[gene_list]  # convert the genes into fg
 
             if len(identity_inputs) != len(expression_inputs):
@@ -96,13 +100,7 @@ class Fc:
 
     @property
     def adata(self):
-        return self._adata
-
-    @adata.setter
-    def adata(self, val):
-        self._adata = val
-        self.fg.adata = val
-        self.fe.adata = val
+        return self.data.adata
 
 
 class ChromosomeAwareFc(Fc):
@@ -165,10 +163,10 @@ class ChromosomeAwareFc(Fc):
         self.chroms = dataset_chroms
         self.starts = dataset_pos
 
-    @Fc.adata.setter
-    def adata(self, val):
-        Fc.adata.fset(self, val)
-        self.extract_gene_positions()
+    # @Fc.adata.setter
+    # def adata(self, val):
+    #     Fc.adata.fset(self, val)
+    #     self.extract_gene_positions()
 
 
 class DummyFc(Fc):
@@ -176,7 +174,8 @@ class DummyFc(Fc):
         self,
         fg: Fg | None,
         fe: Fe | None,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         tailor_config: DictConfig,
         order_config: DictConfig,
         reduce_config: DictConfig,
@@ -187,7 +186,7 @@ class DummyFc(Fc):
     ):
         self.fg = fg
         self.fe = fe
-        self.adata = adata
+        # self.adata = adata
         self.max_input_length = max_input_length
 
     """Dummy `Fc` that does not tailor the size of the input."""

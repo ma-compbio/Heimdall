@@ -5,29 +5,27 @@ from omegaconf import OmegaConf
 from Heimdall.task import PairedInstanceTask, SingleInstanceTask, Tasklist
 
 
-def test_instantiate_single_instance_task():
+def test_single_instance_task(mock_dataset):
     with hydra.initialize(version_base=None, config_path="../Heimdall/config/tasks"):
         conf = hydra.compose(
             config_name="spatial_cancer_split",
         )
         OmegaConf.resolve(conf)
 
-    data = None
-    task = SingleInstanceTask(data, **conf.args)
+    task = SingleInstanceTask(mock_dataset, **conf.args)
 
 
-def test_instantiate_paired_instance_task():
+def test_paired_instance_task(mock_dataset):
     with hydra.initialize(version_base=None, config_path="../Heimdall/config/tasks"):
         conf = hydra.compose(
             config_name="reverse_perturbation",
         )
         OmegaConf.resolve(conf)
 
-    data = None
-    task = PairedInstanceTask(data, **conf.args)
+    task = PairedInstanceTask(mock_dataset, **conf.args)
 
 
-def test_instantiate_tasklist():
+def test_tasklist(mock_dataset):
     with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
         conf = hydra.compose(
             config_name="config",
@@ -38,13 +36,12 @@ def test_instantiate_tasklist():
         )
         OmegaConf.resolve(conf)
 
-    data = None
-    tasklist = Tasklist(data, **conf.tasks.args)
+    tasklist = Tasklist(mock_dataset, **conf.tasks.args)
     for _, subtask in tasklist:
         print(f"{subtask=}")
 
 
-def test_instantiate_multitask_tasklist():
+def test_multitask_tasklist(mock_dataset):
     with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
         conf = hydra.compose(
             config_name="config",
@@ -56,13 +53,12 @@ def test_instantiate_multitask_tasklist():
         )
         OmegaConf.resolve(conf)
 
-    data = None
-    tasklist = Tasklist(data, **conf.tasks.args)
+    tasklist = Tasklist(mock_dataset, **conf.tasks.args)
     for _, subtask in tasklist:
         print(f"{subtask=}")
 
 
-def test_invalid_tasklist():
+def test_invalid_tasklist(mock_dataset):
     with hydra.initialize(version_base=None, config_path="../Heimdall/config"):
         conf = hydra.compose(
             config_name="config",
@@ -74,6 +70,5 @@ def test_invalid_tasklist():
         )
         OmegaConf.resolve(conf)
 
-    data = None
     with pytest.raises(ValueError):
-        tasklist = Tasklist(data, **conf.tasks.args)
+        tasklist = Tasklist(mock_dataset, **conf.tasks.args)
