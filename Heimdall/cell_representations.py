@@ -28,6 +28,7 @@ from Heimdall.task import Tasklist
 
 # from Heimdall.samplers import PartitionedDistributedSampler
 from Heimdall.utils import (
+    conditional_print,
     convert_to_ensembl_ids,
     get_cached_paths,
     get_collation_closure,
@@ -183,7 +184,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         """
 
-        _, gene_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species)
+        _, gene_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species, verbose=not self.cr_setup)
         return self.adata, gene_mapping
 
     def get_preprocessed_data_path(self, hash_data_only=True):
@@ -238,7 +239,6 @@ class CellRepresentation(SpecialTokenMixin):
 
     def create_tasklist(self):
         if hasattr(self._cfg.tasks.args, "subtask_configs"):
-            print(f"{self._cfg.tasks=}")
             self.tasklist = instantiate_from_config(self._cfg.tasks, self)
         else:
             self.tasklist = Tasklist(
@@ -319,23 +319,26 @@ class CellRepresentation(SpecialTokenMixin):
 
         if get_value(self.dataset_preproc_cfg, "top_n_genes") and self.dataset_preproc_cfg["top_n_genes"] != "false":
             # Identify highly variable genes
-            print(f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes")
+            self.check_print(
+                f"> Using highly variable subset... top {self.dataset_preproc_cfg.top_n_genes} genes",
+                cr_setup=True,
+            )
             sc.pp.highly_variable_genes(self.adata, n_top_genes=self.dataset_preproc_cfg.top_n_genes)
             self.adata = self.adata[:, self.adata.var["highly_variable"]].copy()
         else:
-            print("> No highly variable subset... using entire dataset")
+            self.check_print("> No highly variable subset... using entire dataset", cr_setup=True)
 
         if get_value(self.dataset_preproc_cfg, "scale_data"):
             # Scale the data
             raise NotImplementedError("Scaling the data is NOT RECOMMENDED, please set it to false")
-            print("> Scaling the data...")
+            self.check_print("> Scaling the data...", cr_setup=True)
             sc.pp.scale(self.adata, max_value=10)
         else:
-            print("> Not Scaling the data...")
+            self.check_print("> Not scaling the data...", cr_setup=True)
 
         if get_value(self.dataset_preproc_cfg, "get_medians"):
             # Get medians
-            print("> Getting nonzero medians...")
+            self.check_print("> Getting nonzero medians...", cr_setup=True)
             csc_expression = csc_array(self.adata.X)
             genewise_nonzero_expression = np.split(csc_expression.data, csc_expression.indptr[1:-1])
             gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
@@ -561,9 +564,8 @@ class CellRepresentation(SpecialTokenMixin):
             self.save_tokenizer_to_cache(cache_dir, hash_vars=hash_vars)
 
     def check_print(self, message, rank=False, cr_setup=False):
-
-        if (not rank or self.rank == 0) and (not cr_setup or not self.cr_setup):
-            print(message)
+        condition = (not rank or self.rank == 0) and (not cr_setup or not self.cr_setup)
+        conditional_print(message, condition)
 
 
 class PartitionedCellRepresentation(CellRepresentation):

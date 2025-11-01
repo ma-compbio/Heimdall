@@ -21,7 +21,14 @@ import Heimdall.datasets
 import Heimdall.losses
 import wandb
 from Heimdall.models import setup_experiment
-from Heimdall.utils import INPUT_KEYS, get_dtype, instantiate_from_config, project2simplex_, save_umap
+from Heimdall.utils import (
+    INPUT_KEYS,
+    conditional_print,
+    get_dtype,
+    instantiate_from_config,
+    project2simplex_,
+    save_umap,
+)
 
 
 class HeimdallTrainer:
@@ -135,8 +142,7 @@ class HeimdallTrainer:
             setattr(self, f"dataloader_{split}", data.dataloaders[split])
 
     def print_r0(self, payload):
-        if self.accelerator.is_main_process:
-            print(f"{payload}")
+        conditional_print(f"{payload}", self.accelerator.is_main_process)
 
     def _initialize_optimizer(self):
         optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)

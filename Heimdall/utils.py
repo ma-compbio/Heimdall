@@ -229,6 +229,7 @@ class GeneMappingOutput:
 
     identifiers: List[str]
     mapping_full: Dict[str, List[str]]
+    verbose: int | bool = False
     mapping_combined: Dict[str, str] = field(init=False)
     mapping_reduced: Dict[str, str] = field(init=False)
 
@@ -247,9 +248,12 @@ class GeneMappingOutput:
                 self.mapping_combined[identifier] = "|".join(hits)
 
         map_ratio = len(self.mapping_full) / len(self.identifiers)
-        print(
-            f"Successfully mapped {len(self.mapping_full):,} out of {len(self.identifiers):,} "
-            f"identifiers ({map_ratio:.1%})",
+        conditional_print(
+            (
+                f"Successfully mapped {len(self.mapping_full):,} out of {len(self.identifiers):,} "
+                f"identifiers ({map_ratio:.1%})"
+            ),
+            condition=self.verbose,
         )
 
 
@@ -257,6 +261,7 @@ def symbol_to_ensembl(
     genes: List[str],
     species: str = "human",
     extra_query_kwargs: Optional[Dict[str, Any]] = None,
+    verbose: int | bool = False,
 ) -> GeneMappingOutput:
     # Query from MyGene.Info server
     print(f"Querying {len(genes):,} genes")
@@ -284,7 +289,7 @@ def symbol_to_ensembl(
 
         symbol_to_ensembl_dict[symbol] = symbol_to_ensembl_dict.get(symbol, []) + new_ensembl_genes
 
-    return GeneMappingOutput(genes, symbol_to_ensembl_dict)
+    return GeneMappingOutput(genes, symbol_to_ensembl_dict, verbose)
 
 
 def symbol_to_ensembl_from_ensembl(
@@ -293,16 +298,17 @@ def symbol_to_ensembl_from_ensembl(
     ensembl_ids: List[str] = None,
     species: str = "human",
     release: int = 112,
+    verbose: int | bool = False,
 ) -> GeneMappingOutput:
 
-    symbol_to_ensembl, ensembl_to_symbol = _load_ensembl_table(data_dir, species, release)
+    symbol_to_ensembl, ensembl_to_symbol = _load_ensembl_table(data_dir, species, release, verbose=verbose)
 
     if symbols is not None:
         symbol_to_ensembl_dict = {i: symbol_to_ensembl[i] for i in symbols if i in symbol_to_ensembl}
-        mapping = GeneMappingOutput(symbols, symbol_to_ensembl_dict)
+        mapping = GeneMappingOutput(symbols, symbol_to_ensembl_dict, verbose)
     elif ensembl_ids is not None:
         ensembl_to_symbol_dict = {i: ensembl_to_symbol[i] for i in ensembl_ids if i in ensembl_to_symbol}
-        mapping = GeneMappingOutput(ensembl_ids, ensembl_to_symbol_dict)
+        mapping = GeneMappingOutput(ensembl_ids, ensembl_to_symbol_dict, verbose)
 
     return mapping
 
@@ -363,6 +369,7 @@ def _load_ensembl_table(
     data_dir: Union[str, Path],
     species: str,
     release: int,
+    verbose: int | bool = False,
 ) -> Dict[str, List[str]]:
     try:
         url = ENSEMBL_URL_MAP[species].format(release, release)
@@ -372,11 +379,9 @@ def _load_ensembl_table(
             f"Unknown species {species!r}, available options are {sorted(ENSEMBL_URL_MAP)}",
         ) from e
 
-    print(species)
-    print(Path(data_dir))
     data_dir = Path(data_dir).resolve() / "gene_mapping" / "ensembl" / species
     data_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Mapping data directory: {data_dir}")
+    conditional_print(f"Mapping data directory: {data_dir}", verbose)
 
     raw_path = data_dir / fname
     attr_path = data_dir / "gene_attr_table.tsv.gz"
@@ -385,7 +390,7 @@ def _load_ensembl_table(
 
     # Download GTF from Ensembl
     if not raw_path.is_file():
-        print(f"Downloading gene annotation from {url}")
+        conditional_print(f"Downloading gene annotation from {url}", verbose)
         with requests.get(url) as r:
             if not r.ok:
                 raise requests.RequestException(f"Fail to download {url} ({r})")
@@ -395,7 +400,7 @@ def _load_ensembl_table(
 
     # Prepare gene attribute table from GTF
     if not attr_path.is_file():
-        print("Extracting gene attributes")
+        conditional_print("Extracting gene attributes", verbose)
         _prepare_gene_attr_table(raw_path, attr_path)
 
     # Prepare symbol-ensembl mappings
@@ -406,7 +411,7 @@ def _load_ensembl_table(
             mapping_ensembl_to_symbol_path,
         )
     else:
-        print(f"Loading mapping from cache: {mapping_symbol_to_ensembl_path}")
+        conditional_print(f"Loading mapping from cache: {mapping_symbol_to_ensembl_path}", verbose)
         with open(mapping_symbol_to_ensembl_path) as f:
             symbol_to_ensembl = json.load(f)
 
@@ -416,7 +421,7 @@ def _load_ensembl_table(
     return symbol_to_ensembl, ensembl_to_symbol
 
 
-def convert_to_ensembl_ids(adata, data_dir, species="human"):
+def convert_to_ensembl_ids(adata, data_dir, species="human", verbose: int | bool = False):
     """Converts gene symbols in the anndata object to Ensembl IDs using a
     provided mapping.
 
@@ -435,6 +440,7 @@ def convert_to_ensembl_ids(adata, data_dir, species="human"):
             data_dir=data_dir,
             symbols=adata.var.index.tolist(),
             species=species,
+            verbose=verbose,
         )
         adata.uns["gene_mapping:symbol_to_ensembl"] = gene_mapping.mapping_full
 
@@ -449,6 +455,7 @@ def convert_to_ensembl_ids(adata, data_dir, species="human"):
             data_dir=data_dir,
             ensembl_ids=adata.var.index.tolist(),
             species=species,
+            verbose=verbose,
         )
 
         adata.var["gene_ensembl"] = adata.var.index
@@ -573,6 +580,11 @@ def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="he
         # breakpoint()
     else:
         raise ValueError("No split information found.")
+
+
+def conditional_print(msg: str, condition: bool):
+    if condition:
+        print(msg)
 
 
 class AllPartitionsExhausted(Exception):
