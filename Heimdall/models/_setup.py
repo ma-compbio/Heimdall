@@ -19,8 +19,8 @@ def setup_accelerator(config, cpu=False, run_wandb=False):
         step_scheduler_with_optimizer=False,
         cpu=cpu,
         mixed_precision="bf16",
-        **accelerator_log_kwargs,
         kwargs_handlers=[ddp_kwargs],
+        **accelerator_log_kwargs,
     )
 
     return accelerator
