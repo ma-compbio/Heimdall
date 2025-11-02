@@ -108,9 +108,7 @@ class Fg(ABC):
         args = self.embedding_parameters.get("args", {})
 
         for key, value in args.items():
-            if value == "max_seq_length":
-                value = self.adata.n_vars
-            elif value == "vocab_size":
+            if value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
                 gene_embeddings = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray

@@ -98,9 +98,7 @@ class Fe(ABC):
         """Replace config placeholders with values after preprocessing."""
         args = self.embedding_parameters.get("args", {})
         for key, value in args.items():
-            if value == "max_seq_length":
-                value = self.adata.n_vars
-            elif value == "vocab_size":
+            if value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "expression_embeddings":
                 expression_embeddings = torch.tensor(self.expression_embeddings)  # TODO: type is inherited from NDArray

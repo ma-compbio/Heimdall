@@ -251,8 +251,6 @@ class CellRepresentation(SpecialTokenMixin):
                 subtask_configs={"default": self._cfg.tasks},
                 dataset_config=self._cfg.tasks.args.dataset_config,
             )
-            # task = instantiate_from_config(config.tasks, self)
-            # self.tasklist["default"] = task
 
         self.num_subtasks = self.tasklist.num_subtasks
 
@@ -260,16 +258,6 @@ class CellRepresentation(SpecialTokenMixin):
         """Load AnnData into memory (and preprocess, if necessary)."""
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
-
-        # preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path(
-        #     hash_data_only=False,
-        # )
-
-        # if preprocessed_data_path_w_cell_cfg is not None and preprocessed_data_path_w_cell_cfg.is_file():
-        #     print("Loading tokenized AnnData?")
-        #     is_cached = self.anndata_from_cache(preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg)
-        #     if is_cached:
-        #         return
 
         preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
         if preprocessed_data_path is not None:
@@ -418,13 +406,14 @@ class CellRepresentation(SpecialTokenMixin):
     def drop_invalid_genes(self):
         """Modify `self.adata` to only contain valid genes after preprocessing
         with the `Fg`."""
+        # TODO: Move to `Fg`...?
 
         valid_mask = self.adata.var["identity_valid_mask"]
-        self.adata.raw = self.adata.copy()
+        # self.adata.raw = self.adata.copy()
         self.adata = self.adata[:, valid_mask].copy()
 
-        preprocessed_data_path, *_ = self.get_preprocessed_data_path(hash_data_only=False)
-        self.anndata_to_cache(preprocessed_data_path)
+        # preprocessed_data_path, *_ = self.get_preprocessed_data_path(hash_data_only=False)
+        # self.anndata_to_cache(preprocessed_data_path)
 
         self.check_print(f"> Finished dropping invalid genes, yielding new AnnData: :\n{self.adata}", cr_setup=True)
 
@@ -444,15 +433,6 @@ class CellRepresentation(SpecialTokenMixin):
         return processed_data_path
 
     def load_tokenizer_from_cache(self, cache_dir, hash_vars):
-        # cfg = DictConfig(
-        #     {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
-        # )
-        # cfg = {**cfg, "hash_vars": hash_vars}
-        # processed_data_path, processed_cfg_path = get_cached_paths(
-        #     cfg,
-        #     Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
-        #     "data.pkl",
-        # )
         processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
         if processed_data_path.is_file():
             self.check_print(
@@ -474,6 +454,8 @@ class CellRepresentation(SpecialTokenMixin):
             self.fg.load_from_cache(identity_embedding_index, identity_valid_mask, gene_embeddings)
             self.fe.load_from_cache(expression_embeddings)
 
+            self.drop_invalid_genes()
+
             self.processed_fcfg = True
 
             return True
@@ -489,15 +471,6 @@ class CellRepresentation(SpecialTokenMixin):
         gene_embeddings = self.fg.gene_embeddings
         expression_embeddings = self.fe.expression_embeddings
 
-        # cfg = DictConfig(
-        #     {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
-        # )
-        # cfg = {**cfg, "hash_vars": hash_vars}
-        # processed_data_path, processed_cfg_path = get_cached_paths(
-        #     cfg,
-        #     Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
-        #     "data.pkl",
-        # )
         processed_data_path = self.get_tokenizer_cache_path(cache_dir, hash_vars)
         if not processed_data_path.is_file():
             with open(processed_data_path, "wb") as rep_file:
