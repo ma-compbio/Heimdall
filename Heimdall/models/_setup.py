@@ -55,8 +55,7 @@ def setup_experiment(config, cpu=False, accelerator=None):
         data=cr,
         model_config=config.model,
     )
-
-    model.to(float_dtype)  # to dtype after potentially loading pretrained weights instead of before
+    # model.to(float_dtype)  # to dtype after potentially loading pretrained weights instead of before
 
     if accelerator.is_main_process:
         num_params = count_parameters(model)

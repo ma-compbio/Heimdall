@@ -66,7 +66,7 @@ class Dataset(PyTorchDataset, ABC):
         return f"{name}(size={len(self):,}) wrapping: {self.data}"
 
     def _setup_random_splits(self):
-        warnings.warn("Pre-defined split unavailable, using random 6/2/2 split", UserWarning, stacklevel=2)
+        # warnings.warn("Pre-defined split unavailable, using random 6/2/2 split", UserWarning, stacklevel=2)
 
         size = len(self)
         seed = self.data._cfg.seed
@@ -298,7 +298,7 @@ class PartitionedDataset(SingleInstanceDataset):
     def _get_random_splits_partition(self, part_id, train_split: float = 0.8):
         num_samples_partition = self.partition_sizes[part_id]
 
-        warnings.warn("Pre-defined split unavailable, using random split", UserWarning, stacklevel=2)
+        # warnings.warn("Pre-defined split unavailable, using random split", UserWarning, stacklevel=2)
 
         seed = self._data._cfg.seed + part_id
 

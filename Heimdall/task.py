@@ -57,11 +57,11 @@ class Task(ABC):
     @property
     def num_tasks(self) -> int:
         if "_num_tasks" not in self.__dict__:
-            warnings.warn(
-                "Need to improve to explicitly handle multiclass vs. multilabel",
-                UserWarning,
-                stacklevel=2,
-            )
+            # warnings.warn(
+            #     "Need to improve to explicitly handle multiclass vs. multilabel",
+            #     UserWarning,
+            #     stacklevel=2,
+            # )
             assert self.task_type in [
                 "regression",
                 "binary",
@@ -113,7 +113,7 @@ class Task(ABC):
         with open(processed_data_path, "wb") as label_file:
             pkl.dump(self.labels, label_file)
 
-        self.data.check_print(f"> Finished writing task {task_name} labels at {processed_data_path}", cr_setup=True)
+        self.data.print_during_setup(f"> Finished writing task {task_name} labels at {processed_data_path}")
 
     def from_cache(self, cache_dir, hash_vars, task_name):
         processed_data_path = self.data.get_tokenizer_cache_path(
@@ -122,10 +122,9 @@ class Task(ABC):
             filename=f"{task_name}_labels.pkl",
         )
         if processed_data_path.is_file():
-            self.data.check_print(
+            self.data.print_during_setup(
                 f"> Found already processed labels for task {task_name}: {processed_data_path}",
-                cr_setup=True,
-                rank=True,
+                is_printable_process=True,
             )
             with open(processed_data_path, "rb") as label_file:
                 self.labels = pkl.load(label_file)
@@ -264,6 +263,11 @@ class SeqMaskedMLMTask(TransformationMixin, MaskedMixin, MLMMixin, SingleInstanc
         # Ignore padding tokens
         is_padding = data["labels"] == self.data.special_tokens["pad"]
         mask[is_padding] = False
+
+        negative_mask = data["identity_inputs"] < 0
+        mask = (mask * ~negative_mask).astype(bool)
+
+        data["identity_inputs"][mask] = self.mask_token
 
         data["identity_inputs"][mask] = self.mask_token
         # data["expression_inputs"][mask] = self.mask_token

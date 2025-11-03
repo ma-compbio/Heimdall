@@ -4,6 +4,7 @@ import random
 from collections import OrderedDict, defaultdict
 from contextlib import nullcontext
 from pathlib import Path
+from pprint import pformat
 
 import numpy as np
 import pandas as pd
@@ -44,6 +45,7 @@ class HeimdallTrainer:
     ):
         self.cfg = cfg
         self.model = model
+
         self.data = data
         self.accelerator = accelerator
         self.has_embeddings = self.cfg.model.name != "logistic_regression"
@@ -111,9 +113,8 @@ class HeimdallTrainer:
             self.lr_scheduler,
         )
 
-        if self.accelerator.is_main_process:
-            print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
-            print("> run HeimdallTrainer.train() to begin training")
+        self.print_r0("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
+        self.print_r0("> run HeimdallTrainer.train() to begin training")
 
     def check_flash_attn(self):
         if (
@@ -133,8 +134,8 @@ class HeimdallTrainer:
         for split in ["train", "val", "test", "full"]:
             setattr(self, f"dataloader_{split}", data.dataloaders[split])
 
-    def print_r0(self, payload):
-        conditional_print(f"{payload}", self.accelerator.is_main_process)
+    def print_r0(self, message):
+        self.data.print_r0(message)
 
     def _initialize_optimizer(self):
         optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)
@@ -224,7 +225,7 @@ class HeimdallTrainer:
                             )
                         elif metric_name == "MatthewsCorrCoef":
                             subtask_metrics[metric_name] = MatthewsCorrCoef(task="multiclass", num_classes=num_classes)
-                        elif metric_name == "ConfusionMatrix":
+                        elif metric_name == "ConfusionMatrix" and task_type != "mlm":
                             subtask_metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
             elif task_type == "regression":
                 for metric_name in subtask.metrics:
@@ -553,6 +554,15 @@ class HeimdallTrainer:
                                 subtask_preds = preds[subtask_name]
                                 if subtask.task_type in ["multiclass", "mlm"]:
                                     subtask_labels = subtask_labels.to(torch.int)
+
+                                    flattened_labels = subtask_labels.flatten()
+                                    flattened_preds = subtask_preds.flatten()
+                                    mask = flattened_labels >= 0
+                                    nonnegative_flattened_labels = flattened_labels[mask]
+                                    nonnegative_flattened_preds = flattened_preds[mask]
+                                    subtask_labels = nonnegative_flattened_labels.to(torch.int)
+                                    subtask_preds = nonnegative_flattened_preds
+
                                 if subtask.task_type in ["binary"]:
                                     # Step 1: Flatten the tensor
                                     flattened_labels = subtask_labels.flatten()
@@ -674,7 +684,7 @@ class HeimdallTrainer:
             self.accelerator.log(log, step=self.step)
 
         if not self.run_wandb and self.accelerator.is_main_process:
-            print(log)
+            print(f"{dataset_type}_log = {pformat(log)}")
 
         return log, outputs["all_embeddings"]
 

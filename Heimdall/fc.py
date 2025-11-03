@@ -156,7 +156,7 @@ class ChromosomeAwareFc(Fc):
 
         # TODO: for pretraining, we should keep extraneous codes (i.e. no `remove_unused_categories()`)
         dataset_chroms = gene_chrom["spec_chrom"].cat.remove_unused_categories().cat.codes
-        print("Max Code:", max(dataset_chroms))
+        # print("Max Code:", max(dataset_chroms))
         dataset_pos = gene_chrom["start"].values
 
         self.unique_chromosomes = np.unique(dataset_chroms)
