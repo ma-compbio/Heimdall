@@ -436,16 +436,15 @@ class HeimdallTrainer:
             logits = outputs[subtask_name].logits
             subtask_labels = labels[subtask_name]
 
-            if subtask.task_type == "multiclass":
-                subtask_preds = logits.argmax(dim=1)
+            if subtask.task_type in ("multiclass", "regression"):
+                subtask_preds = logits
+                # logits.argmax(dim=1)
             elif subtask.task_type == "mlm":
                 subtask_preds = logits.argmax(dim=2)
             elif subtask.task_type == "binary":
                 # multi-label binary classification → use sigmoid + threshold
                 probs = torch.sigmoid(logits)
                 subtask_preds = (probs > 0.5).float()
-            elif subtask.task_type == "regression":
-                subtask_preds = logits
             else:
                 raise ValueError(f"Unsupported task_type: {subtask.task_type}")
 
@@ -556,17 +555,22 @@ class HeimdallTrainer:
                                 # Built-in metric
                                 subtask_labels = labels[subtask_name]
                                 subtask_preds = preds[subtask_name]
+
                                 if subtask.task_type in ["multiclass", "mlm"]:
                                     subtask_labels = subtask_labels.to(torch.int)
 
-                                    flattened_labels = subtask_labels.flatten()
-                                    flattened_preds = subtask_preds.flatten()
-                                    mask = flattened_labels >= 0
-                                    nonnegative_flattened_labels = flattened_labels[mask]
-                                    nonnegative_flattened_preds = flattened_preds[mask]
-                                    subtask_labels = nonnegative_flattened_labels.to(torch.int)
-                                    subtask_preds = nonnegative_flattened_preds
+                                # Remove negative MLM values (TODO: fix so UCE doesn't provide these)
+                                if subtask.task_type in ["mlm"]:
+                                    if torch.any(subtask_labels < 0):
+                                        flattened_labels = subtask_labels.flatten()
+                                        flattened_preds = subtask_preds.flatten()
+                                        mask = flattened_labels >= 0
+                                        nonnegative_flattened_labels = flattened_labels[mask]
+                                        nonnegative_flattened_preds = flattened_preds[mask]
+                                        subtask_labels = nonnegative_flattened_labels.to(torch.int)
+                                        subtask_preds = nonnegative_flattened_preds
 
+                                # Remove NaN values
                                 if subtask.task_type in ["binary"]:
                                     # Step 1: Flatten the tensor
                                     flattened_labels = subtask_labels.flatten()
