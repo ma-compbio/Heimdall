@@ -416,7 +416,12 @@ class HeimdallTrainer:
         for values in batch.values():
             for subtask_name, value in values.items():
                 if value is not None:
-                    values[subtask_name] = value.to(self.accelerator.device)
+                    if isinstance(value, list):
+                        value = [subvalue.to(self.accelerator.device) for subvalue in value]
+                    else:
+                        value = value.to(self.accelerator.device)
+
+                    values[subtask_name] = value
 
         inputs = {input_key: batch[input_key] for input_key in INPUT_KEYS if input_key in batch}
 
