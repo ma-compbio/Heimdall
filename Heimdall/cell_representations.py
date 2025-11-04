@@ -13,7 +13,6 @@ import numpy as np
 import scanpy as sc
 from accelerate import Accelerator
 from numpy.typing import NDArray
-from omegaconf import DictConfig, OmegaConf
 from scipy import sparse
 from scipy.sparse import csc_array
 from torch.utils.data import DataLoader, Subset
@@ -29,7 +28,6 @@ from Heimdall.task import Tasklist
 from Heimdall.utils import (
     conditional_print,
     convert_to_ensembl_ids,
-    get_cached_paths,
     get_collation_closure,
     get_fully_qualified_cache_paths,
     get_value,

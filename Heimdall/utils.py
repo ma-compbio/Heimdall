@@ -80,7 +80,7 @@ def get_fully_qualified_cache_paths(
     cfg,
     cache_dir,
     filename="",
-    keys: set | tuple = {},
+    keys: set | tuple = (),
     hash_vars=(),
     verbose: int = 0,
 ):

@@ -12,7 +12,7 @@ import psutil
 import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
 from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
@@ -703,7 +703,7 @@ class HeimdallTrainer:
 
     def initialize_checkpointing(self, additional_keys: tuple = ()):
         """Initialize checkpoint directory."""
-        if getattr(self.cfg, "work_dir") is not None:
+        if getattr(self.cfg, "work_dir", None) is not None:
             self.results_folder = Path(self.cfg.work_dir)
         else:
             cache_dir = self.cfg.cache_preprocessed_dataset_dir
@@ -885,7 +885,7 @@ class HeimdallTrainer:
         model.load_state_dict(filtered_pretrained_params, strict=False)
         # model.load_state_dict(data["model"])
 
-        epoch = self.load_trainer_state(data)
+        self.load_trainer_state(data)
 
         if self.accelerator.is_main_process:
             print(f">Finished loading pretrained params loaded from {load_path}")
