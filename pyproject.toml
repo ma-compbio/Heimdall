@@ -22,7 +22,7 @@ dependencies = [  # TODO: check which are necessary
     "pandas",
     "wandb",
     "tqdm",
-    "scanpy",
+    "scanpy[leiden]",
     "scikit-learn",
     "scipy",
     "torchmetrics",
