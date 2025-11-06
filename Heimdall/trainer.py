@@ -675,9 +675,20 @@ class HeimdallTrainer:
 
                 # 4. Log interactive confusion matrix to WandB (main process only)
                 if self.run_wandb and self.accelerator.is_main_process:
+                    y_true_np = outputs["all_labels"][subtask_name]
+                    y_pred_np = outputs["all_preds"][subtask_name]
+
+                    # Convert logits/probs to hard labels if needed
+                    if y_pred_np.ndim > 1:        # shape (N, C)
+                        y_pred_np = y_pred_np.argmax(axis=1)
+
+                    # Flatten & convert to Python lists
+                    y_true_list = y_true_np.reshape(-1).tolist()
+                    y_pred_list = y_pred_np.reshape(-1).tolist()
+                    
                     wandb_cm = wandb.plot.confusion_matrix(
-                        y_true=outputs["all_labels"][subtask_name],
-                        preds=outputs["all_preds"][subtask_name],
+                        y_true=y_true_list,
+                        preds=y_pred_list,
                         class_names=self.class_names[subtask_name],  # same order as metric
                     )
                     self.accelerator.log(

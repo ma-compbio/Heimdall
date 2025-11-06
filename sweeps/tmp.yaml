@@ -13,7 +13,7 @@ command:
 - fc.args.max_input_length=1024
 - +experiments=reverse_20gene
 - user=ehaber
-- seed=55
+- seed=60
 - project_name=geneformer_asym_dev
 method: grid
 metric:
