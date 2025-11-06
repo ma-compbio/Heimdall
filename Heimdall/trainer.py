@@ -285,23 +285,19 @@ class HeimdallTrainer:
             return
 
         # If the tracked parameter is specified
-        track_metric = defaultdict(lambda: None)
         best_metric = defaultdict(dict)
         for subtask_name, subtask in self.data.tasklist:
             if subtask.track_metric is not None:
-                track_metric[subtask_name] = subtask.track_metric
-                best_metric[subtask_name] = {
-                    f"best_val_{subtask_name}_{track_metric}": float("-inf"),
-                    f"reported_test_{subtask_name}_{track_metric}": float("-inf"),
-                }
+                best_metric[subtask_name] = defaultdict(lambda: float("-inf"))
+
                 assert (
-                    track_metric[subtask_name] in subtask.metrics
+                    subtask.track_metric in subtask.metrics
                 ), "The tracking metric is not in the list of metrics, please check your configuration task file"
 
         # Initialize early stopping parameters
         early_stopping = self.data.tasklist.early_stopping
         early_stopping_patience = self.data.tasklist.early_stopping_patience
-        patience_counter = 0
+        patience_counter = defaultdict(int)
 
         for epoch in range(start_epoch, self.data.tasklist.epochs):
             # Validation and test evaluation
@@ -311,17 +307,17 @@ class HeimdallTrainer:
             # Track the best metric if specified
             reset_patience_counter = False
             for subtask_name, subtask in self.data.tasklist:
-                if track_metric[subtask_name] is not None:
-                    val_metric = valid_log.get(f"valid_{subtask_name}_{track_metric}", float("-inf"))
+                if subtask.track_metric is not None:
+                    val_metric = valid_log.get(f"valid_{subtask_name}_{subtask.track_metric}", float("-inf"))
                     if (
-                        val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"]
+                        val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"]
                     ):  # Change to >= if you want to debug UMAP
                         self.best_val_embed[subtask_name] = val_embed[subtask_name]
                         self.best_test_embed[subtask_name] = test_embed[subtask_name]
                         self.best_epoch[subtask_name] = epoch
 
-                        best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"] = val_metric
-                        self.print_r0(f"New best validation for {subtask_name} {track_metric}: {val_metric}")
+                        best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"] = val_metric
+                        self.print_r0(f"New best validation for {subtask_name} {subtask.track_metric}: {val_metric}")
                         best_metric[subtask_name]["reported_epoch"] = epoch  # log the epoch for convenience
                         for metric in subtask.metrics:
                             best_metric[subtask_name][f"reported_test_{metric}"] = test_log.get(
@@ -341,21 +337,21 @@ class HeimdallTrainer:
                     self.best_epoch[subtask_name] = epoch
 
                 if reset_patience_counter:
-                    patience_counter = 0  # Reset patience counter since we have a new best
+                    patience_counter[subtask_name] = 0  # Reset patience counter since we have a new best
                 else:
-                    patience_counter += 1
+                    patience_counter[subtask_name] += 1
                     if early_stopping:
                         self.print_r0(
-                            f"No improvement in validation {track_metric}. "
-                            f"Patience counter: {patience_counter}/{early_stopping_patience}",
+                            f"No improvement in validation {subtask.track_metric}. "
+                            f"Patience counter: {patience_counter[subtask_name]}/{early_stopping_patience}",
                         )
 
-            # Check early stopping condition
-            if early_stopping and patience_counter >= early_stopping_patience:
-                self.print_r0(
-                    f"Early stopping triggered. No improvement in {track_metric} for {early_stopping_patience} epochs.",
-                )
-                break
+                # Check early stopping condition
+                if early_stopping and patience_counter[subtask_name] >= early_stopping_patience:
+                    self.print_r0(
+                        f"Early stopping triggered. No improvement in {subtask.track_metric} for {early_stopping_patience} epochs.",
+                    )
+                    break
 
             # Train for one epoch
             self.train_epoch(epoch)
@@ -366,8 +362,8 @@ class HeimdallTrainer:
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
 
         if self.run_wandb and self.accelerator.is_main_process:
-            for subtask_name, _ in self.data.tasklist:
-                if track_metric[subtask_name] is not None:  # logging the best val score and the tracked test scores
+            for subtask_name, subtask in self.data.tasklist:
+                if subtask.track_metric is not None:  # logging the best val score and the tracked test scores
                     self.accelerator.log(best_metric[subtask_name], step=self.step)
             self.accelerator.end_training()
 
@@ -377,7 +373,12 @@ class HeimdallTrainer:
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
-            if self.best_test_embed and self.best_val_embed and not self.cfg.trainer.fastdev:
+            if (
+                self.best_test_embed
+                and self.best_val_embed
+                and hasattr(self, "results_folder")
+                and not self.cfg.trainer.fastdev
+            ):
                 for subtask_name, _ in self.data.tasklist:
                     save_umap(
                         self.data,
@@ -385,6 +386,7 @@ class HeimdallTrainer:
                         embedding_name=f"{subtask_name}_latents",
                         split="test",
                         savepath=self.results_folder / "test_adata.h5ad",
+                        log_umap=self.run_wandb,
                     )
                     save_umap(
                         self.data,
@@ -392,6 +394,7 @@ class HeimdallTrainer:
                         embedding_name=f"{subtask_name}_latents",
                         split="val",
                         savepath=self.results_folder / "val_adata.h5ad",
+                        log_umap=self.run_wandb,
                     )
                     self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
             else:

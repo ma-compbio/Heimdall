@@ -18,6 +18,7 @@ import pandas as pd
 import requests
 import scanpy as sc
 from anndata.abc import CSCDataset, CSRDataset
+from matplotlib import pyplot as plt
 from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
@@ -25,6 +26,8 @@ from scipy import sparse as sp
 from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
+
+import wandb
 
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
@@ -539,15 +542,26 @@ def issparse(x):
     return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
 
 
-def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="heimdall_latents", split="test"):
+def save_umap(
+    cr: "CellRepresentation",
+    embeddings,
+    savepath,
+    embedding_name="heimdall_latents",
+    split="test",
+    log_umap: bool = False,
+):
     def save_partition_umap(adata, embeddings, savepath, embedding_name):
+        fig, ax = plt.subplots(1, figsize=(4, 4))
         adata.obsm[embedding_name] = embeddings
 
         sc.pp.neighbors(adata, use_rep=embedding_name)
         sc.tl.leiden(adata)
         sc.tl.umap(adata)
 
+        sc.pl.umap(adata, ax=ax, show=False)
         ad.io.write_h5ad(savepath, adata)
+
+        return fig
 
     if hasattr(cr, "splits"):
         full_dataset = cr.datasets["full"]
@@ -562,24 +576,27 @@ def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="he
             for partition in range(full_dataset.num_partitions):
                 start, end = cumulative_sizes[partition : partition + 2]
                 full_dataset.partition = partition
-                adata = cr.adata[cr.splits[split]].copy()
                 partition_savepath = Path(savepath)
                 partition_savepath = partition_savepath.parent / f"partition_{partition}_{partition_savepath.name}"
-                save_partition_umap(
+                adata = cr.adata[cr.splits[split]].copy(savepath)
+                fig = save_partition_umap(
                     adata=adata,
                     embeddings=embeddings[start:end],
                     savepath=partition_savepath,
                     embedding_name=embedding_name,
                 )
+                if log_umap:
+                    wandb.log({f"{partition=}_{split}_umap": wandb.Image(fig)})
         else:
             adata = cr.adata[cr.splits[split]].copy()
-            save_partition_umap(
+            fig = save_partition_umap(
                 adata=adata,
                 embeddings=embeddings,
                 savepath=savepath,
                 embedding_name=embedding_name,
             )
-        # breakpoint()
+            if log_umap:
+                wandb.log({f"{split}_umap": wandb.Image(fig)})
     else:
         raise ValueError("No split information found.")
 
