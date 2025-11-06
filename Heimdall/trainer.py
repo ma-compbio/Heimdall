@@ -286,24 +286,18 @@ class HeimdallTrainer:
             return
 
         # If the tracked parameter is specified
-        track_metric = defaultdict(lambda: None)
         best_metric = defaultdict(dict)
         for subtask_name, subtask in self.data.tasklist:
             if subtask.track_metric is not None:
-                track_metric[subtask_name] = subtask.track_metric
                 best_metric[subtask_name] = defaultdict(lambda: float("-inf"))
-                # best_metric[subtask_name] = {
-                #     f"best_val_{subtask_name}_{subtask.track_metric}": float("-inf"),
-                #     f"reported_test_{subtask_name}_{subtask.track_metric}": float("-inf"),
-                # }
                 assert (
-                    track_metric[subtask_name] in subtask.metrics
+                    subtask.track_metric in subtask.metrics
                 ), "The tracking metric is not in the list of metrics, please check your configuration task file"
 
         # Initialize early stopping parameters
         early_stopping = self.data.tasklist.early_stopping
         early_stopping_patience = self.data.tasklist.early_stopping_patience
-        patience_counter = 0
+        patience_counter = defaultdict(int)
 
         for epoch in range(start_epoch, self.data.tasklist.epochs):
             # Validation and test evaluation
@@ -343,21 +337,21 @@ class HeimdallTrainer:
                     self.best_epoch[subtask_name] = epoch
 
                 if reset_patience_counter:
-                    patience_counter = 0  # Reset patience counter since we have a new best
+                    patience_counter[subtask_name] = 0  # Reset patience counter since we have a new best
                 else:
-                    patience_counter += 1
+                    patience_counter[subtask_name] += 1
                     if early_stopping:
                         self.print_r0(
-                            f"No improvement in validation {track_metric}. "
-                            f"Patience counter: {patience_counter}/{early_stopping_patience}",
+                            f"No improvement in validation {subtask.track_metric}. "
+                            f"Patience counter: {patience_counter[subtask_name]}/{early_stopping_patience}",
                         )
 
-            # Check early stopping condition
-            if early_stopping and patience_counter >= early_stopping_patience:
-                self.print_r0(
-                    f"Early stopping triggered. No improvement in {track_metric} for {early_stopping_patience} epochs.",
-                )
-                break
+                # Check early stopping condition
+                if early_stopping and patience_counter[subtask_name] >= early_stopping_patience:
+                    self.print_r0(
+                        f"Early stopping triggered. No improvement in {subtask.track_metric} for {early_stopping_patience} epochs.",
+                    )
+                    break
 
             # Train for one epoch
             self.train_epoch(epoch)
@@ -368,8 +362,8 @@ class HeimdallTrainer:
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
 
         if self.run_wandb and self.accelerator.is_main_process:
-            for subtask_name, _ in self.data.tasklist:
-                if track_metric[subtask_name] is not None:  # logging the best val score and the tracked test scores
+            for subtask_name, subtask in self.data.tasklist:
+                if subtask.track_metric is not None:  # logging the best val score and the tracked test scores
                     self.accelerator.log(best_metric[subtask_name], step=self.step)
             self.accelerator.end_training()
 
