@@ -870,7 +870,6 @@ class HeimdallTrainer:
         # Load the checkpoint
         config = self.cfg
         if "pretrained_milestone" in config:
-            trainer.load_pretrained()
             load_path = self.results_folder / f"model-{config.pretrained_milestone}.pt"
             if not load_path.exists():
                 self.print_r0(
