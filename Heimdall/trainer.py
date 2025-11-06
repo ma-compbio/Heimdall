@@ -291,10 +291,11 @@ class HeimdallTrainer:
         for subtask_name, subtask in self.data.tasklist:
             if subtask.track_metric is not None:
                 track_metric[subtask_name] = subtask.track_metric
-                best_metric[subtask_name] = {
-                    f"best_val_{subtask_name}_{track_metric}": float("-inf"),
-                    f"reported_test_{subtask_name}_{track_metric}": float("-inf"),
-                }
+                best_metric[subtask_name] = defaultdict(lambda: float("-inf"))
+                # best_metric[subtask_name] = {
+                #     f"best_val_{subtask_name}_{subtask.track_metric}": float("-inf"),
+                #     f"reported_test_{subtask_name}_{subtask.track_metric}": float("-inf"),
+                # }
                 assert (
                     track_metric[subtask_name] in subtask.metrics
                 ), "The tracking metric is not in the list of metrics, please check your configuration task file"
@@ -312,17 +313,17 @@ class HeimdallTrainer:
             # Track the best metric if specified
             reset_patience_counter = False
             for subtask_name, subtask in self.data.tasklist:
-                if track_metric[subtask_name] is not None:
-                    val_metric = valid_log.get(f"valid_{subtask_name}_{track_metric}", float("-inf"))
+                if subtask.track_metric is not None:
+                    val_metric = valid_log.get(f"valid_{subtask_name}_{subtask.track_metric}", float("-inf"))
                     if (
-                        val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"]
+                        val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"]
                     ):  # Change to >= if you want to debug UMAP
                         self.best_val_embed[subtask_name] = val_embed[subtask_name]
                         self.best_test_embed[subtask_name] = test_embed[subtask_name]
                         self.best_epoch[subtask_name] = epoch
 
-                        best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"] = val_metric
-                        self.print_r0(f"New best validation for {subtask_name} {track_metric}: {val_metric}")
+                        best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"] = val_metric
+                        self.print_r0(f"New best validation for {subtask_name} {subtask.track_metric}: {val_metric}")
                         best_metric[subtask_name]["reported_epoch"] = epoch  # log the epoch for convenience
                         for metric in subtask.metrics:
                             best_metric[subtask_name][f"reported_test_{metric}"] = test_log.get(
@@ -376,7 +377,6 @@ class HeimdallTrainer:
             self.accelerator.is_main_process
             and self.has_embeddings
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-            # TODO doesn't seem necessary for pretraining but consult with others
         ):
             if (
                 self.best_test_embed
@@ -391,6 +391,7 @@ class HeimdallTrainer:
                         embedding_name=f"{subtask_name}_latents",
                         split="test",
                         savepath=self.results_folder / "test_adata.h5ad",
+                        log_umap=self.run_wandb,
                     )
                     save_umap(
                         self.data,
@@ -398,6 +399,7 @@ class HeimdallTrainer:
                         embedding_name=f"{subtask_name}_latents",
                         split="val",
                         savepath=self.results_folder / "val_adata.h5ad",
+                        log_umap=self.run_wandb,
                     )
                     self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
             else:
@@ -638,6 +640,7 @@ class HeimdallTrainer:
             for metric_name, metric in metrics[subtask_name].items():
                 if metric_name != "ConfusionMatrix":
                     # Built-in metric
+                    print(f"{metric.compute().item()=}")
                     log[f"{dataset_type}_{subtask_name}_{metric_name}"] = metric.compute().item()
                     if metric_name.startswith(("Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef")):
                         log[
