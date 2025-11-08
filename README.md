@@ -39,6 +39,9 @@ python scripts/create_sweep.py --experiment-name cta_pancreas --project-name Pan
 
 # Dev Notes
 
+<details>
+<summary>Click to expand dev instructions!</summary>
+
 ## Dev installation
 
 ```bash
