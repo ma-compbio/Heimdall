@@ -140,6 +140,7 @@ class SingleInstanceDataset(Dataset):
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
             "expression_padding": expression_padding,
+            "idx": idx,
         }
 
 
@@ -219,6 +220,7 @@ class PairedInstanceDataset(Dataset):
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
             "expression_padding": expression_padding,
+            "idx": idx,
         }
 
 
