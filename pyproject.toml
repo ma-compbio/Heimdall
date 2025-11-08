@@ -87,4 +87,6 @@ line_length = 120
 markers = [
     "integration: marks tests for entire Heimdall pipeline"
 ]
-testpaths = tests/
+testpaths = [
+    "tests/"
+]
