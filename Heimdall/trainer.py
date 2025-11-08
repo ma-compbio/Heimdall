@@ -4,6 +4,7 @@ import random
 from collections import OrderedDict, defaultdict
 from contextlib import nullcontext
 from pathlib import Path
+from pprint import pformat
 
 import numpy as np
 import pandas as pd
@@ -21,7 +22,13 @@ import Heimdall.datasets
 import Heimdall.losses
 import wandb
 from Heimdall.models import setup_experiment
-from Heimdall.utils import INPUT_KEYS, instantiate_from_config, project2simplex_, save_umap
+from Heimdall.utils import (
+    INPUT_KEYS,
+    get_dtype,
+    instantiate_from_config,
+    project2simplex_,
+    save_umap,
+)
 
 
 class HeimdallTrainer:
@@ -37,6 +44,7 @@ class HeimdallTrainer:
     ):
         self.cfg = cfg
         self.model = model
+
         self.data = data
         self.accelerator = accelerator
         self.has_embeddings = self.cfg.model.name != "logistic_regression"
@@ -48,27 +56,28 @@ class HeimdallTrainer:
 
         # Unified label key handling: support .obs or .obsm
         self.class_names = {}
-        self.num_labels = {}
         for subtask_name, subtask in self.data.tasklist:
             label_key = subtask.label_col_name
             label_obsm_key = subtask.label_obsm_name
 
-            if label_key is not None:
-                # Single-label classification using .obs[label_key]
-                if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
-                    self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
-                self.class_names[subtask_name] = self.data.adata.obs[label_key].cat.categories.tolist()
-                self.num_labels[subtask_name] = len(self.class_names[subtask_name])
-            elif label_obsm_key is not None:
-                # Multi-label classification using .obsm[label_obsm_key]
-                if label_obsm_key != "mlm":
+            if subtask.task_type in ("multiclass", "binary"):
+                if label_key is not None:
+                    # Single-label classification using .obs[label_key]
+                    if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
+                        self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
+                    self.class_names[subtask_name] = self.data.adata.obs[label_key].cat.categories.tolist()
+                elif label_obsm_key is not None:
                     self.class_names[subtask_name] = self.data.adata.obsm[label_obsm_key].columns.tolist()
-                    self.num_labels[subtask_name] = len(self.class_names[subtask_name])
                 else:
-                    self.num_labels[subtask_name] = subtask.num_tasks
+                    self.class_names[subtask_name] = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
+
+        self.num_labels = {}
+        for subtask_name, subtask in self.data.tasklist:
+            label_key = subtask.label_col_name
+            label_obsm_key = subtask.label_obsm_name
+            if subtask.task_type in ("multiclass", "binary") and (label_key or label_obsm_key):
+                self.num_labels[subtask_name] = len(self.class_names[subtask_name])
             else:
-                # Auto infering
-                self.class_names[subtask_name] = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
                 self.num_labels[subtask_name] = subtask.num_tasks
 
         self.run_wandb = run_wandb
@@ -97,23 +106,14 @@ class HeimdallTrainer:
             self.model,
             self.optimizer,
             self.lr_scheduler,
-            self.dataloader_train,
-            self.dataloader_val,
-            self.dataloader_test,
-            self.dataloader_full,
         ) = self.accelerator.prepare(
             self.model,
             self.optimizer,
             self.lr_scheduler,
-            self.dataloader_train,
-            self.dataloader_val,
-            self.dataloader_test,
-            self.dataloader_full,
         )
 
-        if self.accelerator.is_main_process:
-            print("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
-            print("> run HeimdallTrainer.train() to begin training")
+        self.print_r0("> Finished Wrapping the model, optimizer, and dataloaders in accelerate")
+        self.print_r0("> run HeimdallTrainer.train() to begin training")
 
     def check_flash_attn(self):
         if (
@@ -133,9 +133,8 @@ class HeimdallTrainer:
         for split in ["train", "val", "test", "full"]:
             setattr(self, f"dataloader_{split}", data.dataloaders[split])
 
-    def print_r0(self, payload):
-        if self.accelerator.is_main_process:
-            print(f"{payload}")
+    def print_r0(self, message):
+        self.data.print_r0(message)
 
     def _initialize_optimizer(self):
         optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)
@@ -225,7 +224,7 @@ class HeimdallTrainer:
                             )
                         elif metric_name == "MatthewsCorrCoef":
                             subtask_metrics[metric_name] = MatthewsCorrCoef(task="multiclass", num_classes=num_classes)
-                        elif metric_name == "ConfusionMatrix":
+                        elif metric_name == "ConfusionMatrix" and task_type != "mlm":
                             subtask_metrics[metric_name] = ConfusionMatrix(task="multiclass", num_classes=num_classes)
             elif task_type == "regression":
                 for metric_name in subtask.metrics:
@@ -274,33 +273,33 @@ class HeimdallTrainer:
         if resume_from_checkpoint:
             start_epoch = self.load_checkpoint()
 
-        if start_epoch >= self.cfg.tasks.args.epochs:
-            last_epoch = max(0, start_epoch - 1)
+        if start_epoch >= self.data.tasklist.epochs:
+            # last_epoch = max(0, start_epoch - 1)
             # Run one eval pass on the loaded weights to get embeddings
             _, val_embed = self.validate_model(self.dataloader_val, "valid")
             _, test_embed = self.validate_model(self.dataloader_test, "test")
             if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
                 # self.save_adata_umap(test_embed, val_embed)
-                self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
+                # self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
+                pass
             return
+
         # If the tracked parameter is specified
-        track_metric = defaultdict(lambda: None)
         best_metric = defaultdict(dict)
         for subtask_name, subtask in self.data.tasklist:
             if subtask.track_metric is not None:
-                track_metric[subtask_name] = subtask.track_metric
-                best_metric[subtask_name] = {
-                    f"best_val_{subtask_name}_{track_metric}": float("-inf"),
-                    f"reported_test_{subtask_name}_{track_metric}": float("-inf"),
-                }
+                best_metric[subtask_name] = defaultdict(lambda: float("-inf"))
+
                 assert (
-                    track_metric[subtask_name] in subtask.metrics
+                    subtask.track_metric in subtask.metrics
                 ), "The tracking metric is not in the list of metrics, please check your configuration task file"
 
         # Initialize early stopping parameters
         early_stopping = self.data.tasklist.early_stopping
         early_stopping_patience = self.data.tasklist.early_stopping_patience
-        patience_counter = 0
+        patience_counter = defaultdict(int)
+
+        stop_training = False
 
         for epoch in range(start_epoch, self.data.tasklist.epochs):
             # Validation and test evaluation
@@ -310,21 +309,21 @@ class HeimdallTrainer:
             # Track the best metric if specified
             reset_patience_counter = False
             for subtask_name, subtask in self.data.tasklist:
-                if track_metric[subtask_name] is not None:
-                    val_metric = valid_log.get(f"valid_{subtask_name}_{track_metric}", float("-inf"))
+                if subtask.track_metric is not None:
+                    val_metric = valid_log.get(f"valid_{subtask_name}_{subtask.track_metric}", float("-inf"))
                     if (
-                        val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"]
+                        val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"]
                     ):  # Change to >= if you want to debug UMAP
                         self.best_val_embed[subtask_name] = val_embed[subtask_name]
                         self.best_test_embed[subtask_name] = test_embed[subtask_name]
                         self.best_epoch[subtask_name] = epoch
 
-                        best_metric[subtask_name][f"best_val_{subtask_name}_{track_metric}"] = val_metric
-                        self.print_r0(f"New best validation for {subtask_name} {track_metric}: {val_metric}")
+                        best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"] = val_metric
+                        self.print_r0(f"New best validation for {subtask_name} {subtask.track_metric}: {val_metric}")
                         best_metric[subtask_name]["reported_epoch"] = epoch  # log the epoch for convenience
                         for metric in subtask.metrics:
                             best_metric[subtask_name][f"reported_test_{metric}"] = test_log.get(
-                                f"test_{metric}",
+                                f"test_{subtask_name}_{metric}",
                                 float("-inf"),
                             )
 
@@ -340,20 +339,25 @@ class HeimdallTrainer:
                     self.best_epoch[subtask_name] = epoch
 
                 if reset_patience_counter:
-                    patience_counter = 0  # Reset patience counter since we have a new best
+                    patience_counter[subtask_name] = 0  # Reset patience counter since we have a new best
                 else:
-                    patience_counter += 1
+                    patience_counter[subtask_name] += 1
                     if early_stopping:
                         self.print_r0(
-                            f"No improvement in validation {track_metric}. "
-                            f"Patience counter: {patience_counter}/{early_stopping_patience}",
+                            f"No improvement in validation {subtask.track_metric}. "
+                            f"Patience counter: {patience_counter[subtask_name]}/{early_stopping_patience}",
                         )
 
-            # Check early stopping condition
-            if early_stopping and patience_counter >= early_stopping_patience:
-                self.print_r0(
-                    f"Early stopping triggered. No improvement in {track_metric} for {early_stopping_patience} epochs.",
-                )
+                # Check early stopping condition
+                if early_stopping and patience_counter[subtask_name] >= early_stopping_patience:
+                    self.print_r0(
+                        f"Early stopping triggered. No improvement in {subtask.track_metric} for "
+                        f"{early_stopping_patience} epochs.",
+                    )
+                    stop_training = True
+                    break
+
+            if stop_training:
                 break
 
             # Train for one epoch
@@ -365,8 +369,8 @@ class HeimdallTrainer:
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
 
         if self.run_wandb and self.accelerator.is_main_process:
-            for subtask_name, _ in self.data.tasklist:
-                if track_metric[subtask_name] is not None:  # logging the best val score and the tracked test scores
+            for subtask_name, subtask in self.data.tasklist:
+                if subtask.track_metric is not None:  # logging the best val score and the tracked test scores
                     self.accelerator.log(best_metric[subtask_name], step=self.step)
             self.accelerator.end_training()
 
@@ -376,7 +380,12 @@ class HeimdallTrainer:
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
             # TODO doesn't seem necessary for pretraining but consult with others
         ):
-            if self.best_test_embed and self.best_val_embed and not self.cfg.trainer.fastdev:
+            if (
+                self.best_test_embed
+                and self.best_val_embed
+                and hasattr(self, "results_folder")
+                and not self.cfg.trainer.fastdev
+            ):
                 for subtask_name, _ in self.data.tasklist:
                     save_umap(
                         self.data,
@@ -384,6 +393,7 @@ class HeimdallTrainer:
                         embedding_name=f"{subtask_name}_latents",
                         split="test",
                         savepath=self.results_folder / "test_adata.h5ad",
+                        log_umap=self.run_wandb,
                     )
                     save_umap(
                         self.data,
@@ -391,6 +401,7 @@ class HeimdallTrainer:
                         embedding_name=f"{subtask_name}_latents",
                         split="val",
                         savepath=self.results_folder / "val_adata.h5ad",
+                        log_umap=self.run_wandb,
                     )
                     self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
             else:
@@ -412,6 +423,16 @@ class HeimdallTrainer:
         return loss_functions
 
     def get_outputs_and_loss(self, batch, loss=None):
+        for values in batch.values():
+            for subtask_name, value in values.items():
+                if value is not None:
+                    if isinstance(value, list):
+                        value = [subvalue.to(self.accelerator.device) for subvalue in value]
+                    else:
+                        value = value.to(self.accelerator.device)
+
+                    values[subtask_name] = value
+
         inputs = {input_key: batch[input_key] for input_key in INPUT_KEYS if input_key in batch}
 
         # inputs = (batch["identity_inputs"], batch["expression_inputs"])
@@ -423,25 +444,23 @@ class HeimdallTrainer:
         labels = batch["labels"]
         for subtask_name, subtask in self.data.tasklist:
             logits = outputs[subtask_name].logits
-            subtask_labels = labels[subtask_name].to(logits.device)
+            subtask_labels = labels[subtask_name]
 
-            if subtask.task_type == "multiclass":
-                subtask_preds = logits.argmax(dim=1)
+            if subtask.task_type in ("multiclass", "regression"):
+                subtask_preds = logits
+                # logits.argmax(dim=1)
             elif subtask.task_type == "mlm":
                 subtask_preds = logits.argmax(dim=2)
             elif subtask.task_type == "binary":
                 # multi-label binary classification → use sigmoid + threshold
                 probs = torch.sigmoid(logits)
                 subtask_preds = (probs > 0.5).float()
-            elif subtask.task_type == "regression":
-                subtask_preds = logits
             else:
                 raise ValueError(f"Unsupported task_type: {subtask.task_type}")
 
             preds[subtask_name] = subtask_preds
 
-            if (masks := batch.get("masks")[subtask_name]) is not None:
-                masks = masks.to(logits.device)
+            if (masks := batch["masks"][subtask_name]) is not None:
                 logits, subtask_labels = logits[masks], subtask_labels[masks]
 
             # perform a .clone() so that the subtask_labels are not updated in-place
@@ -546,8 +565,22 @@ class HeimdallTrainer:
                                 # Built-in metric
                                 subtask_labels = labels[subtask_name]
                                 subtask_preds = preds[subtask_name]
+
                                 if subtask.task_type in ["multiclass", "mlm"]:
                                     subtask_labels = subtask_labels.to(torch.int)
+
+                                # Remove negative MLM values (TODO: fix so UCE doesn't provide these)
+                                if subtask.task_type in ["mlm"]:
+                                    if torch.any(subtask_labels < 0):
+                                        flattened_labels = subtask_labels.flatten()
+                                        flattened_preds = subtask_preds.flatten()
+                                        mask = flattened_labels >= 0
+                                        nonnegative_flattened_labels = flattened_labels[mask]
+                                        nonnegative_flattened_preds = flattened_preds[mask]
+                                        subtask_labels = nonnegative_flattened_labels.to(torch.int)
+                                        subtask_preds = nonnegative_flattened_preds
+
+                                # Remove NaN values
                                 if subtask.task_type in ["binary"]:
                                     # Step 1: Flatten the tensor
                                     flattened_labels = subtask_labels.flatten()
@@ -578,7 +611,10 @@ class HeimdallTrainer:
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
-        loss = 0
+        loss = torch.tensor(0, dtype=get_dtype(self.data._cfg.float_dtype), device=self.accelerator.device)
+
+        if len(dataloader) == 0:
+            raise ValueError("`DataLoader` length cannot be zero. Check custom sampler implementation.")
 
         with torch.no_grad():
             outputs = self.iterate_dataloader(
@@ -601,17 +637,18 @@ class HeimdallTrainer:
             loss = self.accelerator.gather(loss_tensor).mean().item()
 
         log = {f"{dataset_type}_loss": loss}
+
         for subtask_name, subtask in self.data.tasklist:
             for metric_name, metric in metrics[subtask_name].items():
                 if metric_name != "ConfusionMatrix":
                     # Built-in metric
                     log[f"{dataset_type}_{subtask_name}_{metric_name}"] = metric.compute().item()
-                    if metric_name.startswith(("Accuracy", "Precision", "Recall", "F1Score", "MathewsCorrCoef")):
+                    if metric_name.startswith(("Accuracy", "Precision", "Recall", "F1Score")):
                         log[
                             f"{dataset_type}_{subtask_name}_{metric_name}"
                         ] *= 100  # Convert to percentage for these metrics
 
-            if hasattr(subtask, "top_k"):
+            if subtask.top_k is not None:
                 if self.run_wandb and self.accelerator.is_main_process:
                     top_k_accuracies = []
                     for k in subtask.top_k:
@@ -643,14 +680,25 @@ class HeimdallTrainer:
                 # 3. Per-class accuracy vector (for dashboard scalars)
                 per_class_acc = cm_norm.diag().cpu().numpy() * 100
                 log[f"{dataset_type}_{subtask_name}_per_class_accuracy"] = {
-                    name: float(acc) for name, acc in zip(self.class_names, per_class_acc)
+                    name: float(acc) for name, acc in zip(self.class_names[subtask_name], per_class_acc)
                 }
 
                 # 4. Log interactive confusion matrix to WandB (main process only)
                 if self.run_wandb and self.accelerator.is_main_process:
+                    y_true_np = outputs["all_labels"][subtask_name]
+                    y_pred_np = outputs["all_preds"][subtask_name]
+
+                    # Convert logits/probs to hard labels if needed
+                    if y_pred_np.ndim > 1:  # shape (N, C)
+                        y_pred_np = y_pred_np.argmax(axis=1)
+
+                    # Flatten & convert to Python lists
+                    y_true_list = y_true_np.reshape(-1).tolist()
+                    y_pred_list = y_pred_np.reshape(-1).tolist()
+
                     wandb_cm = wandb.plot.confusion_matrix(
-                        y_true=outputs["all_labels"][subtask_name],
-                        preds=outputs["all_preds"][subtask_name],
+                        y_true=y_true_list,
+                        preds=y_pred_list,
                         class_names=self.class_names[subtask_name],  # same order as metric
                     )
                     self.accelerator.log(
@@ -665,7 +713,7 @@ class HeimdallTrainer:
             self.accelerator.log(log, step=self.step)
 
         if not self.run_wandb and self.accelerator.is_main_process:
-            print(log)
+            print(f"{dataset_type}_log = {pformat(log)}")
 
         return log, outputs["all_embeddings"]
 

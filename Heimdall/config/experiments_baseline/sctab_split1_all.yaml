@@ -13,6 +13,7 @@ defaults:
   - override /fc: dummy
   - override /fe: dummy
   - override /fg: dummy
+  - override /loss: CrossEntropyLoss
 
 ####
 # Set the specific parameters you would like to change from the defaults

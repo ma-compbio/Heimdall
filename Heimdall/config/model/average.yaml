@@ -1,5 +1,5 @@
 type: Heimdall.models.Average
-name: AverageEncoder
+name: Average
 
 args:
   d_model: 128

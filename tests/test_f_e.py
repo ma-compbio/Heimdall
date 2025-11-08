@@ -21,6 +21,16 @@ def pad(tokens, pad_length, pad_value):
 
 
 def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression_binning_fe):
+    zero_expression_identity_fg.data.set_representation_functions(
+        fg=zero_expression_identity_fg,
+        fe=zero_expression_binning_fe,
+    )
+
+    zero_expression_binning_fe.data.set_representation_functions(
+        fg=zero_expression_identity_fg,
+        fe=zero_expression_binning_fe,
+    )
+
     zero_expression_identity_fg.preprocess_embeddings()
     zero_expression_binning_fe.preprocess_embeddings()
 
@@ -57,6 +67,16 @@ def test_zero_expression_binning_fe(zero_expression_identity_fg, zero_expression
 
 
 def test_binning_fe(identity_fg, binning_fe):
+    identity_fg.data.set_representation_functions(
+        fg=identity_fg,
+        fe=binning_fe,
+    )
+
+    binning_fe.data.set_representation_functions(
+        fg=identity_fg,
+        fe=binning_fe,
+    )
+
     identity_fg.preprocess_embeddings()
     binning_fe.preprocess_embeddings()
 
@@ -71,6 +91,16 @@ def test_binning_fe(identity_fg, binning_fe):
 
 
 def test_scbert_binning_fe(identity_fg, zero_expression_scbert_binning_fe):
+    identity_fg.data.set_representation_functions(
+        fg=identity_fg,
+        fe=zero_expression_scbert_binning_fe,
+    )
+
+    zero_expression_scbert_binning_fe.data.set_representation_functions(
+        fg=identity_fg,
+        fe=zero_expression_scbert_binning_fe,
+    )
+
     identity_fg.preprocess_embeddings()
     zero_expression_scbert_binning_fe.preprocess_embeddings()
 
@@ -94,6 +124,16 @@ def test_scbert_binning_fe(identity_fg, zero_expression_scbert_binning_fe):
 
 
 def test_identity_fe(zero_expression_identity_fg, zero_expression_identity_fe):
+    zero_expression_identity_fg.data.set_representation_functions(
+        fg=zero_expression_identity_fg,
+        fe=zero_expression_identity_fe,
+    )
+
+    zero_expression_identity_fe.data.set_representation_functions(
+        fg=zero_expression_identity_fg,
+        fe=zero_expression_identity_fe,
+    )
+
     zero_expression_identity_fg.preprocess_embeddings()
     zero_expression_identity_fe.preprocess_embeddings()
 

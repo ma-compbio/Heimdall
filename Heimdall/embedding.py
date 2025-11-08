@@ -93,6 +93,19 @@ class FlexibleTypeEmbeddingAndProjection(nn.Module):
         return x
 
 
+class ZeroBroadcast(nn.Identity):
+    def __init__(
+        self,
+        out_features: int,
+    ):
+        super().__init__()
+        self.dim_out = out_features
+
+    def forward(self, inputs: torch.Tensor):
+        input_size = inputs.size()
+        return torch.zeros((*input_size, self.dim_out), device=inputs.device)
+
+
 class TwoLayerNN(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()

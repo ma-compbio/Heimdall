@@ -2,6 +2,8 @@ type: Heimdall.task.Tasklist
 
 args:
   subtask_configs: {}
+  dataset_config:
+    type: Heimdall.datasets.SingleInstanceDataset
 
 cell_rep_config:
   type: Heimdall.cell_representations.CellRepresentation

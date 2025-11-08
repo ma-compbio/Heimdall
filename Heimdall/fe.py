@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
-import anndata as ad
 import numpy as np
 import torch
 from numpy.typing import NDArray
@@ -10,6 +9,9 @@ from omegaconf.dictconfig import DictConfig
 from scipy.sparse import csr_array
 
 from Heimdall.utils import _get_inputs_from_csr, issparse
+
+if TYPE_CHECKING:
+    from Heimdall.cell_representations import CellRepresentation
 
 
 class Fe(ABC):
@@ -24,7 +26,7 @@ class Fe(ABC):
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
         vocab_size: int,
         embedding_parameters: DictConfig,
         d_embedding: int,
@@ -33,7 +35,7 @@ class Fe(ABC):
         drop_zeros: bool = True,
         rng: int | np.random.Generator = 0,
     ):
-        self.adata = adata
+        self.data = data
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.d_embedding = d_embedding
         self.vocab_size = vocab_size
@@ -58,7 +60,7 @@ class Fe(ABC):
             cell_index: cell for which to process expression values and get indices, as stored in `self.adata`.
 
         """
-        return _get_inputs_from_csr(self.adata, cell_index=cell_index, drop_zeros=self.drop_zeros)
+        return _get_inputs_from_csr(self.data, cell_index=cell_index, drop_zeros=self.drop_zeros)
 
     def preprocess_embeddings(self, float_dtype: str = "float32"):
         """Preprocess expression embeddings and store them for use during model
@@ -98,9 +100,7 @@ class Fe(ABC):
         """Replace config placeholders with values after preprocessing."""
         args = self.embedding_parameters.get("args", {})
         for key, value in args.items():
-            if value == "max_seq_length":
-                value = self.adata.n_vars
-            elif value == "vocab_size":
+            if value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "expression_embeddings":
                 expression_embeddings = torch.tensor(self.expression_embeddings)  # TODO: type is inherited from NDArray
@@ -111,19 +111,24 @@ class Fe(ABC):
                 continue
             self.embedding_parameters["args"][key] = value
 
+    @property
+    def adata(self):
+        return self.data.adata
+
 
 class ScBERTBinningFe(Fe):
     """scBERT-style binning: cap expression values and convert to long indices."""
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         num_bins: int,  # CLASS - 2 in scBERT
         **fe_kwargs,
     ):
         fe_kwargs.pop("vocab_size", None)
         vocab_size = num_bins + 3  # [0, ..., num_bins], <PAD>, <MASK>
-        super().__init__(adata, vocab_size=vocab_size, **fe_kwargs)
+        super().__init__(data, vocab_size=vocab_size, **fe_kwargs)
         self.num_bins = num_bins
 
     def binning(self, row, n_bins) -> Union[np.ndarray, torch.Tensor]:
@@ -165,13 +170,14 @@ class BinningFe(Fe):
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         num_bins: int,
         **fe_kwargs,
     ):
         fe_kwargs.pop("vocab_size", None)
         vocab_size = num_bins + 3  # Accounting for mask, pad tokens and empty bin (zero expr.)
-        super().__init__(adata, vocab_size=vocab_size, **fe_kwargs)
+        super().__init__(data, vocab_size=vocab_size, **fe_kwargs)
         self.num_bins = num_bins
 
     def _digitize(self, x: np.ndarray, bins: np.ndarray, side="both") -> np.ndarray:
@@ -288,7 +294,7 @@ class BinningFe(Fe):
 
 class ZeroFe(Fe):
     def __getitem__(self, cell_index: int):
-        n = self.adata.n_vars
+        n = self.data.num_genes
         cell_identity_inputs = np.arange(n, dtype=np.int64)
         cell_expression_inputs = np.zeros(n, dtype=np.float32)
 
@@ -307,3 +313,11 @@ class IdentityFe(Fe):
 
     def __getitem__(self, cell_index: int):
         return self._get_inputs_from_csr(cell_index)
+
+
+# class ZeroFe(IdentityFe):
+#     def __getitem__(self, cell_index: int):
+#         cell_identity_inputs, cell_expression_inputs = super().__getitem__(cell_index)
+#         cell_expression_inputs = np.zeros_like(cell_expression_inputs)
+#
+#         return cell_identity_inputs, cell_expression_inputs

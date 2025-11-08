@@ -38,6 +38,7 @@ class Dataset(PyTorchDataset, ABC):
         if not self.splits:
             split_type = "random"
             self._setup_random_splits()
+
         split_size_str = "\n  ".join(f"{i}: {len(j):,}" for i, j in self.splits.items())
         print(f"> Dataset splits sizes ({split_type}):\n  {split_size_str}")
 
@@ -65,7 +66,7 @@ class Dataset(PyTorchDataset, ABC):
         return f"{name}(size={len(self):,}) wrapping: {self.data}"
 
     def _setup_random_splits(self):
-        warnings.warn("Pre-defined split unavailable, using random 6/2/2 split", UserWarning, stacklevel=2)
+        # warnings.warn("Pre-defined split unavailable, using random 6/2/2 split", UserWarning, stacklevel=2)
 
         size = len(self)
         seed = self.data._cfg.seed
@@ -95,20 +96,7 @@ class Dataset(PyTorchDataset, ABC):
                 subtask_input = subtask_inputs.get(key, default_value)
                 all_inputs[key][subtask_name] = subtask_input
 
-        # for key in MAIN_KEYS:
-        #     if all(value is None for value in all_inputs[key].values()):
-        #         del all_inputs[key]
-
-        # for key in shared_inputs:
-        #     if key not in all_inputs:
-        #         all_inputs[key] = shared_inputs[key]
-
         return all_inputs
-
-
-def filter_list(input_list):
-    keywords = ["train", "test", "val"]
-    return [item for item in input_list if any(keyword in item.lower() for keyword in keywords)]
 
 
 class SingleInstanceDataset(Dataset):
@@ -256,6 +244,10 @@ class PartitionedDataset(SingleInstanceDataset):
     def partition_sizes(self):
         return self._data.partition_sizes
 
+    @property
+    def num_cells(self):
+        return self._data.num_cells
+
     def __len__(self):
         return self.partition_sizes[self.partition]
 
@@ -306,7 +298,7 @@ class PartitionedDataset(SingleInstanceDataset):
     def _get_random_splits_partition(self, part_id, train_split: float = 0.8):
         num_samples_partition = self.partition_sizes[part_id]
 
-        warnings.warn("Pre-defined split unavailable, using random split", UserWarning, stacklevel=2)
+        # warnings.warn("Pre-defined split unavailable, using random split", UserWarning, stacklevel=2)
 
         seed = self._data._cfg.seed + part_id
 
@@ -330,35 +322,41 @@ class PartitionedSubset(Subset):
 
     """
 
-    def __init__(self, dataset: PartitionedDataset, indices: dict[dict]) -> None:
+    def __init__(self, dataset: PartitionedDataset, indices: dict[list]) -> None:
         self.dataset = dataset
-        self.indices = indices
+        self._indices = indices
 
-    def __getitem__(self, idx):
-        if isinstance(idx, list):
-            return self.__getitems__(idx)
+    @property
+    def indices(self):
+        return self._indices[self.dataset.partition]
 
-        index, partition = idx
-        if partition != self.dataset.partition:
-            self.dataset.partition = partition
-        return self.dataset[self.indices[self.dataset.partition][index]]
+    # def __getitem__(self, idx):
+    #     if isinstance(idx, list):
+    #         return self.__getitems__(idx)
 
-    def __getitems__(self, indices: list[tuple[int, int]]) -> list:
-        # add batched sampling support when parent dataset supports it.
-        # see torch.utils.data._utils.fetch._MapDatasetFetcher
-        if callable(getattr(self.dataset, "__getitems__", None)):
-            return self.dataset.__getitems__([self.indices[self.dataset.partition][idx] for idx in indices])
-        else:
-            batched_data = []
-            # print(f'{indices=}')
-            # print(f'{len(self.indices[self.dataset.partition])=}')
-            for idx in indices:
-                batched_data.append(self.dataset[self.indices[self.dataset.partition][idx]])
+    #     # index, partition = idx
+    #     # if partition != self.dataset.partition:
+    #     #     self.dataset.partition = partition
+    #     return self.dataset[self.indices[idx]]
 
-            return batched_data
+    # def __getitems__(self, indices: list[tuple[int, int]]) -> list:
+    #     # add batched sampling support when parent dataset supports it.
+    #     # see torch.utils.data._utils.fetch._MapDatasetFetcher
+    #     if callable(getattr(self.dataset, "__getitems__", None)):
+    #         return self.dataset.__getitems__([self.indices[idx] for idx in indices])
+    #     else:
+    #         batched_data = []
+    #         # print(f'{indices=}')
+    #         # print(f'{len(self.indices[self.dataset.partition])=}')
+    #         for idx in indices:
+    #             print(f'{idx=}')
+    #             print(f'{len(self.indices[self.dataset.partition])=}')
+    #             batched_data.append(self.dataset[self.indices[idx]])
+
+    #         return batched_data
 
     def __len__(self):
-        return sum(len(indices) for indices in self.indices.values())
+        return sum(len(indices) for indices in self._indices.values())
 
 
 # class PartitionedDataLoader:

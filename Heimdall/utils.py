@@ -18,6 +18,7 @@ import pandas as pd
 import requests
 import scanpy as sc
 from anndata.abc import CSCDataset, CSRDataset
+from matplotlib import pyplot as plt
 from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
@@ -25,6 +26,8 @@ from scipy import sparse as sp
 from torch import Tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
+
+import wandb
 
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
@@ -229,6 +232,7 @@ class GeneMappingOutput:
 
     identifiers: List[str]
     mapping_full: Dict[str, List[str]]
+    verbose: int | bool = False
     mapping_combined: Dict[str, str] = field(init=False)
     mapping_reduced: Dict[str, str] = field(init=False)
 
@@ -247,9 +251,12 @@ class GeneMappingOutput:
                 self.mapping_combined[identifier] = "|".join(hits)
 
         map_ratio = len(self.mapping_full) / len(self.identifiers)
-        print(
-            f"Successfully mapped {len(self.mapping_full):,} out of {len(self.identifiers):,} "
-            f"identifiers ({map_ratio:.1%})",
+        conditional_print(
+            (
+                f"Successfully mapped {len(self.mapping_full):,} out of {len(self.identifiers):,} "
+                f"identifiers ({map_ratio:.1%})"
+            ),
+            condition=self.verbose,
         )
 
 
@@ -257,6 +264,7 @@ def symbol_to_ensembl(
     genes: List[str],
     species: str = "human",
     extra_query_kwargs: Optional[Dict[str, Any]] = None,
+    verbose: int | bool = False,
 ) -> GeneMappingOutput:
     # Query from MyGene.Info server
     print(f"Querying {len(genes):,} genes")
@@ -284,7 +292,7 @@ def symbol_to_ensembl(
 
         symbol_to_ensembl_dict[symbol] = symbol_to_ensembl_dict.get(symbol, []) + new_ensembl_genes
 
-    return GeneMappingOutput(genes, symbol_to_ensembl_dict)
+    return GeneMappingOutput(genes, symbol_to_ensembl_dict, verbose)
 
 
 def symbol_to_ensembl_from_ensembl(
@@ -293,16 +301,17 @@ def symbol_to_ensembl_from_ensembl(
     ensembl_ids: List[str] = None,
     species: str = "human",
     release: int = 112,
+    verbose: int | bool = False,
 ) -> GeneMappingOutput:
 
-    symbol_to_ensembl, ensembl_to_symbol = _load_ensembl_table(data_dir, species, release)
+    symbol_to_ensembl, ensembl_to_symbol = _load_ensembl_table(data_dir, species, release, verbose=verbose)
 
     if symbols is not None:
         symbol_to_ensembl_dict = {i: symbol_to_ensembl[i] for i in symbols if i in symbol_to_ensembl}
-        mapping = GeneMappingOutput(symbols, symbol_to_ensembl_dict)
+        mapping = GeneMappingOutput(symbols, symbol_to_ensembl_dict, verbose)
     elif ensembl_ids is not None:
         ensembl_to_symbol_dict = {i: ensembl_to_symbol[i] for i in ensembl_ids if i in ensembl_to_symbol}
-        mapping = GeneMappingOutput(ensembl_ids, ensembl_to_symbol_dict)
+        mapping = GeneMappingOutput(ensembl_ids, ensembl_to_symbol_dict, verbose)
 
     return mapping
 
@@ -363,6 +372,7 @@ def _load_ensembl_table(
     data_dir: Union[str, Path],
     species: str,
     release: int,
+    verbose: int | bool = False,
 ) -> Dict[str, List[str]]:
     try:
         url = ENSEMBL_URL_MAP[species].format(release, release)
@@ -372,11 +382,9 @@ def _load_ensembl_table(
             f"Unknown species {species!r}, available options are {sorted(ENSEMBL_URL_MAP)}",
         ) from e
 
-    print(species)
-    print(Path(data_dir))
     data_dir = Path(data_dir).resolve() / "gene_mapping" / "ensembl" / species
     data_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Mapping data directory: {data_dir}")
+    conditional_print(f"Mapping data directory: {data_dir}", verbose)
 
     raw_path = data_dir / fname
     attr_path = data_dir / "gene_attr_table.tsv.gz"
@@ -385,7 +393,7 @@ def _load_ensembl_table(
 
     # Download GTF from Ensembl
     if not raw_path.is_file():
-        print(f"Downloading gene annotation from {url}")
+        conditional_print(f"Downloading gene annotation from {url}", verbose)
         with requests.get(url) as r:
             if not r.ok:
                 raise requests.RequestException(f"Fail to download {url} ({r})")
@@ -395,7 +403,7 @@ def _load_ensembl_table(
 
     # Prepare gene attribute table from GTF
     if not attr_path.is_file():
-        print("Extracting gene attributes")
+        conditional_print("Extracting gene attributes", verbose)
         _prepare_gene_attr_table(raw_path, attr_path)
 
     # Prepare symbol-ensembl mappings
@@ -406,7 +414,7 @@ def _load_ensembl_table(
             mapping_ensembl_to_symbol_path,
         )
     else:
-        print(f"Loading mapping from cache: {mapping_symbol_to_ensembl_path}")
+        conditional_print(f"Loading mapping from cache: {mapping_symbol_to_ensembl_path}", verbose)
         with open(mapping_symbol_to_ensembl_path) as f:
             symbol_to_ensembl = json.load(f)
 
@@ -416,7 +424,7 @@ def _load_ensembl_table(
     return symbol_to_ensembl, ensembl_to_symbol
 
 
-def convert_to_ensembl_ids(adata, data_dir, species="human"):
+def convert_to_ensembl_ids(adata, data_dir, species="human", verbose: int | bool = False):
     """Converts gene symbols in the anndata object to Ensembl IDs using a
     provided mapping.
 
@@ -435,6 +443,7 @@ def convert_to_ensembl_ids(adata, data_dir, species="human"):
             data_dir=data_dir,
             symbols=adata.var.index.tolist(),
             species=species,
+            verbose=verbose,
         )
         adata.uns["gene_mapping:symbol_to_ensembl"] = gene_mapping.mapping_full
 
@@ -449,6 +458,7 @@ def convert_to_ensembl_ids(adata, data_dir, species="human"):
             data_dir=data_dir,
             ensembl_ids=adata.var.index.tolist(),
             species=species,
+            verbose=verbose,
         )
 
         adata.var["gene_ensembl"] = adata.var.index
@@ -502,7 +512,7 @@ def get_dtype(dtype_name: str, backend: str = "torch"):
     return dtype
 
 
-def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
+def _get_inputs_from_csr(data: "CellRepresentation", cell_index: int, drop_zeros: bool):
     """Get expression values and gene indices from internal CSR representation.
 
     Args:
@@ -510,18 +520,20 @@ def _get_inputs_from_csr(adata: ad.AnnData, cell_index: int, drop_zeros: bool):
 
     """
 
+    adata = data.adata
+    identity_valid_mask = data.fg.identity_valid_mask
     if drop_zeros is True:
         if issparse(adata.X):
-            cell = adata.X[[cell_index], :].toarray().flatten()
+            cell = adata.X[[cell_index], :].toarray().flatten()[identity_valid_mask]
             (cell_identity_inputs,) = cell.nonzero()
             cell_expression_inputs = cell[cell_identity_inputs]
         else:
-            cell_expression_inputs_full = adata.X[cell_index, :]
+            cell_expression_inputs_full = adata.X[cell_index, :][identity_valid_mask]
             (cell_identity_inputs,) = np.nonzero(cell_expression_inputs_full)
             cell_expression_inputs = cell_expression_inputs_full[cell_identity_inputs]
     else:
-        cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()
-        cell_identity_inputs = np.arange(adata.shape[1])
+        cell_expression_inputs = adata.X[[cell_index], :].toarray().flatten()[identity_valid_mask]
+        cell_identity_inputs = np.arange(data.num_genes)
 
     return cell_identity_inputs, cell_expression_inputs
 
@@ -530,15 +542,26 @@ def issparse(x):
     return sp.issparse(x) or isinstance(x, (CSRDataset, CSCDataset))
 
 
-def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="heimdall_latents", split="test"):
+def save_umap(
+    cr: "CellRepresentation",
+    embeddings,
+    savepath,
+    embedding_name="heimdall_latents",
+    split="test",
+    log_umap: bool = False,
+):
     def save_partition_umap(adata, embeddings, savepath, embedding_name):
+        fig, ax = plt.subplots(1, figsize=(4, 4))
         adata.obsm[embedding_name] = embeddings
 
         sc.pp.neighbors(adata, use_rep=embedding_name)
         sc.tl.leiden(adata)
         sc.tl.umap(adata)
 
+        sc.pl.umap(adata, ax=ax, show=False)
         ad.io.write_h5ad(savepath, adata)
+
+        return fig
 
     if hasattr(cr, "splits"):
         full_dataset = cr.datasets["full"]
@@ -553,26 +576,34 @@ def save_umap(cr: "CellRepresentation", embeddings, savepath, embedding_name="he
             for partition in range(full_dataset.num_partitions):
                 start, end = cumulative_sizes[partition : partition + 2]
                 full_dataset.partition = partition
-                adata = cr.adata[cr.splits[split]].copy()
                 partition_savepath = Path(savepath)
                 partition_savepath = partition_savepath.parent / f"partition_{partition}_{partition_savepath.name}"
-                save_partition_umap(
+                adata = cr.adata[cr.splits[split]].copy(savepath)
+                fig = save_partition_umap(
                     adata=adata,
                     embeddings=embeddings[start:end],
                     savepath=partition_savepath,
                     embedding_name=embedding_name,
                 )
+                if log_umap:
+                    wandb.log({f"{partition=}_{split}_umap": wandb.Image(fig)})
         else:
             adata = cr.adata[cr.splits[split]].copy()
-            save_partition_umap(
+            fig = save_partition_umap(
                 adata=adata,
                 embeddings=embeddings,
                 savepath=savepath,
                 embedding_name=embedding_name,
             )
-        # breakpoint()
+            if log_umap:
+                wandb.log({f"{split}_umap": wandb.Image(fig)})
     else:
         raise ValueError("No split information found.")
+
+
+def conditional_print(msg: str, condition: bool):
+    if condition:
+        print(msg)
 
 
 class AllPartitionsExhausted(Exception):

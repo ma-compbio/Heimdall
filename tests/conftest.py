@@ -9,12 +9,32 @@ from omegaconf import OmegaConf
 from pytest import fixture
 from scipy.sparse import csr_array
 
+from Heimdall.cell_representations import CellRepresentation
 from Heimdall.fc import ChromosomeAwareFc, Fc
-from Heimdall.fe import BinningFe, IdentityFe, ScBERTBinningFe
-from Heimdall.fg import IdentityFg
+from Heimdall.fe import BinningFe, Fe, IdentityFe, ScBERTBinningFe, ZeroFe
+from Heimdall.fg import Fg, IdentityFg
 from Heimdall.utils import convert_to_ensembl_ids, instantiate_from_config
 
 load_dotenv()
+
+
+from dataclasses import dataclass
+
+
+@dataclass
+class MockCellRepresentation(CellRepresentation):
+    adata: ad.AnnData
+    _cfg: OmegaConf
+
+    def set_representation_functions(
+        self,
+        fg: Fg | None = None,
+        fe: Fe | None = None,
+        fc: Fc | None = None,
+    ):
+        self.fg = fg
+        self.fe = fe
+        self.fc = fc
 
 
 @fixture(scope="module")
@@ -105,7 +125,18 @@ def mock_dataset(gene_names):
     mock_dataset.var_names = gene_names
     convert_to_ensembl_ids(mock_dataset, data_dir=os.environ["DATA_PATH"])
 
-    return mock_dataset
+    return MockCellRepresentation(
+        adata=mock_dataset,
+        _cfg=None,
+    )
+
+
+# @fixture
+# def mock_cr(mock_dataset):
+#     return MockCellRepresentation(
+#         adata=mock_dataset,
+#         _cfg=None
+#     )
 
 
 @fixture
@@ -125,7 +156,10 @@ def mock_dataset_all_valid_genes(valid_gene_names):
     mock_dataset.var_names = valid_gene_names
     convert_to_ensembl_ids(mock_dataset, data_dir=os.environ["DATA_PATH"])
 
-    return mock_dataset
+    return MockCellRepresentation(
+        adata=mock_dataset,
+        _cfg=None,
+    )
 
 
 @fixture
@@ -146,7 +180,10 @@ def zero_expression_mock_dataset(gene_names):
     mock_dataset.var_names = gene_names
     convert_to_ensembl_ids(mock_dataset, data_dir=os.environ["DATA_PATH"])
 
-    return mock_dataset
+    return MockCellRepresentation(
+        adata=mock_dataset,
+        _cfg=None,
+    )
 
 
 @fixture
@@ -210,50 +247,10 @@ def zero_expression_identity_fg(zero_expression_mock_dataset):
 
 
 @fixture
-def sorting_fe(mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "d_embedding": 128,
-        },
-    )
-    sorting_fe = SortingFe(mock_dataset, **fe_config)
-
-    return sorting_fe
-
-
-@fixture
-def zero_expression_sorting_fe(zero_expression_mock_dataset):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "d_embedding": 128,
-        },
-    )
-    sorting_fe = SortingFe(zero_expression_mock_dataset, **fe_config)
-
-    return sorting_fe
-
-
-@fixture
 def scbert_binning_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": int(np.max(mock_dataset.X)) + 2,
+            "vocab_size": int(np.max(mock_dataset.adata.X)) + 2,
             "embedding_parameters": {
                 "type": "Heimdall.embedding.FlexibleTypeLinear",
                 "args": {
@@ -274,7 +271,7 @@ def scbert_binning_fe(mock_dataset):
 def binning_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": int(np.max(mock_dataset.X)) + 2,
+            "vocab_size": int(np.max(mock_dataset.adata.X)) + 2,
             "embedding_parameters": {
                 "type": "Heimdall.embedding.FlexibleTypeLinear",
                 "args": {
@@ -283,7 +280,7 @@ def binning_fe(mock_dataset):
                 },
             },
             "d_embedding": 128,
-            "num_bins": int(np.max(mock_dataset.X)),
+            "num_bins": int(np.max(mock_dataset.adata.X)),
         },
     )
     binning_fe = BinningFe(mock_dataset, **fe_config)
@@ -295,7 +292,7 @@ def binning_fe(mock_dataset):
 def identity_fe(mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": int(np.max(mock_dataset.X)) + 3,
+            "vocab_size": int(np.max(mock_dataset.adata.X)) + 3,
             "embedding_parameters": {
                 "type": "Heimdall.embedding.TwoLayerNN",
                 "args": {
@@ -315,7 +312,7 @@ def identity_fe(mock_dataset):
 def zero_expression_identity_fe(zero_expression_mock_dataset):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": int(np.max(zero_expression_mock_dataset.X)) + 3,
+            "vocab_size": int(np.max(zero_expression_mock_dataset.adata.X)) + 3,
             "embedding_parameters": {
                 "type": "torch.nn.Embedding",
                 "args": {
@@ -335,7 +332,7 @@ def zero_expression_identity_fe(zero_expression_mock_dataset):
 def identity_fe_all_valid_genes(mock_dataset_all_valid_genes):
     fe_config = OmegaConf.create(
         {
-            "vocab_size": int(np.max(mock_dataset_all_valid_genes.X)) + 3,
+            "vocab_size": int(np.max(mock_dataset_all_valid_genes.adata.X)) + 3,
             "embedding_parameters": {
                 "type": "torch.nn.Embedding",
                 "args": {
@@ -364,7 +361,7 @@ def zero_expression_binning_fe(zero_expression_mock_dataset):
                 },
             },
             "d_embedding": 128,
-            "num_bins": int(np.max(zero_expression_mock_dataset.X)),
+            "num_bins": int(np.max(zero_expression_mock_dataset.adata.X)),
         },
     )
     binning_fe = BinningFe(zero_expression_mock_dataset, **fe_config)
@@ -391,27 +388,6 @@ def zero_expression_scbert_binning_fe(zero_expression_mock_dataset):
     binning_fe = ScBERTBinningFe(zero_expression_mock_dataset, **fe_config)
 
     return binning_fe
-
-
-@fixture
-def weighted_sampling_fe(mock_dataset_all_valid_genes):
-    fe_config = OmegaConf.create(
-        {
-            "embedding_parameters": {
-                "type": "torch.nn.Embedding",
-                "args": {
-                    "num_embeddings": "vocab_size",
-                    "embedding_dim": 128,
-                },
-            },
-            "vocab_size": 6,
-            "sample_size": 5,
-            "d_embedding": 128,
-        },
-    )
-    weighted_sampling_fe = WeightedSamplingFe(mock_dataset_all_valid_genes, **fe_config)
-
-    return weighted_sampling_fe
 
 
 @fixture
@@ -551,9 +527,9 @@ def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_f
     )
     identity_fg_all_valid_genes.preprocess_embeddings()
 
-    valid_mask = mock_dataset_all_valid_genes.var["identity_valid_mask"]
-    mock_dataset_all_valid_genes.raw = mock_dataset_all_valid_genes.copy()
-    mock_dataset_all_valid_genes = mock_dataset_all_valid_genes[:, valid_mask].copy()
+    # valid_mask = mock_dataset_all_valid_genes.adata.var["identity_valid_mask"]
+    # mock_dataset_all_valid_genes.adata.raw = mock_dataset_all_valid_genes.adata.copy()
+    # mock_dataset_all_valid_genes.adata = mock_dataset_all_valid_genes[:, valid_mask].copy()
 
     identity_fe_all_valid_genes.preprocess_embeddings()
 

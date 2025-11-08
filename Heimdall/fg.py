@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 from os import PathLike
-from typing import Dict, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, Optional, Sequence
 
-import anndata as ad
 import numpy as np
 import pandas as pd
 import torch
@@ -10,6 +9,9 @@ from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from pandas.api.typing import NAType
+
+if TYPE_CHECKING:
+    from Heimdall.cell_representations import CellRepresentation
 
 
 class Fg(ABC):
@@ -23,7 +25,7 @@ class Fg(ABC):
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
         embedding_parameters: DictConfig,
         d_embedding: int,
         vocab_size: int,
@@ -32,7 +34,7 @@ class Fg(ABC):
         frozen: bool = False,
         rng: int | np.random.Generator = 0,
     ):
-        self.adata = adata
+        self.data = data
         self.d_embedding = d_embedding
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
         self.vocab_size = vocab_size
@@ -90,11 +92,10 @@ class Fg(ABC):
 
     @property
     def identity_valid_mask(self):
-        return self._identity_valid_mask
+        return self.adata.var["identity_valid_mask"]
 
     @identity_valid_mask.setter
     def identity_valid_mask(self, val):
-        self._identity_valid_mask = val
         self.vocab_size -= self.adata.n_vars - np.sum(val)
 
         self.adata.var["identity_valid_mask"] = val
@@ -104,9 +105,7 @@ class Fg(ABC):
         args = self.embedding_parameters.get("args", {})
 
         for key, value in args.items():
-            if value == "max_seq_length":
-                value = self.adata.n_vars
-            elif value == "vocab_size":
+            if value == "vocab_size":
                 value = self.vocab_size  # <PAD> and <MASK> TODO: data.vocab_size
             elif value == "gene_embeddings":
                 gene_embeddings = torch.tensor(self.gene_embeddings)  # TODO: type is inherited from NDArray
@@ -135,6 +134,10 @@ class Fg(ABC):
 
         self.prepare_embedding_parameters()
 
+    @property
+    def adata(self):
+        return self.data.adata
+
 
 class PretrainedFg(Fg, ABC):
     """Abstraction for pretrained `Fg`s that can be loaded from disk.
@@ -149,12 +152,13 @@ class PretrainedFg(Fg, ABC):
 
     def __init__(
         self,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         embedding_parameters: OmegaConf,
         embedding_filepath: Optional[str | PathLike] = None,
         **fg_kwargs,
     ):
-        super().__init__(adata, embedding_parameters, **fg_kwargs)
+        super().__init__(data, embedding_parameters, **fg_kwargs)
         self.embedding_filepath = embedding_filepath
 
     @abstractmethod
@@ -237,7 +241,7 @@ class TorchTensorFg(PretrainedFg):
     tensors."""
 
     def load_embeddings(self):
-        raw_gene_embedding_map = torch.load(self.embedding_filepath)
+        raw_gene_embedding_map = torch.load(self.embedding_filepath, weights_only=True)
 
         raw_gene_embedding_map = {
             gene_name: embedding.detach().cpu().numpy() for gene_name, embedding in raw_gene_embedding_map.items()

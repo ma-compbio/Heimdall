@@ -2,7 +2,9 @@ from accelerate import Accelerator, DistributedDataParallelKwargs
 from omegaconf import OmegaConf, open_dict
 
 from Heimdall.models import HeimdallModel
-from Heimdall.utils import count_parameters, get_dtype, instantiate_from_config
+from Heimdall.utils import count_parameters, instantiate_from_config
+
+# from Heimdall.utils import get_dtype
 
 
 def setup_accelerator(config, cpu=False, run_wandb=False):
@@ -19,8 +21,8 @@ def setup_accelerator(config, cpu=False, run_wandb=False):
         step_scheduler_with_optimizer=False,
         cpu=cpu,
         mixed_precision="bf16",
-        **accelerator_log_kwargs,
         kwargs_handlers=[ddp_kwargs],
+        **accelerator_log_kwargs,
     )
 
     return accelerator
@@ -49,14 +51,13 @@ def setup_experiment(config, cpu=False, accelerator=None):
     # Create the model and the types of inputs that it may use
     # `type` can either be `learned`, which is integer tokens and learned nn.embeddings,
     # or `predefined`, which expects the dataset to prepare batchsize x length x hidden_dim
-    float_dtype = get_dtype(config.float_dtype)
 
     model = HeimdallModel(
         data=cr,
         model_config=config.model,
     )
-
-    model.to(float_dtype)  # to dtype after potentially loading pretrained weights instead of before
+    # float_dtype = get_dtype(config.float_dtype)
+    # model.to(float_dtype)  # to dtype after potentially loading pretrained weights instead of before
 
     if accelerator.is_main_process:
         num_params = count_parameters(model)

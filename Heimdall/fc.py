@@ -1,7 +1,6 @@
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-import anndata as ad
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
@@ -11,6 +10,9 @@ from omegaconf.dictconfig import DictConfig
 from Heimdall.fe import Fe
 from Heimdall.fg import Fg
 from Heimdall.utils import instantiate_from_config
+
+if TYPE_CHECKING:
+    from Heimdall.cell_representations import CellRepresentation
 
 
 class Fc:
@@ -29,7 +31,7 @@ class Fc:
         self,
         fg: Fg | None,
         fe: Fe | None,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
         tailor_config: DictConfig,
         order_config: DictConfig,
         reduce_config: DictConfig,
@@ -40,7 +42,7 @@ class Fc:
     ):
         self.fg = fg
         self.fe = fe
-        self._adata = adata
+        self.data = data
         self.max_input_length = max_input_length
         self.float_dtype = float_dtype
         self.embedding_parameters = OmegaConf.to_container(embedding_parameters, resolve=True)
@@ -58,13 +60,15 @@ class Fc:
 
         """
 
+        gene_names = self.data.gene_names
         if cell_index == -1:  # Dummy `cell_index`
             identity_inputs = pd.array(np.full(self.max_input_length, self.fg.pad_value), dtype="Int64")
             expression_inputs = np.full(self.max_input_length, self.fe.pad_value)
         else:
             identity_indices, expression_inputs = self.fe[cell_index]
 
-            gene_list = self.adata.var_names[identity_indices]  # convert to ENSEMBL Gene Names
+            gene_names = self.data.gene_names
+            gene_list = gene_names[identity_indices]  # convert to ENSEMBL Gene Names
             identity_inputs = self.fg[gene_list]  # convert the genes into fg
 
             if len(identity_inputs) != len(expression_inputs):
@@ -78,10 +82,11 @@ class Fc:
             valid_mask = ~np.isnan(expression_inputs)
 
             identity_inputs = identity_inputs[valid_mask].to_numpy()
-            identity_indices = identity_indices[valid_mask]
+            # identity_indices = identity_indices[valid_mask]
             expression_inputs = expression_inputs[valid_mask]
 
-            gene_order = self.order(cell_index, identity_indices, expression_inputs)
+            # gene_order = self.order(cell_index, identity_indices, expression_inputs)
+            gene_order = self.order(identity_inputs, expression_inputs)
 
             # Padding and truncating
             identity_inputs, expression_inputs = self.tailor(
@@ -96,13 +101,7 @@ class Fc:
 
     @property
     def adata(self):
-        return self._adata
-
-    @adata.setter
-    def adata(self, val):
-        self._adata = val
-        self.fg.adata = val
-        self.fe.adata = val
+        return self.data.adata
 
 
 class ChromosomeAwareFc(Fc):
@@ -157,7 +156,7 @@ class ChromosomeAwareFc(Fc):
 
         # TODO: for pretraining, we should keep extraneous codes (i.e. no `remove_unused_categories()`)
         dataset_chroms = gene_chrom["spec_chrom"].cat.remove_unused_categories().cat.codes
-        print("Max Code:", max(dataset_chroms))
+        # print("Max Code:", max(dataset_chroms))
         dataset_pos = gene_chrom["start"].values
 
         self.unique_chromosomes = np.unique(dataset_chroms)
@@ -165,10 +164,10 @@ class ChromosomeAwareFc(Fc):
         self.chroms = dataset_chroms
         self.starts = dataset_pos
 
-    @Fc.adata.setter
-    def adata(self, val):
-        Fc.adata.fset(self, val)
-        self.extract_gene_positions()
+    # @Fc.adata.setter
+    # def adata(self, val):
+    #     Fc.adata.fset(self, val)
+    #     self.extract_gene_positions()
 
 
 class DummyFc(Fc):
@@ -176,7 +175,8 @@ class DummyFc(Fc):
         self,
         fg: Fg | None,
         fe: Fe | None,
-        adata: ad.AnnData,
+        data: "CellRepresentation",
+        # adata: ad.AnnData,
         tailor_config: DictConfig,
         order_config: DictConfig,
         reduce_config: DictConfig,
@@ -187,7 +187,7 @@ class DummyFc(Fc):
     ):
         self.fg = fg
         self.fe = fe
-        self.adata = adata
+        # self.adata = adata
         self.max_input_length = max_input_length
 
     """Dummy `Fc` that does not tailor the size of the input."""

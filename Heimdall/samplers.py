@@ -12,11 +12,12 @@ class PartitionedDistributedSampler(DistributedSampler):
 
     def __init__(self, dataset: PartitionedSubset | PartitionedDataset, *args, **kwargs):
         super().__init__(dataset, *args, **kwargs)
+        self.unshuffled = True
 
         if isinstance(self.dataset, Subset):
             subset = dataset
             self.full_dataset = subset.dataset
-            self.partition_sizes = {partition: len(indices) for partition, indices in subset.indices.items()}
+            self.partition_sizes = {partition: len(indices) for partition, indices in subset._indices.items()}
         else:
             self.full_dataset = dataset
             self.partition_sizes = self.full_dataset._data.partition_sizes
@@ -52,6 +53,10 @@ class PartitionedDistributedSampler(DistributedSampler):
     @property
     def num_partitions(self):
         return self.full_dataset.num_partitions
+
+    @property
+    def num_cells(self):
+        return self.full_dataset.num_cells
 
     @partition_idx.setter
     def partition_idx(self, partition_idx: int | None):
@@ -93,8 +98,9 @@ class PartitionedDistributedSampler(DistributedSampler):
     #     return self.generate_partition_indices(self.full_dataset.partition)
 
     def __iter__(self):
-        if self.shuffle:
+        if self.shuffle and self.unshuffled:
             self.partition_order = self.rng.permutation(self.partition_order)
+            self.unshuffled = False
 
         if self.partition_idx is None:
             self.partition_idx = 0
@@ -116,14 +122,22 @@ class PartitionIndexIterator:
         try:
             return next(self.partition_indices)
         except StopIteration as e:
-            self.sampler.full_dataset.data.accelerator.wait_for_everyone()
             if self.sampler.partition_idx + 1 == self.sampler.num_partitions:
+                self.sampler.unshuffled = True
                 raise AllPartitionsExhausted()
 
             raise e
 
 
 class PartitionedBatchSampler(BatchSampler):
+    """Virtualized batched sampling from multiple partitions.
+
+    Iterates through the indices provided by the PartitionedDistributedSampler for a partition until
+    the end, and then moves onto the next partition and tries again. If no more partitions exist
+    (as detected by an `AllPartitionsExhausted` exception), the epoch is finished.
+
+    """
+
     def __iter__(self):
         while True:
             try:

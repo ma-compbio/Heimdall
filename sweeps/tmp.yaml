@@ -1,31 +1,32 @@
 command:
-  - accelerate
-  - launch
-  - --mixed_precision=bf16
-  - ${program}
-  - ${args_no_hyphens}
-  - model=transformer_flash
-  - fg=identity
-  - fg.args.frozen=TRUE
-  - fe=binning_scgpt
-  - fc=scgpt
-  - model.args.pos_enc=NONE
-  - fc.args.max_input_length=1024
-  - +experiments=reverse_perturbation
-  - user=ehaber
-  - seed=61
-  - project_name=scgpt_reverse_perturb
-
+- accelerate
+- launch
+- --mixed_precision=bf16
+- ${program}
+- ${args_no_hyphens}
+- model=transformer_flash
+- fg=identity
+- fg.args.frozen=TRUE
+- fe=zero
+- fc=geneformer
+- model.args.pos_enc=BERT
+- fc.args.max_input_length=1024
+- +experiments=reverse_20gene
+- user=ehaber
+- seed=60
+- project_name=geneformer_asym_dev
 method: grid
-
 metric:
   goal: maximize
   name: valid_MatthewsCorrCoef
-
 parameters:
   optimizer.args.lr:
-    values: [1e-2, 1e-3, 3e-4]
+    values:
+    - 1e-2
+    - 1e-3
+    - 3e-4
   tasks.args.batchsize:
-    values: [32, 64]
-
+    values:
+    - 32
+    - 64
 program: train.py

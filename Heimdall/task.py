@@ -1,4 +1,4 @@
-import warnings
+import pickle as pkl
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
@@ -56,11 +56,11 @@ class Task(ABC):
     @property
     def num_tasks(self) -> int:
         if "_num_tasks" not in self.__dict__:
-            warnings.warn(
-                "Need to improve to explicitly handle multiclass vs. multilabel",
-                UserWarning,
-                stacklevel=2,
-            )
+            # warnings.warn(
+            #     "Need to improve to explicitly handle multiclass vs. multilabel",
+            #     UserWarning,
+            #     stacklevel=2,
+            # )
             assert self.task_type in [
                 "regression",
                 "binary",
@@ -102,6 +102,34 @@ class Task(ABC):
 
     @abstractmethod
     def setup_labels(self): ...
+
+    def to_cache(self, cache_dir, hash_vars, task_name):
+        processed_data_path = self.data.get_tokenizer_cache_path(
+            cache_dir,
+            hash_vars,
+            filename=f"{task_name}_labels.pkl",
+        )
+        with open(processed_data_path, "wb") as label_file:
+            pkl.dump(self.labels, label_file)
+
+        self.data.print_during_setup(f"> Finished writing task {task_name} labels at {processed_data_path}")
+
+    def from_cache(self, cache_dir, hash_vars, task_name):
+        processed_data_path = self.data.get_tokenizer_cache_path(
+            cache_dir,
+            hash_vars,
+            filename=f"{task_name}_labels.pkl",
+        )
+        if processed_data_path.is_file():
+            self.data.print_during_setup(
+                f"> Found already processed labels for task {task_name}: {processed_data_path}",
+                is_printable_process=True,
+            )
+            with open(processed_data_path, "rb") as label_file:
+                self.labels = pkl.load(label_file)
+            return True
+
+        return False
 
     def get_inputs(self, idx, shared_inputs):
         return {
@@ -235,6 +263,11 @@ class SeqMaskedMLMTask(TransformationMixin, MaskedMixin, MLMMixin, SingleInstanc
         is_padding = data["labels"] == self.data.special_tokens["pad"]
         mask[is_padding] = False
 
+        negative_mask = data["identity_inputs"] < 0
+        mask = (mask * ~negative_mask).astype(bool)
+
+        data["identity_inputs"][mask] = self.mask_token
+
         data["identity_inputs"][mask] = self.mask_token
         # data["expression_inputs"][mask] = self.mask_token
         data["masks"] = mask
@@ -251,7 +284,6 @@ class Tasklist:
 
     PROPERTIES = (
         "splits",
-        "dataset_config",
         "shuffle",
         "batchsize",
         "epochs",
@@ -264,6 +296,7 @@ class Tasklist:
         self,
         data: "CellRepresentation",
         subtask_configs: DictConfig | dict,
+        dataset_config: DictConfig | dict,
     ):
 
         self.data = data
@@ -273,6 +306,7 @@ class Tasklist:
         }
 
         self.set_unique_properties()
+        self.dataset_config = dataset_config
         self.num_subtasks = len(self._tasks)
 
     def set_unique_properties(self):
