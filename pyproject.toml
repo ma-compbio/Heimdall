@@ -82,3 +82,9 @@ preview = true
 [tool.isort]
 profile = "black"
 line_length = 120
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests for entire Heimdall pipeline"
+]
+testpaths = tests/
