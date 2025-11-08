@@ -298,7 +298,7 @@ class HeimdallTrainer:
         early_stopping = self.data.tasklist.early_stopping
         early_stopping_patience = self.data.tasklist.early_stopping_patience
         patience_counter = defaultdict(int)
-        
+
         stop_training = False
 
         for epoch in range(start_epoch, self.data.tasklist.epochs):
@@ -351,11 +351,12 @@ class HeimdallTrainer:
                 # Check early stopping condition
                 if early_stopping and patience_counter[subtask_name] >= early_stopping_patience:
                     self.print_r0(
-                        f"Early stopping triggered. No improvement in {subtask.track_metric} for {early_stopping_patience} epochs.",
+                        f"Early stopping triggered. No improvement in {subtask.track_metric} for "
+                        f"{early_stopping_patience} epochs.",
                     )
-                    stop_training=True
+                    stop_training = True
                     break
-            
+
             if stop_training:
                 break
 
@@ -688,13 +689,13 @@ class HeimdallTrainer:
                     y_pred_np = outputs["all_preds"][subtask_name]
 
                     # Convert logits/probs to hard labels if needed
-                    if y_pred_np.ndim > 1:        # shape (N, C)
+                    if y_pred_np.ndim > 1:  # shape (N, C)
                         y_pred_np = y_pred_np.argmax(axis=1)
 
                     # Flatten & convert to Python lists
                     y_true_list = y_true_np.reshape(-1).tolist()
                     y_pred_list = y_pred_np.reshape(-1).tolist()
-                    
+
                     wandb_cm = wandb.plot.confusion_matrix(
                         y_true=y_true_list,
                         preds=y_pred_list,
