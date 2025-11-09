@@ -626,7 +626,7 @@ class HeimdallTrainer:
                         loss = None
                     else:
                         for subtask_name, _ in self.data.tasklist:
-                            for key in batch_outputs[subtask_name]:
+                            for key, value in batch_outputs[subtask_name].items():
                                 outputs[key][subtask_name].extend(value.detach().cpu().numpy())
 
                     if metrics is not None and not self.get_precomputed:
@@ -668,7 +668,7 @@ class HeimdallTrainer:
                     break
 
             if not training:
-                for key, value in outputs.items():
+                for key in outputs:
                     for subtask_name, _ in self.data.tasklist:
                         outputs[key][subtask_name] = np.array(outputs[key][subtask_name])
 
