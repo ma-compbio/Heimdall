@@ -42,7 +42,7 @@ class PartitionedDistributedSampler(DistributedSampler):
             self.total_samples_per_partition[p] = num_samples_part * self.num_replicas
 
         self.partition_order = list(range(self.num_partitions))
-        self.partition_idx = None
+        self._partition_idx = None
 
         self.iterator = PartitionIndexIterator(self)
 
@@ -62,6 +62,7 @@ class PartitionedDistributedSampler(DistributedSampler):
     def partition_idx(self, partition_idx: int | None):
         self._partition_idx = partition_idx
         if partition_idx is None:
+            self.full_dataset.partition = None
             return
 
         partition = self.partition_order[partition_idx]
@@ -154,7 +155,7 @@ class PartitionedBatchSampler(BatchSampler):
                 self.sampler.partition_idx += 1
 
             except AllPartitionsExhausted:
-                self.sampler.partition_idx = None
                 if len(batch) > 0:  # flush remainder
                     yield batch
+                self.sampler.partition_idx = None
                 break
