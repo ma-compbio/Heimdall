@@ -31,7 +31,6 @@ import wandb
 
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
-    from Heimdall.trainer import HeimdallTrainer
 
 INPUT_KEYS = {
     "identity_inputs",
