@@ -302,8 +302,10 @@ class HeimdallTrainer:
         if start_epoch >= self.data.tasklist.epochs:
             # last_epoch = max(0, start_epoch - 1)
             # Run one eval pass on the loaded weights to get embeddings
-            _, val_embed = self.validate_model(self.dataloader_val, "valid")
-            _, test_embed = self.validate_model(self.dataloader_test, "test")
+            _, val_outputs = self.validate_model(self.dataloader_val, "valid")
+            _, test_outputs = self.validate_model(self.dataloader_test, "test")
+            val_embed = val_outputs["embeddings"]
+            test_embed = test_outputs["embeddings"]
             if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
                 # self.save_adata_umap(test_embed, val_embed)
                 # self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
@@ -328,8 +330,10 @@ class HeimdallTrainer:
 
         for epoch in range(start_epoch, self.data.tasklist.epochs):
             # Validation and test evaluation
-            valid_log, val_embed = self.validate_model(self.dataloader_val, dataset_type="valid")
-            test_log, test_embed = self.validate_model(self.dataloader_test, dataset_type="test")
+            valid_log, val_outputs = self.validate_model(self.dataloader_val, dataset_type="valid")
+            test_log, test_outputs = self.validate_model(self.dataloader_test, dataset_type="test")
+            val_embed = val_outputs["embeddings"]
+            test_embed = test_outputs["embeddings"]
 
             # Track the best metric if specified
             reset_patience_counter = False
@@ -779,7 +783,7 @@ class HeimdallTrainer:
         if not self.run_wandb and self.accelerator.is_main_process:
             print(f"{dataset_type}_log = {pformat(log)}")
 
-        return log, outputs["embeddings"]
+        return log, outputs
 
     def train_epoch(self, epoch):
         self.model.train()
