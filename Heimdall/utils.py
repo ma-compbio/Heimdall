@@ -582,7 +582,6 @@ def save_umap(
     cr: "CellRepresentation",
     embeddings,
     savepath,
-    embedding_name="heimdall_latents",
     split="test",
     log_umap: bool = False,
 ):

@@ -410,28 +410,30 @@ class HeimdallTrainer:
                 and hasattr(self, "results_folder")
                 and self.cfg.trainer.save_umaps
             ):
-                save_umap(
-                    self.data,
-                    self.best_test_embed,
-                    embedding_name=f"{subtask_name}_latents",
-                    split="test",
-                    savepath=self.results_folder,
-                    log_umap=self.run_wandb,
-                )
-                save_umap(
-                    self.data,
-                    self.best_val_embed,
-                    embedding_name=f"{subtask_name}_latents",
-                    split="val",
-                    savepath=self.results_folder,
-                    log_umap=self.run_wandb,
-                )
+                self.save_umaps()
+
                 self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
             else:
                 self.print_r0("> Skipped saving UMAP")
 
         if self.accelerator.is_main_process:
             self.print_r0("> Model has finished Training")
+
+    def save_umaps(self):
+        save_umap(
+            self.data,
+            self.best_test_embed,
+            split="test",
+            savepath=self.results_folder,
+            log_umap=self.run_wandb,
+        )
+        save_umap(
+            self.data,
+            self.best_val_embed,
+            split="val",
+            savepath=self.results_folder,
+            log_umap=self.run_wandb,
+        )
 
     def instantiate_loss_functions_from_config(self):
         loss_functions = {}
@@ -445,7 +447,36 @@ class HeimdallTrainer:
 
         return loss_functions
 
-    def get_outputs_and_loss(self, batch, loss=None):
+    def get_precomputed_outputs(self, inputs):
+        outputs = {}
+        for subtask_name, _ in self.data.tasklist:
+            cell_index = inputs["idx"][subtask_name].to(torch.int32).tolist()
+            cls_embeddings = self.data.adata.obsm[f"{subtask_name}_cls_embeddings"][cell_index]
+            cls_embeddings = torch.from_numpy(cls_embeddings).to(device=self.data.accelerator.device)
+
+            head_output = TransformerOutput(
+                logits=torch.zeros_like(cls_embeddings),
+                sequence_embeddings=torch.zeros_like(cls_embeddings),
+                cls_embeddings=cls_embeddings,
+            )
+            outputs[subtask_name] = head_output
+
+        return outputs
+
+    def save_precomputed_outputs(self, inputs, outputs):
+        for subtask_name, _ in self.data.tasklist:
+            head_output = outputs[subtask_name]
+            cls_embeddings = head_output.cls_embeddings.detach().cpu().numpy()
+            if f"{subtask_name}_cls_embeddings" not in self.data.adata.obsm:
+                _, d_model = cls_embeddings.shape
+                self.data.adata.obsm[f"{subtask_name}_cls_embeddings"] = np.zeros(
+                    (self.data.adata.n_obs, *cls_embeddings.shape[1:]),
+                )
+
+            cell_index = inputs["idx"][subtask_name].to(torch.int32).tolist()
+            self.data.adata.obsm[f"{subtask_name}_cls_embeddings"][cell_index] = cls_embeddings
+
+    def get_outputs_and_loss(self, batch, cumulative_loss=None):
         for values in batch.values():
             for subtask_name, value in values.items():
                 if value is not None:
@@ -461,40 +492,30 @@ class HeimdallTrainer:
         # inputs = (batch["identity_inputs"], batch["expression_inputs"])
 
         if self.get_precomputed:
-            outputs = {}
-            for subtask_name, _ in self.data.tasklist:
-                cell_index = inputs["idx"][subtask_name].to(torch.int32).tolist()
-                cls_embeddings = self.data.adata.obsm[f"{subtask_name}_cls_embeddings"][cell_index]
-                cls_embeddings = torch.from_numpy(cls_embeddings).to(device=self.data.accelerator.device)
-
-                head_output = TransformerOutput(
-                    logits=torch.zeros_like(cls_embeddings),
-                    sequence_embeddings=torch.zeros_like(cls_embeddings),
-                    cls_embeddings=cls_embeddings,
-                )
-                outputs[subtask_name] = head_output
+            outputs = self.get_precomputed_outputs(inputs)
         else:
             outputs = self.model(inputs=inputs)
 
         if self.save_precomputed:
-            for subtask_name, _ in self.data.tasklist:
-                head_output = outputs[subtask_name]
-                cls_embeddings = head_output.cls_embeddings.detach().cpu().numpy()
-                if f"{subtask_name}_cls_embeddings" not in self.data.adata.obsm:
-                    _, d_model = cls_embeddings.shape
-                    self.data.adata.obsm[f"{subtask_name}_cls_embeddings"] = np.zeros(
-                        (self.data.adata.n_obs, *cls_embeddings.shape[1:]),
-                    )
-
-                cell_index = inputs["idx"][subtask_name].to(torch.int32).tolist()
-                self.data.adata.obsm[f"{subtask_name}_cls_embeddings"][cell_index] = cls_embeddings
+            self.save_precomputed_outputs(inputs, outputs)
 
         batch_loss = 0
-        preds = {}
         labels = batch["labels"]
-        if self.get_precomputed:
-            return outputs, labels, preds, batch_loss
+        batch_outputs = {subtask_name: {} for subtask_name, _ in self.data.tasklist}
 
+        for subtask_name, _ in self.data.tasklist:
+            if self.has_embeddings:
+                batch_outputs[subtask_name]["all_embeddings"] = outputs[subtask_name].cls_embeddings
+
+            batch_outputs[subtask_name]["all_labels"] = labels[subtask_name]
+
+        if self.get_precomputed:
+            for subtask_name, _ in self.data.tasklist:
+                batch_outputs[subtask_name]["all_preds"] = torch.zeros_like(labels[subtask_name])
+
+            return batch_outputs, batch_loss
+
+        preds = {}
         for subtask_name, subtask in self.data.tasklist:
             logits = outputs[subtask_name].logits
             subtask_labels = labels[subtask_name]
@@ -521,12 +542,15 @@ class HeimdallTrainer:
             loss_function = self.loss_functions[subtask_name]
             batch_loss += loss_function(logits, subtask_labels.clone())
 
-        if loss is None:
-            loss = batch_loss
+        if cumulative_loss is None:
+            cumulative_loss = batch_loss
         else:
-            loss += batch_loss
+            cumulative_loss += batch_loss
 
-        return outputs, labels, preds, loss
+        for subtask_name, _ in self.data.tasklist:
+            batch_outputs[subtask_name]["all_preds"] = preds[subtask_name]
+
+        return batch_outputs, cumulative_loss
 
     def iterate_dataloader(
         self,
@@ -547,11 +571,7 @@ class HeimdallTrainer:
         else:
             step = 0
 
-            outputs = {
-                "all_embeddings": defaultdict(list),
-                "all_labels": defaultdict(list),
-                "all_preds": defaultdict(list),
-            }
+            outputs = defaultdict(lambda: defaultdict(list))  # Dict of dicts
 
         with tqdm(dataloader, disable=not self.accelerator.is_main_process) as pbar:
             for batch in pbar:
@@ -561,7 +581,7 @@ class HeimdallTrainer:
                 lr = self.lr_scheduler.get_last_lr()[0]
 
                 with self.accelerator.accumulate(self.model) if training else nullcontext():
-                    batch_outputs, labels, preds, loss = self.get_outputs_and_loss(batch, loss)
+                    batch_outputs, loss = self.get_outputs_and_loss(batch, loss)
 
                     if training:
                         self.accelerator.backward(loss)
@@ -602,23 +622,15 @@ class HeimdallTrainer:
                         loss = None
                     else:
                         for subtask_name, _ in self.data.tasklist:
-                            if self.has_embeddings:
-                                outputs["all_embeddings"][subtask_name].append(
-                                    batch_outputs[subtask_name].cls_embeddings.detach().cpu().numpy(),
-                                )
-
-                            if not self.get_precomputed:
-                                outputs["all_labels"][subtask_name].append(labels[subtask_name].detach().cpu().numpy())
-                                outputs["all_preds"][subtask_name].append(preds[subtask_name].detach().cpu().numpy())
-
-                        outputs["loss"] = loss
+                            for key, value in batch_outputs[subtask_name].items():
+                                outputs[key][subtask_name].extend(value.detach().cpu().numpy())
 
                     if metrics is not None and not self.get_precomputed:
                         for subtask_name, subtask in self.data.tasklist:
                             for metric_name, metric in metrics[subtask_name].items():  # noqa: B007
                                 # Built-in metric
-                                subtask_labels = labels[subtask_name]
-                                subtask_preds = preds[subtask_name]
+                                subtask_labels = batch_outputs[subtask_name]["all_labels"]
+                                subtask_preds = batch_outputs[subtask_name]["all_preds"]
 
                                 if subtask.task_type in ["multiclass", "mlm"]:
                                     subtask_labels = subtask_labels.to(torch.int)
@@ -651,17 +663,12 @@ class HeimdallTrainer:
                 if self.cfg.trainer.fastdev:
                     break
 
-        if not training:
-            for subtask_name, _ in self.data.tasklist:
-                outputs["all_embeddings"][subtask_name] = np.concatenate(
-                    outputs["all_embeddings"][subtask_name],
-                    axis=0,
-                )
-                if not self.get_precomputed:
-                    outputs["all_labels"][subtask_name] = np.concatenate(outputs["all_labels"][subtask_name], axis=0)
-                    outputs["all_preds"][subtask_name] = np.concatenate(outputs["all_preds"][subtask_name], axis=0)
+            if not training:
+                for key, value in outputs.items():
+                    for subtask_name, _ in self.data.tasklist:
+                        outputs[key][subtask_name] = np.array(outputs[key][subtask_name])
 
-        return outputs
+        return outputs, loss
 
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
@@ -672,13 +679,13 @@ class HeimdallTrainer:
             raise ValueError("`DataLoader` length cannot be zero. Check custom sampler implementation.")
 
         with torch.no_grad():
-            outputs = self.iterate_dataloader(
+            outputs, dataloader_loss = self.iterate_dataloader(
                 dataloader,
                 loss,
                 metrics=metrics,
             )
-            loss += outputs["loss"]
-        loss = loss / len(dataloader)
+
+        loss += dataloader_loss / len(dataloader)
 
         if self.accelerator.num_processes > 1:
             loss_tensor = torch.tensor(
