@@ -503,7 +503,7 @@ class HeimdallTrainer:
         if self.save_precomputed:
             self.save_precomputed_outputs(inputs, outputs)
 
-        batch_loss = 0
+        batch_loss = {subtask_name: 0 for subtask_name, _ in self.data.tasklist}
         labels = batch["labels"]
         batch_outputs = {subtask_name: {} for subtask_name, _ in self.data.tasklist}
 
@@ -544,12 +544,13 @@ class HeimdallTrainer:
             # perform a .clone() so that the subtask_labels are not updated in-place
             # TODO: weight task-specific loss_functions somehow
             loss_function = self.loss_functions[subtask_name]
-            batch_loss += loss_function(logits, subtask_labels.clone())
+            batch_loss[subtask_name] = loss_function(logits, subtask_labels.clone())
 
         if cumulative_loss is None:
             cumulative_loss = batch_loss
         else:
-            cumulative_loss += batch_loss
+            for subtask_name, _ in self.data.tasklist:
+                cumulative_loss[subtask_name] += batch_loss[subtask_name]
 
         for subtask_name, _ in self.data.tasklist:
             batch_outputs[subtask_name]["preds"] = preds[subtask_name]
@@ -586,9 +587,10 @@ class HeimdallTrainer:
 
                 with self.accelerator.accumulate(self.model) if training else nullcontext():
                     batch_outputs, loss = self.get_outputs_and_loss(batch, loss)
+                    total_loss = sum(loss.values())
 
                     if training:
-                        self.accelerator.backward(loss)
+                        self.accelerator.backward(total_loss)
                         if self.accelerator.sync_gradients:
                             grad_norm = self.accelerator.clip_grad_norm_(
                                 self.model.parameters(),
@@ -602,14 +604,14 @@ class HeimdallTrainer:
                             pbar.set_description(
                                 f"Epoch: {epoch} "
                                 f"Step {self.step} "
-                                f"Loss: {loss.item():.4f} "
+                                f"Loss: {total_loss.item():.4f} "
                                 f"LR: {lr:.1e} "
                                 f"grad_norm: {grad_norm:.4f} ",
                             )
 
                             if is_logging:
                                 log = {
-                                    "train_loss": loss.item(),
+                                    "train_loss": total_loss.item(),
                                     "global_step": self.step,
                                     "learning_rate": lr,
                                     "epoch": epoch,
@@ -677,7 +679,6 @@ class HeimdallTrainer:
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
-        loss = torch.tensor(0, dtype=get_dtype(self.data._cfg.float_dtype), device=self.accelerator.device)
 
         if len(dataloader) == 0:
             raise ValueError("`DataLoader` length cannot be zero. Check custom sampler implementation.")
@@ -685,23 +686,24 @@ class HeimdallTrainer:
         with torch.no_grad():
             outputs, dataloader_loss = self.iterate_dataloader(
                 dataloader,
-                loss,
                 metrics=metrics,
             )
 
-        loss += dataloader_loss / len(dataloader)
+        loss = {subtask_name: subtask_loss / len(dataloader) for subtask_name, subtask_loss in dataloader_loss.items()}
+        total_loss = sum(loss.values())
 
         if self.accelerator.num_processes > 1:
             loss_tensor = torch.tensor(
-                [loss],
+                [total_loss],
                 device=self.accelerator.device,
             )
             # loss is a python floating point value, for gather
             # operation across multiple processes needs to be
             # cuda tensor
-            loss = self.accelerator.gather(loss_tensor).mean().item()
+            total_loss = self.accelerator.gather(loss_tensor).mean().item()
 
-        log = {f"{dataset_type}_loss": loss}
+        log = {f"{dataset_type}_{subtask_name}_loss": subtask_loss for subtask_name, subtask_loss in loss.items()}
+        log[f"{dataset_type}_loss"] = total_loss
 
         if self.save_precomputed:
             return log, outputs
