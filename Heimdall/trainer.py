@@ -50,6 +50,11 @@ class HeimdallTrainer:
         model,
         data,
         accelerator: Accelerator,
+        random_seed: int = 0,
+        accumulate_grad_batches: int = 1,
+        grad_norm_clip: float = 1.0,
+        save_umaps: bool = False,
+        fastdev: bool = False,  # if set to true, then only train/evel/test on the first batch
         run_wandb=False,
         custom_loss_func=None,
         custom_metrics=None,
@@ -67,31 +72,14 @@ class HeimdallTrainer:
         # It should all be accessible in the data.labels... Delete the block below if possible...?
 
         # Unified label key handling: support .obs or .obsm
-        self.class_names = {}
-        for subtask_name, subtask in self.data.tasklist:
-            label_key = subtask.label_col_name
-            label_obsm_key = subtask.label_obsm_name
 
-            if subtask.task_type in ("multiclass", "binary"):
-                if label_key is not None:
-                    # Single-label classification using .obs[label_key]
-                    if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
-                        self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
-                    self.class_names[subtask_name] = self.data.adata.obs[label_key].cat.categories.tolist()
-                elif label_obsm_key is not None:
-                    self.class_names[subtask_name] = self.data.adata.obsm[label_obsm_key].columns.tolist()
-                else:
-                    self.class_names[subtask_name] = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
+        self.setup_class_names_and_num_labels(data)
 
-        self.num_labels = {}
-        for subtask_name, subtask in self.data.tasklist:
-            label_key = subtask.label_col_name
-            label_obsm_key = subtask.label_obsm_name
-            if subtask.task_type in ("multiclass", "binary") and (label_key or label_obsm_key):
-                self.num_labels[subtask_name] = len(self.class_names[subtask_name])
-            else:
-                self.num_labels[subtask_name] = subtask.num_tasks
-
+        self.random_seed = random_seed
+        self.accumulate_grad_batches = accumulate_grad_batches
+        self.grad_norm_clip = grad_norm_clip
+        self.save_umaps = save_umaps
+        self.fastdev = fastdev
         self.run_wandb = run_wandb
         self.process = psutil.Process()
         self.custom_loss_func = custom_loss_func
@@ -134,6 +122,32 @@ class HeimdallTrainer:
             and self.accelerator.mixed_precision != "bf16"
         ):
             raise ValueError("If using Flash Attention, mixed precision must be bf16")
+
+    def setup_class_names_and_num_labels(self, data):
+        self.class_names = {}
+        for subtask_name, subtask in data.tasklist:
+            label_key = subtask.label_col_name
+            label_obsm_key = subtask.label_obsm_name
+
+            if subtask.task_type in ("multiclass", "binary"):
+                if label_key is not None:
+                    # Single-label classification using .obs[label_key]
+                    if not pd.api.types.is_categorical_dtype(data.adata.obs[label_key]):
+                        data.adata.obs[label_key] = data.adata.obs[label_key].astype("category")
+                    self.class_names[subtask_name] = data.adata.obs[label_key].cat.categories.tolist()
+                elif label_obsm_key is not None:
+                    self.class_names[subtask_name] = data.adata.obsm[label_obsm_key].columns.tolist()
+                else:
+                    self.class_names[subtask_name] = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
+
+        self.num_labels = {}
+        for subtask_name, subtask in data.tasklist:
+            label_key = subtask.label_col_name
+            label_obsm_key = subtask.label_obsm_name
+            if subtask.task_type in ("multiclass", "binary") and (label_key or label_obsm_key):
+                self.num_labels[subtask_name] = len(self.class_names[subtask_name])
+            else:
+                self.num_labels[subtask_name] = subtask.num_tasks
 
     @property
     def data(self):
@@ -408,12 +422,7 @@ class HeimdallTrainer:
             and self.has_embeddings
             and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
         ):
-            if (
-                self.best_test_embed
-                and self.best_val_embed
-                and hasattr(self, "results_folder")
-                and self.cfg.trainer.save_umaps
-            ):
+            if self.best_test_embed and self.best_val_embed and hasattr(self, "results_folder") and self.save_umaps:
                 self.save_umaps()
 
                 self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
@@ -594,7 +603,7 @@ class HeimdallTrainer:
                         if self.accelerator.sync_gradients:
                             grad_norm = self.accelerator.clip_grad_norm_(
                                 self.model.parameters(),
-                                self.cfg.trainer.grad_norm_clip,
+                                self.grad_norm_clip,
                             )
                             self.optimizer.step()
                             self.lr_scheduler.step()
@@ -666,7 +675,7 @@ class HeimdallTrainer:
 
                                 metric.update(subtask_preds, subtask_labels)
 
-                if self.cfg.trainer.fastdev:
+                if self.fastdev:
                     break
 
             if not training:
@@ -999,7 +1008,14 @@ def setup_trainer(config, cpu=True):
         return
 
     accelerator, cr, model, run_wandb = experiment_primitives
-    trainer = HeimdallTrainer(cfg=config, model=model, data=cr, accelerator=accelerator, run_wandb=run_wandb)
+    trainer = instantiate_from_config(
+        config.trainer,
+        cfg=config,
+        model=model,
+        data=cr,
+        accelerator=accelerator,
+        run_wandb=run_wandb,
+    )
     trainer.load_pretrained()
 
     return trainer

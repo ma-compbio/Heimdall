@@ -17,7 +17,7 @@ def setup_accelerator(config, cpu=False, run_wandb=False):
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
-        gradient_accumulation_steps=config.trainer.accumulate_grad_batches,
+        gradient_accumulation_steps=config.trainer.args.accumulate_grad_batches,
         step_scheduler_with_optimizer=False,
         cpu=cpu,
         mixed_precision="bf16",

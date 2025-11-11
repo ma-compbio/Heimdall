@@ -67,7 +67,7 @@ def test_partitioned_hydra_train(session_cache_dir):
                 f"cache_preprocessed_dataset_dir={session_cache_dir}",
                 "fc.args.max_input_length=256",
                 # f"user={os.environ['HYDRA_USER']}"
-                "trainer.save_umaps=false",
+                "trainer.args.save_umaps=false",
             ],
         )
 
@@ -99,7 +99,7 @@ def test_partitioned_precomputation(session_cache_dir):
                 f"cache_preprocessed_dataset_dir={session_cache_dir}",
                 "fc.args.max_input_length=256",
                 # f"user={os.environ['HYDRA_USER']}"
-                "trainer.save_umaps=false",
+                "trainer.args.save_umaps=false",
             ],
         )
 
