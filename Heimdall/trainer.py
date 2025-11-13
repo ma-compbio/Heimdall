@@ -306,9 +306,27 @@ class HeimdallTrainer:
 
         return metrics
 
-    def fit(self, resume_from_checkpoint=True, checkpoint_every_n_epochs=1, do_cleanup=True):
-        """Train the model with automatic checkpointing and resumption."""
+    def fit(self, get_precomputed=False, **fit_kwargs):
+        context = nullcontext()
+        if get_precomputed:
+            context = PrecomputationContext(
+                self,
+                save_precomputed=False,
+                get_precomputed=get_precomputed,
+                run_wandb=True,
+            )
 
+        with context:
+            return self.fit_model(**fit_kwargs)
+
+    def fit_model(
+        self,
+        resume_from_checkpoint=True,
+        checkpoint_every_n_epochs=1,
+        precompute_last_epoch=False,
+        do_cleanup=True,
+    ):
+        """Train the model with automatic checkpointing and resumption."""
         # Try to resume from checkpoint if requested
         start_epoch = 0
         if resume_from_checkpoint:
@@ -339,9 +357,7 @@ class HeimdallTrainer:
         early_stopping_patience = self.data.tasklist.early_stopping_patience
         patience_counter = defaultdict(int)
 
-        stop_training = False
-
-        for epoch in range(start_epoch, self.data.tasklist.epochs):
+        def fit_epoch(epoch: int):
             # Validation and test evaluation
             valid_log, val_outputs = self.validate_model(self.dataloader_val, dataset_type="valid")
             test_log, test_outputs = self.validate_model(self.dataloader_test, dataset_type="test")
@@ -397,11 +413,7 @@ class HeimdallTrainer:
                         f"Early stopping triggered. No improvement in {subtask.track_metric} for "
                         f"{early_stopping_patience} epochs.",
                     )
-                    stop_training = True
-                    break
-
-            if stop_training:
-                break
+                    return True
 
             # Train for one epoch
             self.train_epoch(epoch)
@@ -410,6 +422,19 @@ class HeimdallTrainer:
             if (epoch + 1) % checkpoint_every_n_epochs == 0:
                 self.save_checkpoint(epoch)
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
+
+            return False
+
+        for epoch in range(start_epoch, self.data.tasklist.epochs):
+            precomputation_condition = precompute_last_epoch and epoch + 1 == self.data.tasklist.epochs
+            context = nullcontext()
+            if precomputation_condition:
+                context = PrecomputationContext(self, save_precomputed=True, get_precomputed=True, run_wandb=True)
+
+            with context:
+                stop_training = fit_epoch(epoch)
+                if stop_training:
+                    break
 
         if do_cleanup:
             if self.run_wandb and self.accelerator.is_main_process:
