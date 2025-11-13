@@ -17,7 +17,6 @@ import numpy as np
 import pandas as pd
 import requests
 import scanpy as sc
-import torch
 from anndata.abc import CSCDataset, CSRDataset
 from matplotlib import pyplot as plt
 from numpy.random import Generator
