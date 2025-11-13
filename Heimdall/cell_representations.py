@@ -107,6 +107,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.float_dtype = config.float_dtype
         self.adata = None
         self.processed_fcfg = False
+        self.verbose = 0  # TODO: expose
 
         seed = 0  # TODO: make this configurable???
         self.rng = np.random.default_rng(seed)

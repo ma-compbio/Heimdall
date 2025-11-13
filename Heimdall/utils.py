@@ -17,12 +17,15 @@ import numpy as np
 import pandas as pd
 import requests
 import scanpy as sc
+import torch
 from anndata.abc import CSCDataset, CSRDataset
 from matplotlib import pyplot as plt
 from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
 from scipy import sparse as sp
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from torch import FloatTensor, LongTensor, Tensor, sparse_coo_tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
@@ -729,3 +732,32 @@ def convert_numpy_to_pytorch_sparse_coo(numpy_coo, **context_kwargs):
     torch_coo = sparse_coo_tensor(i, v, size=size, **context_kwargs)
 
     return torch_coo
+
+
+def pca_reduction(gene_embeddings, n_components=128):
+    """Reduce tensors using PCA.
+
+    gene_embeddings: dict, {ensembl_id: torch.Tensor(D,)}
+    n_components: int, the target dimensionality (N)
+
+    returns: dict, {ensembl_id: torch.Tensor(N,)} with PCA-reduced embeddings
+
+    """
+
+    ensembl_ids = list(gene_embeddings.keys())
+    all_embeddings = np.stack([gene_embeddings[eid] for eid in ensembl_ids])  # Shape: (num_genes, D)
+
+    # all_embeddings = all_embeddings.detach().cpu().numpy()
+
+    scaler = StandardScaler()
+    scaled_embeddings = scaler.fit_transform(all_embeddings)  # Shape: (num_genes, D)
+
+    pca = PCA(n_components=n_components)
+    reduced_embeddings = pca.fit_transform(scaled_embeddings)  # Shape: (num_genes, n_components)
+
+    reduced_gene_embeddings = {}
+    for i, eid in enumerate(ensembl_ids):
+        # reduced_gene_embeddings[eid] = torch.tensor(reduced_embeddings[i])
+        reduced_gene_embeddings[eid] = reduced_embeddings[i]
+
+    return reduced_gene_embeddings

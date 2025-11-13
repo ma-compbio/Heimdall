@@ -10,6 +10,8 @@ from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from pandas.api.typing import NAType
 
+from Heimdall.utils import conditional_print, pca_reduction
+
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
 
@@ -33,6 +35,7 @@ class Fg(ABC):
         mask_value: int = None,
         frozen: bool = False,
         rng: int | np.random.Generator = 0,
+        do_pca_reduction: bool = True,
     ):
         self.data = data
         self.d_embedding = d_embedding
@@ -42,6 +45,7 @@ class Fg(ABC):
         self.mask_value = vocab_size - 1 if mask_value is None else mask_value
         self.frozen = frozen
         self.rng = np.random.default_rng(rng)
+        self.do_pca_reduction = do_pca_reduction
 
     @abstractmethod
     def preprocess_embeddings(self, float_dtype: str = "float32"):
@@ -182,10 +186,13 @@ class PretrainedFg(Fg, ABC):
             )
 
         if len(first_embedding) > self.d_embedding:
-            print(
+            conditional_print(
                 f"> Warning, the `Fg` embedding dim {first_embedding.shape} is larger than the model "
                 f"dim {self.d_embedding}, truncation may occur.",
+                condition=self.data.verbose,
             )
+            if self.do_pca_reduction:
+                embedding_map = pca_reduction(embedding_map, n_components=self.d_embedding)
 
         valid_gene_names = list(embedding_map.keys())
 

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 class MockCellRepresentation(CellRepresentation):
     adata: ad.AnnData
     _cfg: OmegaConf
+    verbose: bool = True
 
     def set_representation_functions(
         self,
