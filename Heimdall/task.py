@@ -10,7 +10,7 @@ from omegaconf import DictConfig
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
 
-from Heimdall.utils import instantiate_from_config
+from Heimdall.utils import get_fully_qualified_cache_paths, instantiate_from_config
 
 CellFeatType = NDArray[np.int_] | NDArray[np.float32]
 FeatType = CellFeatType | tuple[CellFeatType, CellFeatType]
@@ -103,23 +103,27 @@ class Task(ABC):
     @abstractmethod
     def setup_labels(self): ...
 
-    def to_cache(self, cache_dir, hash_vars, task_name):
-        processed_data_path = self.data.get_tokenizer_cache_path(
-            cache_dir,
-            hash_vars,
+    def get_cache_path(self, cache_dir, hash_vars, task_name):
+        keys = set(self.data.DATASET_KEYS).union(set(self.data.TOKENIZER_KEYS))
+        keys.add("tasks")
+        processed_data_path, _, _ = get_fully_qualified_cache_paths(
+            self.data._cfg,
+            cache_dir / "processed_data",
             filename=f"{task_name}_labels.pkl",
+            keys=keys,
+            hash_vars=hash_vars,
         )
+        return processed_data_path
+
+    def to_cache(self, cache_dir, hash_vars, task_name):
+        processed_data_path = self.get_cache_path(cache_dir, hash_vars, task_name)
         with open(processed_data_path, "wb") as label_file:
             pkl.dump(self.labels, label_file)
 
         self.data.print_during_setup(f"> Finished writing task {task_name} labels at {processed_data_path}")
 
     def from_cache(self, cache_dir, hash_vars, task_name):
-        processed_data_path = self.data.get_tokenizer_cache_path(
-            cache_dir,
-            hash_vars,
-            filename=f"{task_name}_labels.pkl",
-        )
+        processed_data_path = self.get_cache_path(cache_dir, hash_vars, task_name)
         if processed_data_path.is_file():
             self.data.print_during_setup(
                 f"> Found already processed labels for task {task_name}: {processed_data_path}",

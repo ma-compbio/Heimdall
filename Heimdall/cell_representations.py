@@ -11,9 +11,9 @@ from typing import Callable, Dict, Optional, Union
 import anndata as ad
 import numpy as np
 import scanpy as sc
-from accelerate import Accelerator
+from accelerate import Accelerator, DistributedDataParallelKwargs
 from numpy.typing import NDArray
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf, open_dict
 from scipy import sparse
 from scipy.sparse import csc_array
 from torch.utils.data import DataLoader, Subset
@@ -29,8 +29,8 @@ from Heimdall.task import Tasklist
 from Heimdall.utils import (
     conditional_print,
     convert_to_ensembl_ids,
-    get_cached_paths,
     get_collation_closure,
+    get_fully_qualified_cache_paths,
     get_value,
     instantiate_from_config,
 )
@@ -79,6 +79,9 @@ class SpecialTokenMixin:
 
 
 class CellRepresentation(SpecialTokenMixin):
+    TOKENIZER_KEYS = ("fg", "fe", "fc")
+    DATASET_KEYS = ("dataset.preprocess_args.data_path",)
+
     def __init__(self, config, accelerator: Accelerator, auto_setup: bool = True):
         """Initialize the Cell Rep object with configuration and AnnData object.
 
@@ -90,6 +93,8 @@ class CellRepresentation(SpecialTokenMixin):
         self.num_replicas = accelerator.num_processes
         self.accelerator = accelerator
         self._indent = ""
+        self._save_precomputed = False
+        self._get_precomputed = False
 
         self.setup_finished = False
         self._cfg = config
@@ -102,6 +107,7 @@ class CellRepresentation(SpecialTokenMixin):
         self.float_dtype = config.float_dtype
         self.adata = None
         self.processed_fcfg = False
+        self.verbose = 0  # TODO: expose
 
         seed = 0  # TODO: make this configurable???
         self.rng = np.random.default_rng(seed)
@@ -123,6 +129,14 @@ class CellRepresentation(SpecialTokenMixin):
     def indent(self, val: int):
         self._indent = " " * (val * 4)
 
+    @property
+    def save_precomputed(self):
+        return self._save_precomputed
+
+    @property
+    def get_precomputed(self):
+        return self._get_precomputed
+
     def setup_labels(self, hash_vars=()):
         """Can only be called after `self.adata` and `self.datasets` is
         populated."""
@@ -132,6 +146,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         for subtask_name, subtask in self.tasklist:
             if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+                cache_dir = Path(cache_dir)
                 is_cached = subtask.from_cache(cache_dir, hash_vars=hash_vars, task_name=subtask_name)
                 if is_cached:
                     continue
@@ -200,29 +215,6 @@ class CellRepresentation(SpecialTokenMixin):
         _, gene_mapping = convert_to_ensembl_ids(self.adata, data_dir, species=species, verbose=not self.setup_finished)
         return self.adata, gene_mapping
 
-    def get_preprocessed_data_path(self, hash_data_only=True):
-        preprocessed_data_path = preprocessed_cfg_path = cfg = None
-        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
-
-            cfg = DictConfig({"dataset": OmegaConf.to_container(self._cfg.dataset, resolve=True)})
-
-            if not hash_data_only:
-                cell_repre_cfg = DictConfig(
-                    {
-                        key: OmegaConf.to_container(getattr(self, key), resolve=True)
-                        for key in ("fg_cfg", "fe_cfg", "fc_cfg")
-                    },
-                )
-                cfg = {**cfg, **cell_repre_cfg}
-
-            preprocessed_data_path, preprocessed_cfg_path = get_cached_paths(
-                cfg,
-                Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "preprocessed_anndata",
-                "data.h5ad",
-            )
-
-        return preprocessed_data_path, preprocessed_cfg_path, cfg
-
     def anndata_from_cache(self, preprocessed_data_path, preprocessed_cfg_path, cfg):
         if preprocessed_data_path.is_file():
             self.print_during_setup(
@@ -235,8 +227,6 @@ class CellRepresentation(SpecialTokenMixin):
                 preprocessed_data_path,
                 backed="r",
             )  # add backed argument to prevent entire dataset from being read into mem
-            self.sequence_length = len(self.adata.var)
-            self.print_during_setup(f"> Finished processing Anndata Object:\n{self.adata}", is_printable_process=True)
             return True
 
         # OmegaConf.save(cfg, preprocessed_cfg_path)
@@ -261,31 +251,30 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.num_subtasks = self.tasklist.num_subtasks
 
-    def load_anndata(self):
+    def load_anndata(self, filename: str = "data.h5ad"):
         """Load AnnData into memory (and preprocess, if necessary)."""
         if self.adata is not None:
             raise ValueError("Anndata object already exists, are you sure you want to reprocess again?")
 
-        # preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path(
-        #     hash_data_only=False,
-        # )
-
-        # if preprocessed_data_path_w_cell_cfg is not None and preprocessed_data_path_w_cell_cfg.is_file():
-        #     print("Loading tokenized AnnData?")
-        #     is_cached = self.anndata_from_cache(preprocessed_data_path_w_cell_cfg, preprocessed_cfg_path, cfg)
-        #     if is_cached:
-        #         return
-
-        preprocessed_data_path, preprocessed_cfg_path, cfg = self.get_preprocessed_data_path()
-        if preprocessed_data_path is not None:
+        keys = self.DATASET_KEYS
+        preprocessed_data_path = preprocessed_cfg_path = cfg = None
+        if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            cache_dir = Path(cache_dir)
+            preprocessed_data_path, preprocessed_cfg_path, cfg = get_fully_qualified_cache_paths(
+                self._cfg,
+                cache_dir / "processed_anndata",
+                filename,
+                keys=keys,
+            )
             is_cached = self.anndata_from_cache(preprocessed_data_path, preprocessed_cfg_path, cfg)
             if is_cached:
+                self.print_during_setup(f"> Finished loading AnnData with shape: {self.adata.shape}")
                 return
 
         self.preprocess_anndata()
         self.anndata_to_cache(preprocessed_data_path)
 
-        self.print_during_setup(f"> Finished loading AnnData:\n{self.adata}")
+        self.print_during_setup(f"> Finished loading AnnData with shape: {self.adata.shape}")
 
     def preprocess_anndata(self):
         self.adata = ad.read_h5ad(self.dataset_preproc_cfg.data_path)
@@ -353,7 +342,7 @@ class CellRepresentation(SpecialTokenMixin):
             gene_medians = np.array([np.median(gene_nonzeros) for gene_nonzeros in genewise_nonzero_expression])
             self.adata.var["medians"] = gene_medians
 
-        self.print_during_setup(f"> Finished Processing Anndata Object:\n{self.adata}")
+        self.print_during_setup(f"> Finished processing AnnData object:\n{self.adata}")
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_full_dataset(self):
@@ -373,10 +362,11 @@ class CellRepresentation(SpecialTokenMixin):
         # dataloader_kwargs = {}  # TODO: USE THIS IF DEBUGGING
         heimdall_collate_fn = get_collation_closure()
         dataloader_kwargs = {"num_workers": 4}  # TODO: we can parse additional data loader kwargs from config
+        per_device_batch_size = self.tasklist.batchsize // self.accelerator.num_processes
         self.dataloaders = {
             split: DataLoader(
                 dataset,
-                batch_size=self._cfg.trainer.per_device_batch_size,
+                batch_size=per_device_batch_size,
                 shuffle=self.tasklist.shuffle if split == "train" else False,
                 collate_fn=heimdall_collate_fn,
                 **dataloader_kwargs,
@@ -391,17 +381,15 @@ class CellRepresentation(SpecialTokenMixin):
         )
 
     def get_tokenizer_cache_path(self, cache_dir, hash_vars, filename: str = "data.pkl"):
-        cfg = DictConfig(
-            {key: OmegaConf.to_container(getattr(self, key), resolve=True) for key in ("fg_cfg", "fe_cfg", "fc_cfg")},
-        )
-        cfg = {**cfg, "hash_vars": hash_vars}
-        # print(f"{cfg=}")
-        processed_data_path, _ = get_cached_paths(
-            cfg,
-            Path(cache_dir).resolve() / self._cfg.dataset.dataset_name / "processed_data",
+        keys = set(self.DATASET_KEYS).union(set(self.TOKENIZER_KEYS))
+
+        processed_data_path, _, _ = get_fully_qualified_cache_paths(
+            self._cfg,
+            cache_dir / "processed_data",
             filename,
+            keys=keys,
+            hash_vars=hash_vars,
         )
-        # print(f'{processed_data_path=}')
 
         return processed_data_path
 
@@ -451,7 +439,7 @@ class CellRepresentation(SpecialTokenMixin):
                     expression_embeddings,
                 )
                 pkl.dump(cache_representation, rep_file)
-                print(f"Finished writing cell representations at {processed_data_path}")
+                self.print_during_setup(f"> Finished writing cell representations at {processed_data_path}")
 
     def instantiate_representation_functions(self):
         """Instantiate `f_g`, `fe` and `f_c` according to config."""
@@ -494,6 +482,7 @@ class CellRepresentation(SpecialTokenMixin):
 
         self.instantiate_representation_functions()
         if (cache_dir := self._cfg.cache_preprocessed_dataset_dir) is not None:
+            cache_dir = Path(cache_dir)
             is_cached = self.load_tokenizer_from_cache(cache_dir, hash_vars=hash_vars)
             if is_cached:
                 return
@@ -530,14 +519,15 @@ class PartitionedCellRepresentation(CellRepresentation):
 
         # Expect `data_path` to hold parent directory, not filepath
         self.partition_file_paths = sorted(
-            Path(self._cfg.dataset.preprocess_args.data_path).glob("*.h5ad"),
+            Path(self.dataset_preproc_cfg.data_path).glob("*.h5ad"),
         )
+        self.partition_folder = str(self.dataset_preproc_cfg.data_path)
         self.num_partitions = len(self.partition_file_paths)
 
         if self.num_partitions == 0:
             raise ValueError(
                 "No partitions were found under the directory at "
-                f"'{self._cfg.dataset.preprocess_args.data_path}'. The dataset path "
+                f"'{self.dataset_preproc_cfg.data_path}'. The dataset path "
                 "(`config.dataset.preprocess_args.data_path`) is probably set incorrectly.",
             )
 
@@ -546,6 +536,8 @@ class PartitionedCellRepresentation(CellRepresentation):
         if auto_setup:
             self.create_tasklist()
 
+            self.print_during_setup("> Setting up partition_sizes...")
+            self.indent = 1
             if accelerator.is_main_process:  # One time through for main process
                 self.setup(setup_labels=False)
 
@@ -553,9 +545,13 @@ class PartitionedCellRepresentation(CellRepresentation):
             if not accelerator.is_main_process:  # Let others catch up (just for `set_partition_size`)
                 self.setup_finished = True
                 self.setup(setup_labels=False)
+            self.indent = 0
 
             self.prepare_full_dataset()  # Setup dataset before preparing labels
+            self.print_during_setup("> Setting up labels...")
+            self.indent = 1
             self.setup(setup_labels=True)
+            self.indent = 0
             self.setup_finished = True
 
             self.prepare_dataset_loaders()
@@ -572,16 +568,31 @@ class PartitionedCellRepresentation(CellRepresentation):
         for partition in range(self.num_partitions):  # Setting up AnnData and sizes
             self.prepare_partition(partition)
 
-            self.indent = 1
+            self.indent = 2
             super().setup(hash_vars=(int(self.partition),), setup_labels=setup_labels)
-            self.indent = 0
+            self.indent = 1
 
             self.set_partition_size()
+
+    def preprocess_anndata(self):
+        self.dataset_preproc_cfg.data_path = self.partition_file_paths[self.partition]
+        super().preprocess_anndata()
+        self.dataset_preproc_cfg.data_path = self.partition_folder
+
+    def load_anndata(self, filename="data.h5ad"):
+        partition_filename = f"partition_{self.partition}_{filename}"
+        super().load_anndata(partition_filename)
 
     def close_partition(self):
         """Close current partition."""
         if self.adata is not None:
             self.adata.file.close()
+
+            self.print_during_setup(
+                f"> Closing partition {self.partition + 1} of {self.num_partitions}",
+            )
+            if self.save_precomputed:
+                self.adata.write_h5ad(self.adata.filename)
 
             del self.adata
             self.adata = None
@@ -593,11 +604,13 @@ class PartitionedCellRepresentation(CellRepresentation):
     def prepare_partition(self, partition):
         self.close_partition()
         self._partition = partition
-        self.dataset_preproc_cfg.data_path = self.partition_file_paths[partition]
-        self.print_during_setup(
-            f"> Opening partition {partition + 1} of {self.num_partitions}",
-            is_printable_process=True,
-        )
+        if partition is not None:
+            self.print_during_setup(
+                f"> Opening partition {partition + 1} of {self.num_partitions}",
+            )
+            return True
+
+        return False
 
     @partition.setter
     def partition(self, partition):
@@ -606,8 +619,9 @@ class PartitionedCellRepresentation(CellRepresentation):
             return
 
         # Preprocess partition AnnData
-        self.prepare_partition(partition)
-        super().setup(hash_vars=(int(self.partition),), setup_labels=True)
+        partition_prepared = self.prepare_partition(partition)
+        if partition_prepared:
+            super().setup(hash_vars=(int(self.partition),), setup_labels=True)
 
     @check_states(adata=True, processed_fcfg=True)
     def prepare_dataset_loaders(self):
@@ -625,6 +639,7 @@ class PartitionedCellRepresentation(CellRepresentation):
 
         self.dataloaders = {}
         heimdall_collate_fn = get_collation_closure()
+        per_device_batch_size = self.tasklist.batchsize // self.accelerator.num_processes
         self.dataloaders = {
             split: DataLoader(
                 dataset,
@@ -635,7 +650,7 @@ class PartitionedCellRepresentation(CellRepresentation):
                         rank=self.rank,
                         shuffle=self.tasklist.shuffle if split == "train" else False,
                     ),
-                    batch_size=self._cfg.trainer.per_device_batch_size,
+                    batch_size=per_device_batch_size,
                     drop_last=False,
                 ),
                 collate_fn=heimdall_collate_fn,
@@ -651,3 +666,43 @@ class PartitionedCellRepresentation(CellRepresentation):
             f"> Finished setting up datasets (and loaders):\n\t{dataset_str}",
             is_printable_process=True,
         )
+
+
+def setup_accelerator(config, cpu=False, run_wandb=False):
+    # get accelerate context
+    accelerator_log_kwargs = {}
+    if run_wandb:
+        accelerator_log_kwargs["log_with"] = "wandb"
+        accelerator_log_kwargs["project_dir"] = config.work_dir
+
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+
+    accelerator = Accelerator(
+        gradient_accumulation_steps=config.trainer.args.accumulate_grad_batches,
+        step_scheduler_with_optimizer=False,
+        cpu=cpu,
+        mixed_precision="bf16",
+        kwargs_handlers=[ddp_kwargs],
+        **accelerator_log_kwargs,
+    )
+
+    return accelerator
+
+
+def setup_data(config, cpu=False, accelerator=None):
+    """Set up Heimdall data based on config, including cr and accelerator."""
+
+    run_wandb = getattr(config, "run_wandb", False)
+    if accelerator is None:
+        accelerator = setup_accelerator(config, cpu=cpu, run_wandb=run_wandb)
+
+    if accelerator.is_main_process:
+        print(OmegaConf.to_yaml(config, resolve=True))
+
+    with open_dict(config):
+        only_preprocess_data = config.pop("only_preprocess_data", None)
+        # pop so hash of cfg is not changed depending on value
+
+    cr = instantiate_from_config(config.tasks.cell_rep_config, config, accelerator)
+
+    return accelerator, cr, run_wandb, only_preprocess_data
