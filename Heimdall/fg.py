@@ -191,8 +191,30 @@ class PretrainedFg(Fg, ABC):
                 f"dim {self.d_embedding}, truncation may occur.",
                 condition=self.data.verbose,
             )
+
             if self.do_pca_reduction:
-                embedding_map = pca_reduction(embedding_map, n_components=self.d_embedding)
+                original_embedding_filepath = self.embedding_filepath
+                self.embedding_filepath = (
+                    self.embedding_filepath.parent / f"{self.embedding_filepath.stem}_reduced_{self.d_embedding}.pt"
+                )
+                if self.embedding_filepath.is_file():
+                    embedding_map = self.load_embeddings()
+                    conditional_print(
+                        f"> Loaded PCA-reduced `Fg` embeddings from cache.",
+                        condition=self.data.verbose,
+                    )
+                else:
+                    embedding_map = pca_reduction(embedding_map, n_components=self.d_embedding)
+                    torch.save(
+                        {gene_name: torch.from_numpy(embedding) for gene_name, embedding in embedding_map.items()},
+                        self.embedding_filepath,
+                    )
+                    conditional_print(
+                        f"> Used PCA to reduce `Fg` embeddings and cached for future use.",
+                        condition=self.data.verbose,
+                    )
+
+                self.embedding_filepath = original_embedding_filepath
 
         valid_gene_names = list(embedding_map.keys())
 
