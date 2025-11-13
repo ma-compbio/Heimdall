@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from os import PathLike
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Sequence
 
 import numpy as np
@@ -163,7 +164,7 @@ class PretrainedFg(Fg, ABC):
         **fg_kwargs,
     ):
         super().__init__(data, embedding_parameters, **fg_kwargs)
-        self.embedding_filepath = embedding_filepath
+        self.embedding_filepath = Path(embedding_filepath)
 
     @abstractmethod
     def load_embeddings(self) -> Dict[str, NDArray]:
@@ -195,7 +196,8 @@ class PretrainedFg(Fg, ABC):
             if self.do_pca_reduction:
                 original_embedding_filepath = self.embedding_filepath
                 self.embedding_filepath = (
-                    self.embedding_filepath.parent / f"{self.embedding_filepath.stem}_reduced_{self.d_embedding}.pt"
+                    original_embedding_filepath.parent
+                    / f"{original_embedding_filepath.stem}_reduced_{self.d_embedding}.pt"
                 )
                 if self.embedding_filepath.is_file():
                     embedding_map = self.load_embeddings()
