@@ -1,6 +1,7 @@
+# <img src="https://github.com/ma-compbio/Heimdall/blob/workshop_prep/logo.png"  width=25%/>
+
 [![Lint](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml/badge.svg)](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml)
 
-# Heimdall
 
 > :warning: **Demo notebooks for novel `Fg`, `Fe`, `Fc` construction, experiment pipeline, as well as data files will be available soon**
 
