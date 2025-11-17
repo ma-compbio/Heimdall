@@ -220,7 +220,7 @@ class PretrainedFg(Fg, ABC):
 
         valid_gene_names = list(embedding_map.keys())
 
-        valid_mask = pd.array(np.isin(self.adata.var_names.values, valid_gene_names))
+        valid_mask = pd.array(self.adata.var_names.isin(valid_gene_names))
         num_mapped_genes = valid_mask.sum()
         (valid_indices,) = np.nonzero(valid_mask)
 
@@ -240,7 +240,10 @@ class PretrainedFg(Fg, ABC):
 
         self.prepare_embedding_parameters()
 
-        print(f"Found {len(valid_indices)} genes with mappings out of {len(self.adata.var_names)} genes.")
+        conditional_print(
+            f"Found {len(valid_indices)} genes with mappings out of {len(self.adata.var_names)} genes.",
+            condition=self.data.verbose,
+        )
 
         map_ratio = len(valid_indices) / len(self.adata.var_names)
         if map_ratio < 0.5:
