@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 from omegaconf import OmegaConf, open_dict
 from pytest import fixture
 
-from Heimdall.cell_representations import CellRepresentation
-from Heimdall.models import setup_experiment
+from Heimdall.cell_representations import CellRepresentation, setup_data
+from Heimdall.models import setup_model
 from Heimdall.utils import INPUT_KEYS, get_dtype, instantiate_from_config
 
 load_dotenv()
@@ -160,12 +160,12 @@ def partition_config(request, toy_partitioned_data_path):
 # def accelerator(config):
 #     setup
 def instantiate_and_run_model(config):
-    experiment_primitives = setup_experiment(config, cpu=False)
+    accelerator, cr, run_wandb, only_preprocess_data = setup_data(config)
 
-    if experiment_primitives is None:
+    if only_preprocess_data:
         return
 
-    _, cr, model, _ = experiment_primitives
+    model = setup_model(config, cr, is_main_process=accelerator.is_main_process)
 
     # Test execution
     batch = next(iter(cr.dataloaders["train"]))

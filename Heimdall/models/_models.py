@@ -49,11 +49,16 @@ class HeimdallModel(nn.Module):
             head = instantiate_from_config(subtask.head_config, dim_in=dim_in, dim_out=num_labels)
             self.heads[subtask_name] = head
 
+    @property
+    def dtype(self):
+        return next(self.parameters()).dtype
+
     def encode_cell(self, cell_inputs):
         """Given the either single- or multiple-cells, use the cell encoder to
         embed the cell(s)."""
         outputs = {}
         cached_encoding = None
+        # NOTE: this was the masked used for MLM, different from attention mask
         masks = cell_inputs.pop("masks", None)
         for subtask_name, _ in self.tasklist:
             subtask_inputs = {key: cell_inputs[key][subtask_name] for key in cell_inputs}

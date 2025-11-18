@@ -101,7 +101,7 @@ class Dataset(PyTorchDataset, ABC):
 
 class SingleInstanceDataset(Dataset):
     def _setup_idx(self):
-        self.data._idx = np.arange(self.data.adata.shape[0])
+        self.data._idx = np.arange(self.data.adata.n_obs)
 
     def _setup_predefined_splits(self):
         adata = self.data.adata
@@ -140,6 +140,7 @@ class SingleInstanceDataset(Dataset):
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
             "expression_padding": expression_padding,
+            "idx": self.idx[idx],
         }
 
 
@@ -219,6 +220,7 @@ class PairedInstanceDataset(Dataset):
             "identity_inputs": identity_inputs,
             "expression_inputs": expression_inputs,
             "expression_padding": expression_padding,
+            "idx": tuple(self.idx[idx]),
         }
 
 
@@ -226,6 +228,10 @@ class PartitionedDataset(SingleInstanceDataset):
     def __init__(self, data, *args, **kwargs):
         self.partition_splits = {}
         super().__init__(data, *args, **kwargs)
+
+    @property
+    def idx(self):
+        return np.arange(self.data.adata.n_obs)
 
     @property
     def partition(self):
@@ -357,77 +363,3 @@ class PartitionedSubset(Subset):
 
     def __len__(self):
         return sum(len(indices) for indices in self._indices.values())
-
-
-# class PartitionedDataLoader:
-#     """Custom DataLoader that handles multiple partitions and raises custom
-#     exceptions."""
-#
-#     def __init__(self, dataset: PartitionedSubset | PartitionedDataset, **dataloader_kwargs):
-#         """
-#         Args:
-#             **dataloader_kwargs: Additional arguments for DataLoader
-#         """
-#         self.dataloader_kwargs = dataloader_kwargs
-#         self.shuffle = self.dataloader_kwargs.get("shuffle", False)
-#         self.dataset = dataset
-#         if isinstance(self.dataset, Subset):
-#             subset = dataset
-#             self.full_dataset = subset.dataset
-#         else:
-#             self.full_dataset = self.dataset
-#
-#         self.partition_order = list(range(self.num_partitions))
-#         self.partition_idx = None
-#
-#     @property
-#     def partition_idx(self):
-#         return self._partition_idx
-#
-#     @property
-#     def num_partitions(self):
-#         return self.full_dataset.num_partitions
-#
-#     @partition_idx.setter
-#     def partition_idx(self, partition_idx: int | None):
-#         self._partition_idx = partition_idx
-#         if partition_idx is None:
-#             return
-#
-#         partition = self.partition_order[partition_idx]
-#
-#         # load underlying partition
-#         self.full_dataset.partition = partition
-#
-#         # create dataloader for partition
-#         self.dataloader = DataLoader(
-#             self.dataset,
-#             **self.dataloader_kwargs,
-#         )
-#         self.iterator = iter(self.dataloader)  # TODO: Is this necessary? Isn't DataLoader already an iterator?
-#
-#     def __iter__(self):
-#         if self.shuffle:
-#             self.partition_order = np.random.shuffle(self.partition_order)
-#
-#         if self.partition_idx is None:
-#             self.partition_idx = 0
-#
-#         return self
-#
-#     def __next__(self):
-#         try:
-#             result =  next(self.iterator)
-#             print(result.keys())
-#             return result
-#         except StopIteration:
-#             self.full_dataset.data.accelerator.wait_for_everyone()
-#             if self.partition_idx + 1 == self.num_partitions:
-#                 self.partition_idx = None
-#                 raise AllPartitionsExhausted()
-#             else:
-#                 self.partition_idx += 1
-#                 return next(self.iterator)
-#
-#     def __len__(self):
-#         return len(self.dataloader_kwargs["sampler"]) // self.full_dataset.data._cfg.trainer.per_device_batch_size

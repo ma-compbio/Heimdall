@@ -25,6 +25,7 @@ from dataclasses import dataclass
 class MockCellRepresentation(CellRepresentation):
     adata: ad.AnnData
     _cfg: OmegaConf
+    verbose: bool = True
 
     def set_representation_functions(
         self,
@@ -543,3 +544,10 @@ def uce_fc(mock_dataset_all_valid_genes, identity_fg_all_valid_genes, identity_f
     metadata_embeddings = instantiate_from_config(uce_fc.embedding_parameters)
 
     return uce_fc
+
+
+@fixture(scope="session")
+def session_cache_dir(tmp_path_factory):
+    # Create the directory using tmp_path_factory
+    cache_dir = tmp_path_factory.mktemp("cache")
+    yield cache_dir
