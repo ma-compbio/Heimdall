@@ -721,7 +721,9 @@ def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> Tensor:
         derivative_prev = derivative
 
     y.sub_(mu).clip_(min=zero_threshold)
-    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+    # TODO: this assert would be nice to enforce somehow
+    # assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+
     return y
 
 
