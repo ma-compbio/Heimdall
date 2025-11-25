@@ -18,6 +18,6 @@ context via Heimdall.
 :::{grid-item-card} Implementing a Novel Tokenizer
 :link: tutorial_gallery/demo_novel_tokenizer.html
 
-Learn how to implement a novel scFM tokenizer via example, featuring a novel gene identity tokenizer ($F\_\\textbf{G}$).
+Learn how to implement a novel scFM tokenizer via example, featuring a novel gene identity tokenizer ($F_\textbf{G}$).
 :::
 ::::
