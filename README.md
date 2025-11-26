@@ -1,6 +1,6 @@
-[![Lint](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml/badge.svg)](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml)
+# <img src="https://github.com/ma-compbio/Heimdall/blob/workshop_prep/logo.png"  width=25%/>
 
-# Heimdall
+[![Lint](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml/badge.svg)](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml)
 
 > :warning: **Demo notebooks for novel `Fg`, `Fe`, `Fc` construction, experiment pipeline, as well as data files will be available soon**
 
@@ -33,7 +33,7 @@ Make sure to edit the global file `config/global_vars.yaml` based on your set up
 
 # Sweeps
 
-`scripts/create_sweep.py`  has the arguments `--experiment-name` (the hydra experiment file name),  `--project-name` (W&B project name), `--fg` and `--fc` which are the names of the hydra configs. It is a short script that will load in `sweeps/base.yaml` and updates it appropriately, and creates a sweep argument and returns it. This can work in tandem with `deploy_sweep.sh` to submit multiple sweeps on SLURM systems.
+`scripts/create_sweep.py` has the arguments `--experiment-name` (the hydra experiment file name), `--project-name` (W&B project name), `--fg` and `--fc` which are the names of the hydra configs. It is a short script that will load in `sweeps/base.yaml` and updates it appropriately, and creates a sweep argument and returns it. This can work in tandem with `deploy_sweep.sh` to submit multiple sweeps on SLURM systems.
 
 ```
 python scripts/create_sweep.py --experiment-name cta_pancreas --project-name Pancreas-Celltype-Classification

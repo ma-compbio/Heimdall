@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from os import PathLike
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, Sequence
 
 import numpy as np
@@ -9,6 +10,8 @@ from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from pandas.api.typing import NAType
+
+from Heimdall.utils import conditional_print, pca_reduction
 
 if TYPE_CHECKING:
     from Heimdall.cell_representations import CellRepresentation
@@ -33,6 +36,7 @@ class Fg(ABC):
         mask_value: int = None,
         frozen: bool = False,
         rng: int | np.random.Generator = 0,
+        do_pca_reduction: bool = True,
     ):
         self.data = data
         self.d_embedding = d_embedding
@@ -42,6 +46,7 @@ class Fg(ABC):
         self.mask_value = vocab_size - 1 if mask_value is None else mask_value
         self.frozen = frozen
         self.rng = np.random.default_rng(rng)
+        self.do_pca_reduction = do_pca_reduction
 
     @abstractmethod
     def preprocess_embeddings(self, float_dtype: str = "float32"):
@@ -159,7 +164,7 @@ class PretrainedFg(Fg, ABC):
         **fg_kwargs,
     ):
         super().__init__(data, embedding_parameters, **fg_kwargs)
-        self.embedding_filepath = embedding_filepath
+        self.embedding_filepath = Path(embedding_filepath)
 
     @abstractmethod
     def load_embeddings(self) -> Dict[str, NDArray]:
@@ -182,14 +187,40 @@ class PretrainedFg(Fg, ABC):
             )
 
         if len(first_embedding) > self.d_embedding:
-            print(
+            conditional_print(
                 f"> Warning, the `Fg` embedding dim {first_embedding.shape} is larger than the model "
-                "dim {self.d_embedding}, truncation may occur.",
+                f"dim {self.d_embedding}, truncation may occur.",
+                condition=self.data.verbose,
             )
+
+            if self.do_pca_reduction:
+                original_embedding_filepath = self.embedding_filepath
+                self.embedding_filepath = (
+                    original_embedding_filepath.parent
+                    / f"{original_embedding_filepath.stem}_reduced_{self.d_embedding}.pt"
+                )
+                if self.embedding_filepath.is_file():
+                    embedding_map = self.load_embeddings()
+                    conditional_print(
+                        "> Loaded PCA-reduced `Fg` embeddings from cache.",
+                        condition=self.data.verbose,
+                    )
+                else:
+                    embedding_map = pca_reduction(embedding_map, n_components=self.d_embedding)
+                    torch.save(
+                        {gene_name: torch.from_numpy(embedding) for gene_name, embedding in embedding_map.items()},
+                        self.embedding_filepath,
+                    )
+                    conditional_print(
+                        "> Used PCA to reduce `Fg` embeddings and cached for future use.",
+                        condition=self.data.verbose,
+                    )
+
+                self.embedding_filepath = original_embedding_filepath
 
         valid_gene_names = list(embedding_map.keys())
 
-        valid_mask = pd.array(np.isin(self.adata.var_names.values, valid_gene_names))
+        valid_mask = pd.array(self.adata.var_names.isin(valid_gene_names))
         num_mapped_genes = valid_mask.sum()
         (valid_indices,) = np.nonzero(valid_mask)
 
@@ -209,7 +240,10 @@ class PretrainedFg(Fg, ABC):
 
         self.prepare_embedding_parameters()
 
-        print(f"Found {len(valid_indices)} genes with mappings out of {len(self.adata.var_names)} genes.")
+        conditional_print(
+            f"Found {len(valid_indices)} genes with mappings out of {len(self.adata.var_names)} genes.",
+            condition=self.data.verbose,
+        )
 
         map_ratio = len(valid_indices) / len(self.adata.var_names)
         if map_ratio < 0.5:

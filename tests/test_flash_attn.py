@@ -14,7 +14,7 @@ from pytest import fixture
 from torch import nn
 
 from Heimdall.cell_representations import CellRepresentation
-from Heimdall.models import HeimdallModel, setup_experiment
+from Heimdall.models import HeimdallModel
 from Heimdall.utils import INPUT_KEYS, get_dtype, instantiate_from_config
 
 load_dotenv()
@@ -52,12 +52,12 @@ def flash_attn_config(toy_single_data_path):
 
 
 def instantiate_and_run_model(config):
-    experiment_primitives = setup_experiment(config, cpu=False)
+    accelerator, cr, run_wandb, only_preprocess_data = setup_data(config)
 
-    if experiment_primitives is None:
+    if only_preprocess_data:
         return
 
-    _, cr, model, _ = experiment_primitives
+    model = setup_model(config, cr, is_main_process=accelerator.is_main_process)
 
     # Test execution
     batch = next(iter(cr.dataloaders["train"]))

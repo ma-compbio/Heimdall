@@ -35,6 +35,49 @@ def test_torch_tensor_fg(mock_dataset):
             "embedding_filepath": Path(
                 "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt",
             ),
+            "do_pca_reduction": True,
+        },
+    )
+    if not config.embedding_filepath.is_file():
+        pytest.skip(f"Skipping due to missing file {config.embedding_filepath}")
+
+    gene_names = mock_dataset.adata.var_names
+    valid_gene_mask = [gene_name != "fake_gene" for gene_name in gene_names]
+
+    expected_valid_values = [13.179674, -7.2518535, -23.597067]
+
+    esm2_fg = TorchTensorFg(mock_dataset, **config)
+    esm2_fg.preprocess_embeddings()
+
+    try:
+        embedding_indices = esm2_fg[gene_names]
+    except KeyError:
+        pass
+
+    embedding_indices = esm2_fg[gene_names[valid_gene_mask]]
+    embeddings = esm2_fg.gene_embeddings[embedding_indices]
+    assert np.allclose(embeddings[:, 0], expected_valid_values)
+
+    assert esm2_fg.pad_value == 3
+    assert esm2_fg.mask_value == 4
+
+
+def test_torch_tensor_fg_no_reduction(mock_dataset):
+    config = OmegaConf.create(
+        {
+            "embedding_parameters": {
+                "type": "torch.nn.Embedding",
+                "constructor": "from_pretrained",
+                "args": {
+                    "embeddings": "gene_embeddings",
+                },
+            },
+            "vocab_size": 6,
+            "d_embedding": 128,
+            "embedding_filepath": Path(
+                "/work/magroup/shared/Heimdall/data/pretrained_embeddings/ESM2/protein_map_human_ensembl.pt",
+            ),
+            "do_pca_reduction": False,
         },
     )
     if not config.embedding_filepath.is_file():
@@ -61,7 +104,7 @@ def test_torch_tensor_fg(mock_dataset):
     assert esm2_fg.mask_value == 4
 
 
-def test_csv_fg(mock_dataset):
+def test_csv_fg_no_reduction(mock_dataset):
     config = OmegaConf.create(
         {
             "embedding_parameters": {
@@ -76,6 +119,7 @@ def test_csv_fg(mock_dataset):
             "embedding_filepath": Path(
                 "/work/magroup/shared/Heimdall/data/pretrained_embeddings/gene2vec/gene2vec_genes.txt",
             ),
+            "do_pca_reduction": False,
         },
     )
     if not config.embedding_filepath.is_file():

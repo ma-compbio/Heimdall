@@ -3,8 +3,10 @@
 import random
 from collections import OrderedDict, defaultdict
 from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 from pprint import pformat
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -13,7 +15,14 @@ import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from omegaconf import OmegaConf
-from torchmetrics.classification import Accuracy, ConfusionMatrix, F1Score, MatthewsCorrCoef, Precision, Recall
+from torchmetrics.classification import (
+    Accuracy,
+    ConfusionMatrix,
+    F1Score,
+    MatthewsCorrCoef,
+    Precision,
+    Recall,
+)
 from torchmetrics.regression import MeanSquaredError, R2Score
 from tqdm import tqdm
 from transformers import get_scheduler
@@ -21,23 +30,33 @@ from transformers import get_scheduler
 import Heimdall.datasets
 import Heimdall.losses
 import wandb
-from Heimdall.models import setup_experiment
-from Heimdall.utils import (
+from Heimdall.cell_representations import setup_data
+from Heimdall.models import TransformerOutput, setup_model
+from Heimdall.utils import (  # get_cached_paths,
     INPUT_KEYS,
-    get_dtype,
+    get_fully_qualified_cache_paths,
     instantiate_from_config,
     project2simplex_,
     save_umap,
 )
 
+# from Heimdall.cell_representations import PartitionedCellRepresentation
+
 
 class HeimdallTrainer:
+    CHECKPOINT_KEYS = ("fg", "fe", "fc", "model")
+
     def __init__(
         self,
         cfg,
         model,
         data,
         accelerator: Accelerator,
+        random_seed: int = 0,
+        accumulate_grad_batches: int = 1,
+        grad_norm_clip: float = 1.0,
+        skip_umaps: bool = True,
+        fastdev: bool = False,  # if set to true, then only train/evel/test on the first batch
         run_wandb=False,
         custom_loss_func=None,
         custom_metrics=None,
@@ -55,31 +74,14 @@ class HeimdallTrainer:
         # It should all be accessible in the data.labels... Delete the block below if possible...?
 
         # Unified label key handling: support .obs or .obsm
-        self.class_names = {}
-        for subtask_name, subtask in self.data.tasklist:
-            label_key = subtask.label_col_name
-            label_obsm_key = subtask.label_obsm_name
 
-            if subtask.task_type in ("multiclass", "binary"):
-                if label_key is not None:
-                    # Single-label classification using .obs[label_key]
-                    if not pd.api.types.is_categorical_dtype(self.data.adata.obs[label_key]):
-                        self.data.adata.obs[label_key] = self.data.adata.obs[label_key].astype("category")
-                    self.class_names[subtask_name] = self.data.adata.obs[label_key].cat.categories.tolist()
-                elif label_obsm_key is not None:
-                    self.class_names[subtask_name] = self.data.adata.obsm[label_obsm_key].columns.tolist()
-                else:
-                    self.class_names[subtask_name] = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
+        self.setup_class_names_and_num_labels(data)
 
-        self.num_labels = {}
-        for subtask_name, subtask in self.data.tasklist:
-            label_key = subtask.label_col_name
-            label_obsm_key = subtask.label_obsm_name
-            if subtask.task_type in ("multiclass", "binary") and (label_key or label_obsm_key):
-                self.num_labels[subtask_name] = len(self.class_names[subtask_name])
-            else:
-                self.num_labels[subtask_name] = subtask.num_tasks
-
+        self.random_seed = random_seed
+        self.accumulate_grad_batches = accumulate_grad_batches
+        self.grad_norm_clip = grad_norm_clip
+        self.skip_umaps = skip_umaps
+        self.fastdev = fastdev
         self.run_wandb = run_wandb
         self.process = psutil.Process()
         self.custom_loss_func = custom_loss_func
@@ -94,8 +96,8 @@ class HeimdallTrainer:
         self.print_r0(f"> Using Device: {self.accelerator.device}")
         self.print_r0(f"> Number of Devices: {self.accelerator.num_processes}")
 
-        self.best_val_embed = {}
-        self.best_test_embed = {}
+        self.best_val_outputs = defaultdict(dict)
+        self.best_test_outputs = defaultdict(dict)
         self.best_epoch = defaultdict(int)
 
         self._initialize_wandb()
@@ -123,6 +125,32 @@ class HeimdallTrainer:
         ):
             raise ValueError("If using Flash Attention, mixed precision must be bf16")
 
+    def setup_class_names_and_num_labels(self, data):
+        self.class_names = {}
+        for subtask_name, subtask in data.tasklist:
+            label_key = subtask.label_col_name
+            label_obsm_key = subtask.label_obsm_name
+
+            if subtask.task_type in ("multiclass", "binary"):
+                if label_key is not None:
+                    # Single-label classification using .obs[label_key]
+                    if not pd.api.types.is_categorical_dtype(data.adata.obs[label_key]):
+                        data.adata.obs[label_key] = data.adata.obs[label_key].astype("category")
+                    self.class_names[subtask_name] = data.adata.obs[label_key].cat.categories.tolist()
+                elif label_obsm_key is not None:
+                    self.class_names[subtask_name] = data.adata.obsm[label_obsm_key].columns.tolist()
+                else:
+                    self.class_names[subtask_name] = data.adata.uns["task_order"]  # NOTE: first entry might be NULL
+
+        self.num_labels = {}
+        for subtask_name, subtask in data.tasklist:
+            label_key = subtask.label_col_name
+            label_obsm_key = subtask.label_obsm_name
+            if subtask.task_type in ("multiclass", "binary") and (label_key or label_obsm_key):
+                self.num_labels[subtask_name] = len(self.class_names[subtask_name])
+            else:
+                self.num_labels[subtask_name] = subtask.num_tasks
+
     @property
     def data(self):
         return self._data
@@ -133,6 +161,22 @@ class HeimdallTrainer:
         for split in ["train", "val", "test", "full"]:
             setattr(self, f"dataloader_{split}", data.dataloaders[split])
 
+    @property
+    def save_precomputed(self):
+        return self.data._save_precomputed
+
+    @save_precomputed.setter
+    def save_precomputed(self, val):
+        self.data._save_precomputed = val
+
+    @property
+    def get_precomputed(self):
+        return self.data._get_precomputed
+
+    @get_precomputed.setter
+    def get_precomputed(self, val):
+        self.data._get_precomputed = val
+
     def print_r0(self, message):
         self.data.print_r0(message)
 
@@ -140,7 +184,7 @@ class HeimdallTrainer:
         optimizer_class = getattr(torch.optim, self.cfg.optimizer.name)
         return optimizer_class(self.model.parameters(), **OmegaConf.to_container(self.cfg.optimizer.args))
 
-    def _initialize_wandb(self):
+    def _initialize_wandb(self, **wandb_kwargs):
         if self.run_wandb and self.accelerator.is_main_process:
             print("==> Starting a new WANDB run")
             new_tags = (self.cfg.dataset.dataset_name, self.cfg.fg.type, self.cfg.fe.type, self.cfg.fc.type)
@@ -149,6 +193,7 @@ class HeimdallTrainer:
                     "tags": new_tags,
                     "name": self.cfg.run_name,
                     "entity": self.cfg.entity,
+                    **wandb_kwargs,
                 },
             }
             self.accelerator.init_trackers(
@@ -263,21 +308,38 @@ class HeimdallTrainer:
 
         return metrics
 
-    def fit(self, resume_from_checkpoint=True, checkpoint_every_n_epochs=1):
-        """Train the model with automatic checkpointing and resumption."""
-        # Initialize checkpointing
-        self.initialize_checkpointing()
+    def fit(self, get_precomputed=False, **fit_kwargs):
+        context = nullcontext()
+        if get_precomputed:
+            context = PrecomputationContext(
+                self,
+                save_precomputed=False,
+                get_precomputed=get_precomputed,
+                run_wandb=True,
+            )
 
+        with context:
+            return self.fit_model(**fit_kwargs)
+
+    def fit_model(
+        self,
+        resume_from_checkpoint=True,
+        checkpoint_every_n_epochs=1,
+        precompute_last_epoch=False,
+        do_cleanup=True,
+        start_epoch=0,
+    ):
+        """Train the model with automatic checkpointing and resumption."""
         # Try to resume from checkpoint if requested
-        start_epoch = 0
+        print(f"{self.results_folder=}")
         if resume_from_checkpoint:
             start_epoch = self.load_checkpoint()
 
         if start_epoch >= self.data.tasklist.epochs:
             # last_epoch = max(0, start_epoch - 1)
             # Run one eval pass on the loaded weights to get embeddings
-            _, val_embed = self.validate_model(self.dataloader_val, "valid")
-            _, test_embed = self.validate_model(self.dataloader_test, "test")
+            # _, val_outputs = self.validate_model(self.dataloader_val, "valid")
+            # _, test_outputs = self.validate_model(self.dataloader_test, "test")
             if self.accelerator.is_main_process and self.cfg.model.name != "logistic_regression":
                 # self.save_adata_umap(test_embed, val_embed)
                 # self.print_r0(f"> Saved UMAP from checkpoint epoch {last_epoch}")
@@ -289,7 +351,6 @@ class HeimdallTrainer:
         for subtask_name, subtask in self.data.tasklist:
             if subtask.track_metric is not None:
                 best_metric[subtask_name] = defaultdict(lambda: float("-inf"))
-
                 assert (
                     subtask.track_metric in subtask.metrics
                 ), "The tracking metric is not in the list of metrics, please check your configuration task file"
@@ -299,12 +360,10 @@ class HeimdallTrainer:
         early_stopping_patience = self.data.tasklist.early_stopping_patience
         patience_counter = defaultdict(int)
 
-        stop_training = False
-
-        for epoch in range(start_epoch, self.data.tasklist.epochs):
+        def fit_epoch(epoch: int):
             # Validation and test evaluation
-            valid_log, val_embed = self.validate_model(self.dataloader_val, dataset_type="valid")
-            test_log, test_embed = self.validate_model(self.dataloader_test, dataset_type="test")
+            valid_log, val_outputs = self.validate_model(self.dataloader_val, dataset_type="valid")
+            test_log, test_outputs = self.validate_model(self.dataloader_test, dataset_type="test")
 
             # Track the best metric if specified
             reset_patience_counter = False
@@ -314,8 +373,10 @@ class HeimdallTrainer:
                     if (
                         val_metric > best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"]
                     ):  # Change to >= if you want to debug UMAP
-                        self.best_val_embed[subtask_name] = val_embed[subtask_name]
-                        self.best_test_embed[subtask_name] = test_embed[subtask_name]
+                        for key in val_outputs:
+                            self.best_val_outputs[key][subtask_name] = val_outputs[key][subtask_name]
+                            self.best_test_outputs[key][subtask_name] = test_outputs[key][subtask_name]
+
                         self.best_epoch[subtask_name] = epoch
 
                         best_metric[subtask_name][f"best_val_{subtask_name}_{subtask.track_metric}"] = val_metric
@@ -334,8 +395,9 @@ class HeimdallTrainer:
                         self.print_r0(f"> Saved best model checkpoint at epoch {epoch}")
 
                 else:
-                    self.best_val_embed[subtask_name] = val_embed[subtask_name]
-                    self.best_test_embed[subtask_name] = test_embed[subtask_name]
+                    for key in val_outputs:
+                        self.best_val_outputs[key][subtask_name] = val_outputs[key][subtask_name]
+                        self.best_test_outputs[key][subtask_name] = test_outputs[key][subtask_name]
                     self.best_epoch[subtask_name] = epoch
 
                 if reset_patience_counter:
@@ -354,11 +416,7 @@ class HeimdallTrainer:
                         f"Early stopping triggered. No improvement in {subtask.track_metric} for "
                         f"{early_stopping_patience} epochs.",
                     )
-                    stop_training = True
-                    break
-
-            if stop_training:
-                break
+                    return True
 
             # Train for one epoch
             self.train_epoch(epoch)
@@ -368,47 +426,64 @@ class HeimdallTrainer:
                 self.save_checkpoint(epoch)
                 self.print_r0(f"> Saved regular checkpoint at epoch {epoch}")
 
-        if self.run_wandb and self.accelerator.is_main_process:
-            for subtask_name, subtask in self.data.tasklist:
-                if subtask.track_metric is not None:  # logging the best val score and the tracked test scores
-                    self.accelerator.log(best_metric[subtask_name], step=self.step)
-            self.accelerator.end_training()
+            return False
 
-        if (
-            self.accelerator.is_main_process
-            and self.has_embeddings
-            and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
-            # TODO doesn't seem necessary for pretraining but consult with others
-        ):
+        for epoch in range(start_epoch, start_epoch + self.data.tasklist.epochs):
+            precomputation_condition = precompute_last_epoch and epoch + 1 == self.data.tasklist.epochs
+            context = nullcontext()
+            if precomputation_condition:
+                context = PrecomputationContext(self, save_precomputed=True, get_precomputed=True, run_wandb=True)
+
+            with context:
+                stop_training = fit_epoch(epoch)
+                if stop_training:
+                    break
+
+        if do_cleanup:
             if (
-                self.best_test_embed
-                and self.best_val_embed
-                and hasattr(self, "results_folder")
-                and not self.cfg.trainer.fastdev
+                self.accelerator.is_main_process
+                and self.has_embeddings
+                and not isinstance(self.data.datasets["full"], Heimdall.datasets.PairedInstanceDataset)
             ):
-                for subtask_name, _ in self.data.tasklist:
-                    save_umap(
-                        self.data,
-                        self.best_test_embed[subtask_name],
-                        embedding_name=f"{subtask_name}_latents",
-                        split="test",
-                        savepath=self.results_folder / "test_adata.h5ad",
-                        log_umap=self.run_wandb,
-                    )
-                    save_umap(
-                        self.data,
-                        self.best_val_embed[subtask_name],
-                        embedding_name=f"{subtask_name}_latents",
-                        split="val",
-                        savepath=self.results_folder / "val_adata.h5ad",
-                        log_umap=self.run_wandb,
-                    )
-                    self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
-            else:
-                self.print_r0("> Skipped saving UMAP")
+                if (
+                    self.best_test_outputs
+                    and self.best_val_outputs
+                    and hasattr(self, "results_folder")
+                    and not self.skip_umaps
+                ):
+                    self.save_umaps()
 
-        if self.accelerator.is_main_process:
-            self.print_r0("> Model has finished Training")
+                    self.print_r0(f"> Saved best UMAP checkpoint at epoch {self.best_epoch}")
+                else:
+                    self.print_r0("> Skipped saving UMAP")
+
+            if self.run_wandb and self.accelerator.is_main_process:
+                for subtask_name, subtask in self.data.tasklist:
+                    if subtask.track_metric is not None:  # logging the best val score and the tracked test scores
+                        self.accelerator.log(best_metric[subtask_name])
+                self.accelerator.end_training()
+
+            if self.accelerator.is_main_process:
+                self.print_r0("> Model has finished Training")
+
+    def save_umaps(self):
+        best_test_embed = self.best_test_outputs["embeddings"]
+        save_umap(
+            self.data,
+            best_test_embed,
+            split="test",
+            savepath=self.results_folder,
+            log_umap=self.run_wandb,
+        )
+
+        best_val_embed = self.best_val_outputs["embeddings"]
+        save_umap(
+            self.data,
+            best_val_embed,
+            split="val",
+            savepath=self.results_folder,
+            log_umap=self.run_wandb,
+        )
 
     def instantiate_loss_functions_from_config(self):
         loss_functions = {}
@@ -422,7 +497,36 @@ class HeimdallTrainer:
 
         return loss_functions
 
-    def get_outputs_and_loss(self, batch, loss=None):
+    def get_precomputed_outputs(self, inputs):
+        outputs = {}
+        for subtask_name, _ in self.data.tasklist:
+            cell_index = inputs["idx"][subtask_name].to(torch.int32).tolist()
+            cls_embeddings = self.data.adata.obsm[f"{subtask_name}_cls_embeddings"][cell_index]
+            cls_embeddings = torch.from_numpy(cls_embeddings).to(device=self.data.accelerator.device)
+
+            head_output = TransformerOutput(
+                logits=torch.zeros_like(cls_embeddings),
+                sequence_embeddings=torch.zeros_like(cls_embeddings),
+                cls_embeddings=cls_embeddings,
+            )
+            outputs[subtask_name] = head_output
+
+        return outputs
+
+    def save_precomputed_outputs(self, inputs, outputs):
+        for subtask_name, _ in self.data.tasklist:
+            head_output = outputs[subtask_name]
+            cls_embeddings = head_output.cls_embeddings.detach().cpu().numpy()
+            if f"{subtask_name}_cls_embeddings" not in self.data.adata.obsm:
+                _, d_model = cls_embeddings.shape
+                self.data.adata.obsm[f"{subtask_name}_cls_embeddings"] = np.zeros(
+                    (self.data.adata.n_obs, *cls_embeddings.shape[1:]),
+                )
+
+            cell_index = inputs["idx"][subtask_name].to(torch.int32).tolist()
+            self.data.adata.obsm[f"{subtask_name}_cls_embeddings"][cell_index] = cls_embeddings
+
+    def get_outputs_and_loss(self, batch, cumulative_loss=None):
         for values in batch.values():
             for subtask_name, value in values.items():
                 if value is not None:
@@ -437,11 +541,31 @@ class HeimdallTrainer:
 
         # inputs = (batch["identity_inputs"], batch["expression_inputs"])
 
-        outputs = self.model(inputs=inputs)
+        if self.get_precomputed:
+            outputs = self.get_precomputed_outputs(inputs)
+        else:
+            outputs = self.model(inputs=inputs)
 
-        batch_loss = 0
-        preds = {}
+        if self.save_precomputed:
+            self.save_precomputed_outputs(inputs, outputs)
+
         labels = batch["labels"]
+        batch_outputs = {subtask_name: {} for subtask_name, _ in self.data.tasklist}
+
+        for subtask_name, _ in self.data.tasklist:
+            if self.has_embeddings:
+                batch_outputs[subtask_name]["embeddings"] = outputs[subtask_name].cls_embeddings
+
+            batch_outputs[subtask_name]["labels"] = labels[subtask_name]
+
+        batch_loss = {}
+        if self.get_precomputed:
+            for subtask_name, _ in self.data.tasklist:
+                batch_outputs[subtask_name]["preds"] = torch.zeros_like(labels[subtask_name])
+
+            return batch_outputs, batch_loss
+
+        preds = {}
         for subtask_name, subtask in self.data.tasklist:
             logits = outputs[subtask_name].logits
             subtask_labels = labels[subtask_name]
@@ -466,14 +590,19 @@ class HeimdallTrainer:
             # perform a .clone() so that the subtask_labels are not updated in-place
             # TODO: weight task-specific loss_functions somehow
             loss_function = self.loss_functions[subtask_name]
-            batch_loss += loss_function(logits, subtask_labels.clone())
 
-        if loss is None:
-            loss = batch_loss
+            batch_loss[subtask_name] = loss_function(logits, subtask_labels.clone())
+
+        if cumulative_loss is None:
+            cumulative_loss = batch_loss
         else:
-            loss += batch_loss
+            for subtask_name, _ in self.data.tasklist:
+                cumulative_loss[subtask_name] += batch_loss[subtask_name]
 
-        return outputs, labels, preds, loss
+        for subtask_name, _ in self.data.tasklist:
+            batch_outputs[subtask_name]["preds"] = preds[subtask_name]
+
+        return batch_outputs, cumulative_loss
 
     def iterate_dataloader(
         self,
@@ -494,11 +623,7 @@ class HeimdallTrainer:
         else:
             step = 0
 
-            outputs = {
-                "all_embeddings": defaultdict(list),
-                "all_labels": defaultdict(list),
-                "all_preds": defaultdict(list),
-            }
+            outputs = defaultdict(lambda: defaultdict(list))  # Dict of dicts
 
         with tqdm(dataloader, disable=not self.accelerator.is_main_process) as pbar:
             for batch in pbar:
@@ -508,14 +633,15 @@ class HeimdallTrainer:
                 lr = self.lr_scheduler.get_last_lr()[0]
 
                 with self.accelerator.accumulate(self.model) if training else nullcontext():
-                    batch_outputs, labels, preds, loss = self.get_outputs_and_loss(batch, loss)
+                    batch_outputs, loss = self.get_outputs_and_loss(batch, loss)
+                    total_loss = sum(loss.values())
 
                     if training:
-                        self.accelerator.backward(loss)
+                        self.accelerator.backward(total_loss)
                         if self.accelerator.sync_gradients:
                             grad_norm = self.accelerator.clip_grad_norm_(
                                 self.model.parameters(),
-                                self.cfg.trainer.grad_norm_clip,
+                                self.grad_norm_clip,
                             )
                             self.optimizer.step()
                             self.lr_scheduler.step()
@@ -525,21 +651,25 @@ class HeimdallTrainer:
                             pbar.set_description(
                                 f"Epoch: {epoch} "
                                 f"Step {self.step} "
-                                f"Loss: {loss.item():.4f} "
+                                f"Loss: {total_loss.item():.4f} "
                                 f"LR: {lr:.1e} "
                                 f"grad_norm: {grad_norm:.4f} ",
                             )
 
                             if is_logging:
                                 log = {
-                                    "train_loss": loss.item(),
+                                    "train_loss": total_loss.item(),
+                                    **{
+                                        f"train_{subtask_name}_loss": subtask_loss.item()
+                                        for subtask_name, subtask_loss in loss.items()
+                                    },
                                     "global_step": self.step,
                                     "learning_rate": lr,
                                     "epoch": epoch,
                                     "grad_norm": grad_norm,
                                 }
                                 if self.run_wandb and self.accelerator.is_main_process:
-                                    self.accelerator.log(log, step=self.step)
+                                    self.accelerator.log(log)
 
                             with torch.no_grad():
                                 for param in constrained_params:
@@ -549,22 +679,15 @@ class HeimdallTrainer:
                         loss = None
                     else:
                         for subtask_name, _ in self.data.tasklist:
-                            if self.has_embeddings:
-                                outputs["all_embeddings"][subtask_name].append(
-                                    batch_outputs[subtask_name].cls_embeddings.detach().cpu().numpy(),
-                                )
+                            for key, value in batch_outputs[subtask_name].items():
+                                outputs[key][subtask_name].extend(value.detach().cpu().numpy())
 
-                            outputs["all_labels"][subtask_name].append(labels[subtask_name].detach().cpu().numpy())
-                            outputs["all_preds"][subtask_name].append(preds[subtask_name].detach().cpu().numpy())
-
-                        outputs["loss"] = loss
-
-                    if metrics is not None:
+                    if metrics is not None and not self.get_precomputed:
                         for subtask_name, subtask in self.data.tasklist:
                             for metric_name, metric in metrics[subtask_name].items():  # noqa: B007
                                 # Built-in metric
-                                subtask_labels = labels[subtask_name]
-                                subtask_preds = preds[subtask_name]
+                                subtask_labels = batch_outputs[subtask_name]["labels"]
+                                subtask_preds = batch_outputs[subtask_name]["preds"]
 
                                 if subtask.task_type in ["multiclass", "mlm"]:
                                     subtask_labels = subtask_labels.to(torch.int)
@@ -594,49 +717,47 @@ class HeimdallTrainer:
 
                                 metric.update(subtask_preds, subtask_labels)
 
-                if self.cfg.trainer.fastdev:
+                if self.fastdev:
                     break
 
-        if not training:
-            for subtask_name, _ in self.data.tasklist:
-                outputs["all_embeddings"][subtask_name] = np.concatenate(
-                    outputs["all_embeddings"][subtask_name],
-                    axis=0,
-                )
-                outputs["all_labels"][subtask_name] = np.concatenate(outputs["all_labels"][subtask_name], axis=0)
-                outputs["all_preds"][subtask_name] = np.concatenate(outputs["all_preds"][subtask_name], axis=0)
+            if not training:
+                for key in outputs:
+                    for subtask_name, _ in self.data.tasklist:
+                        outputs[key][subtask_name] = np.array(outputs[key][subtask_name])
 
-        return outputs
+        return outputs, loss
 
     def validate_model(self, dataloader, dataset_type):
         self.model.eval()
         metrics = self._initialize_metrics()
-        loss = torch.tensor(0, dtype=get_dtype(self.data._cfg.float_dtype), device=self.accelerator.device)
 
         if len(dataloader) == 0:
             raise ValueError("`DataLoader` length cannot be zero. Check custom sampler implementation.")
 
         with torch.no_grad():
-            outputs = self.iterate_dataloader(
+            outputs, dataloader_loss = self.iterate_dataloader(
                 dataloader,
-                loss,
                 metrics=metrics,
             )
-            loss += outputs["loss"]
 
-        loss = loss / len(dataloader)
+        loss = {subtask_name: subtask_loss / len(dataloader) for subtask_name, subtask_loss in dataloader_loss.items()}
+        total_loss = sum(loss.values())
 
         if self.accelerator.num_processes > 1:
             loss_tensor = torch.tensor(
-                [loss],
+                [total_loss],
                 device=self.accelerator.device,
             )
             # loss is a python floating point value, for gather
             # operation across multiple processes needs to be
             # cuda tensor
-            loss = self.accelerator.gather(loss_tensor).mean().item()
+            total_loss = self.accelerator.gather(loss_tensor).mean().item()
 
-        log = {f"{dataset_type}_loss": loss}
+        log = {f"{dataset_type}_{subtask_name}_loss": subtask_loss for subtask_name, subtask_loss in loss.items()}
+        log[f"{dataset_type}_loss"] = total_loss
+
+        if self.save_precomputed:
+            return log, outputs
 
         for subtask_name, subtask in self.data.tasklist:
             for metric_name, metric in metrics[subtask_name].items():
@@ -661,7 +782,7 @@ class HeimdallTrainer:
                         "topk_acc",
                         title=f"{dataset_type}_{subtask_name}: Top-k Accuracy",
                     )
-                    self.accelerator.log({f"{dataset_type}_{subtask_name}_topk_acc_curve": chart}, step=self.step)
+                    self.accelerator.log({f"{dataset_type}_{subtask_name}_topk_acc_curve": chart})
 
             if "ConfusionMatrix" in metrics[subtask_name]:
                 # 1. Gather counts from all processes and sum
@@ -685,8 +806,8 @@ class HeimdallTrainer:
 
                 # 4. Log interactive confusion matrix to WandB (main process only)
                 if self.run_wandb and self.accelerator.is_main_process:
-                    y_true_np = outputs["all_labels"][subtask_name]
-                    y_pred_np = outputs["all_preds"][subtask_name]
+                    y_true_np = outputs["labels"][subtask_name]
+                    y_pred_np = outputs["preds"][subtask_name]
 
                     # Convert logits/probs to hard labels if needed
                     if y_pred_np.ndim > 1:  # shape (N, C)
@@ -703,19 +824,18 @@ class HeimdallTrainer:
                     )
                     self.accelerator.log(
                         {f"{dataset_type}_{subtask_name}_confusion_matrix": wandb_cm},
-                        step=self.step,
                     )
 
         rss = self.process.memory_info().rss / (1024**3)
         log["Process_mem_rss"] = rss
 
         if self.run_wandb and self.accelerator.is_main_process:
-            self.accelerator.log(log, step=self.step)
+            self.accelerator.log(log)
 
         if not self.run_wandb and self.accelerator.is_main_process:
             print(f"{dataset_type}_log = {pformat(log)}")
 
-        return log, outputs["all_embeddings"]
+        return log, outputs
 
     def train_epoch(self, epoch):
         self.model.train()
@@ -725,12 +845,19 @@ class HeimdallTrainer:
             epoch=epoch,
         )
 
-    def initialize_checkpointing(self, results_folder_path=None):
+    def initialize_checkpointing(self, additional_keys: tuple = (), hash_vars: tuple = ()):
         """Initialize checkpoint directory."""
-        if results_folder_path is None:
+        if getattr(self.cfg, "work_dir", None) is not None:
             self.results_folder = Path(self.cfg.work_dir)
         else:
-            self.results_folder = Path(results_folder_path)
+            cache_dir = self.cfg.cache_preprocessed_dataset_dir
+            keys = self.CHECKPOINT_KEYS + additional_keys
+            self.results_folder, _, _ = get_fully_qualified_cache_paths(
+                self.cfg,
+                cache_dir,
+                keys=keys,
+                hash_vars=hash_vars,
+            )
 
         # Create directory if it doesn't exist
         if self.accelerator.is_main_process:
@@ -744,7 +871,7 @@ class HeimdallTrainer:
             return
 
         # Ensure results folder exists
-        if not hasattr(self, "results_folder"):
+        if not hasattr(self, "results_folder") or not self.results_folder.exists():
             self.initialize_checkpointing()
 
         # Calculate current step based on epoch
@@ -784,7 +911,7 @@ class HeimdallTrainer:
         """Load a checkpoint based on milestone.txt or a specific milestone
         number."""
         # Ensure results folder is initialized
-        if not hasattr(self, "results_folder"):
+        if not hasattr(self, "results_folder") or not self.results_folder.exists():
             self.initialize_checkpointing()
 
         if not self.results_folder.exists():
@@ -824,8 +951,20 @@ class HeimdallTrainer:
         model = self.accelerator.unwrap_model(self.model)
         model.load_state_dict(data["model"])
 
+        epoch = self.load_trainer_state(data)
+
+        if "version" in data:
+            self.print_r0(f"> Checkpoint version: {data['version']}")
+        self.print_r0(f"> Resumed from epoch {epoch}, step {self.step}")
+
+        return epoch + 1
+
+    def load_trainer_state(self, data):
         # Restore optimizer and scheduler states
-        self.optimizer.load_state_dict(data["optimizer"])
+
+        clean_opt_sd = clean_optimizer_state_for_current_model(data["optimizer"], self.optimizer, verbose=True)
+
+        self.optimizer.load_state_dict(clean_opt_sd)
         if (data["scaler"] is not None) and (self.accelerator.scaler is not None):
             self.accelerator.scaler.load_state_dict(data["scaler"])
         self.lr_scheduler.load_state_dict(data["lr_scheduler"])
@@ -858,35 +997,201 @@ class HeimdallTrainer:
 
         epoch = data["epoch"]
         self.step = data["step"]
-        # step = data.get("step", epoch * len(self.dataloader_train))
 
-        if "version" in data:
-            self.print_r0(f"> Checkpoint version: {data['version']}")
-        self.print_r0(f"> Resumed from epoch {epoch}, step {self.step}")
+        return epoch
 
-        return epoch + 1  # Return the next epoch to start from
+    def load_pretrained(self):
+        self.initialize_checkpointing()
 
+        # Load the checkpoint
+        config = self.cfg
+        if "pretrained_milestone" in config:
+            load_path = self.results_folder / f"model-{config.pretrained_milestone}.pt"
+            if not load_path.exists():
+                self.print_r0(
+                    f"> Checkpoint file {load_path} does not exist. `{config.pretrained_milestone=}` is invalid.",
+                )
+                return
+        elif "pretrained_ckpt_path" in config:
+            load_path = Path(config.pretrained_ckpt_path)
+            if not load_path.exists():
+                self.print_r0(
+                    f"> Checkpoint file {load_path} does not exist. Check the value of "
+                    f"`{config.pretrained_ckpt_path=}` for correctness.",
+                )
+                return
+        else:
+            return
 
-def setup_trainer(config, cpu=True):
-    experiment_primitives = setup_experiment(config, cpu=cpu)
-    if experiment_primitives is None:
-        return
+        self.print_r0(f"> Loading pretrained model state from {load_path}")
 
-    accelerator, cr, model, run_wandb = experiment_primitives
-    if "pretrained_ckpt_path" in config:
-        if not Path(config.pretrained_ckpt_path).is_file():
-            raise FileNotFoundError(f"{config.pretrained_ckpt_path=} does not exist.")
+        # Load the data
+        device = self.accelerator.device
+        data = torch.load(str(load_path), map_location=device, weights_only=False)
 
-        pretrained_state_dict = torch.load(config.pretrained_ckpt_path)["model"]
+        pretrained_state_dict = data["model"]
+
         filtered_pretrained_params = OrderedDict(
             filter(lambda param_tuple: "decoder" not in param_tuple[0], pretrained_state_dict.items()),
         )  # we drop the pretrained head and load all other params
 
+        # Unwrap model and restore parameters
+        model = self.accelerator.unwrap_model(self.model)
         model.load_state_dict(filtered_pretrained_params, strict=False)
+        # model.load_state_dict(data["model"])
 
-        if accelerator.is_main_process:
-            print(f">Finished loading pretrained params loaded from {config.pretrained_ckpt_path}")
+        self.load_trainer_state(data)
 
-    trainer = HeimdallTrainer(cfg=config, model=model, data=cr, accelerator=accelerator, run_wandb=run_wandb)
+        if self.accelerator.is_main_process:
+            print(f">Finished loading pretrained params loaded from {load_path}")
+
+
+def setup_trainer_generic(config, setup_model: Callable, cpu=True):
+    accelerator, cr, run_wandb, only_preprocess_data = setup_data(config)
+
+    if only_preprocess_data:
+        return
+
+    model = setup_model(config, cr, is_main_process=accelerator.is_main_process)
+    trainer = instantiate_from_config(
+        config.trainer,
+        cfg=config,
+        model=model,
+        data=cr,
+        accelerator=accelerator,
+        run_wandb=run_wandb,
+    )
+    trainer.load_pretrained()
 
     return trainer
+
+
+def setup_trainer(config, cpu=True):
+    return setup_trainer_generic(config, setup_model=setup_model, cpu=cpu)
+
+
+class PrecomputationContext:
+    ATTRIBUTES = ("save_precomputed", "get_precomputed", "run_wandb")
+
+    def __init__(
+        self,
+        trainer: HeimdallTrainer,
+        save_precomputed: bool,
+        get_precomputed: bool,
+        run_wandb: bool = False,
+    ):
+        self.trainer = trainer
+        self.save_precomputed = save_precomputed
+        self.get_precomputed = get_precomputed
+        self.run_wandb = run_wandb
+
+    def swap(self):
+        for attribute in self.ATTRIBUTES:
+            context_attr = getattr(self, attribute)
+            trainer_attr = getattr(self.trainer, attribute)
+            setattr(self.trainer, attribute, context_attr)
+            setattr(self, attribute, trainer_attr)
+
+    def __enter__(self):
+        self.swap()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # if self.trainer.save_precomputed and isinstance(trainer, PartitionedCellRepresentation):
+        #     self.trainer.data.partition = None
+
+        self.swap()
+
+        return False
+
+
+def clean_optimizer_state_for_current_model(saved_opt_sd: dict, optimizer: torch.optim.Optimizer, verbose: bool = True):
+    """Return a cleaned optimizer state_dict compatible with the given
+    `optimizer`.
+
+    - saved_opt_sd: the checkpoint["optimizer"] you loaded from disk
+    - optimizer: the optimizer instance that was created for the current model (and whose .param_groups define grouping)
+
+    """
+
+    saved_state = deepcopy(saved_opt_sd.get("state", {}))
+    saved_param_group_list = saved_opt_sd.get("param_groups", [])
+    if verbose:
+        print(
+            f"[opt_reload] saved state entries: {len(saved_state)}, saved param_groups: {len(saved_param_group_list)}",
+        )
+
+    # Build a list of the current parameters in the order of optimizer.param_groups
+    current_param_groups = optimizer.param_groups  # these have 'params' as param objects
+    current_params_flat = []
+    for g in current_param_groups:
+        for p in g["params"]:
+            current_params_flat.append(p)
+
+    # Prepare containers for new state and param_groups
+    new_state = {}
+    new_param_groups = []
+
+    # We'll mark which saved pids have been used (so we don't reuse them)
+    available_saved_pids = set(saved_state.keys())
+
+    # Helper to get a representative tensor from saved-state entry for shape check
+    def representative_tensor_from_state_entry(state_entry):
+        # typical keys: 'exp_avg', 'exp_avg_sq' (or for some optimizers 'momentum_buffer')
+        for v in state_entry.values():
+            if isinstance(v, torch.Tensor):
+                return v
+        return None
+
+    matched = 0
+    dropped = 0
+
+    # For each current param group, create a new group copying hyperparams but setting 'params' to ids
+    for group in current_param_groups:
+        # copy group hyperparams except params
+        new_group = {k: deepcopy(v) for k, v in group.items() if k != "params"}
+        new_group_param_ids = []
+
+        for param in group["params"]:
+            p_shape = param.shape
+            match_pid = None
+            match_state = None
+
+            # Find a saved PID with a representative tensor that matches the shape
+            for saved_pid in list(available_saved_pids):
+                state_entry = saved_state[saved_pid]
+                rep = representative_tensor_from_state_entry(state_entry)
+                if rep is None:
+                    # if no tensor in state entry, we can't compare shapes; skip
+                    continue
+                if tuple(rep.shape) == tuple(p_shape):
+                    match_pid = saved_pid
+                    match_state = state_entry
+                    break
+
+            if match_pid is not None:
+                # Assign saved state to this current parameter id
+                new_pid = id(param)
+                new_state[new_pid] = match_state
+                available_saved_pids.remove(match_pid)
+                new_group_param_ids.append(new_pid)
+                matched += 1
+            else:
+                # No matching saved state for this param (likely a newly initialized param)
+                new_group_param_ids.append(id(param))
+                dropped += 1
+
+        new_group["params"] = new_group_param_ids
+        new_param_groups.append(new_group)
+
+    if verbose:
+        print(f"[opt_reload] matched saved states -> {matched}")
+        print(f"[opt_reload] params without saved state (new) -> {dropped}")
+        print(f"[opt_reload] leftover saved states not matched -> {len(available_saved_pids)}")
+
+    cleaned_sd = {"state": new_state, "param_groups": new_param_groups}
+    # Copy over (safe) additional keys if present (like 'defaults') from the saved dict,
+    # but param_groups is the critical part that must match the current optimizer.
+    if "defaults" in saved_opt_sd:
+        cleaned_sd["defaults"] = deepcopy(saved_opt_sd["defaults"])
+
+    return cleaned_sd

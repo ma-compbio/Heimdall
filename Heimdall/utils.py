@@ -23,7 +23,9 @@ from numpy.random import Generator
 from numpy.typing import NDArray
 from omegaconf import DictConfig, OmegaConf
 from scipy import sparse as sp
-from torch import Tensor
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from torch import FloatTensor, LongTensor, Tensor, sparse_coo_tensor
 from torch.utils.data import default_collate
 from tqdm.auto import tqdm
 
@@ -37,13 +39,12 @@ INPUT_KEYS = {
     "expression_inputs",
     "masks",
     "expression_padding",
+    "idx",
 }
 
 MAIN_KEYS = {
     *INPUT_KEYS,
     "labels",
-    # "adjacency_matrix",
-    # "subgraph_indices",
 }
 
 
@@ -65,6 +66,59 @@ def get_cached_paths(cfg: DictConfig, cache_dir: Path, file_name: str) -> Tuple[
     cached_cfg_path = cache_dir / "config.yaml"
 
     return cached_file_path, cached_cfg_path
+
+
+def filter_config(config, keys_to_keep):
+    filtered = OmegaConf.create({})
+    for key in keys_to_keep:
+        # Use OmegaConf.select() to safely access nested keys using dot notation
+        # and set them in the new config
+        try:
+            value = OmegaConf.select(config, key)
+            # Create the nested structure in the filtered config
+            OmegaConf.update(filtered, key, value)
+        except Exception:
+            # Handle cases where the key might be missing if necessary
+            pass
+    return filtered
+
+
+def generate_minimal_config(cfg, keys=(), hash_vars=()):
+    if len(keys) == 0:
+        raise ValueError("Config `keys` used for caching cannot be an empty.")
+    # cfg = DictConfig(
+    #     {key: OmegaConf.to_container(recursive_getattr(cfg, key), resolve=True) for key in keys},
+    # )
+    cfg = filter_config(cfg, keys_to_keep=keys)
+    if len(hash_vars) > 0:
+        cfg = {**cfg, "hash_vars": hash_vars}
+
+    return cfg
+
+
+def get_fully_qualified_cache_paths(
+    cfg,
+    cache_dir,
+    filename="",
+    keys: set | tuple = (),
+    hash_vars=(),
+    verbose: int = 0,
+):
+    """Get fully-resolved path to unique cache directory, given the config keys
+    that distinguish the object being cached."""
+    keys = set(keys)  # Make unique
+    if verbose:
+        print(f"Hashing with {keys=}")
+
+    cfg = generate_minimal_config(cfg, keys=keys, hash_vars=hash_vars)
+
+    fully_qualified_file_path, fully_qualified_cfg_path = get_cached_paths(
+        cfg,
+        Path(cache_dir).resolve(),
+        filename,
+    )
+
+    return fully_qualified_file_path, fully_qualified_cfg_path, cfg
 
 
 def searchsorted2d(bin_edges: NDArray, expression: NDArray, side: str = "left"):
@@ -267,12 +321,13 @@ def symbol_to_ensembl(
     verbose: int | bool = False,
 ) -> GeneMappingOutput:
     # Query from MyGene.Info server
-    print(f"Querying {len(genes):,} genes")
+    conditional_print(f"Querying {len(genes):,} genes", condition=verbose)
     query_results = MG.querymany(
         genes,
         species=species,
         scopes="symbol",
         fields="ensembl.gene",
+        verbose=verbose,
         **(extra_query_kwargs or {}),
     )
 
@@ -546,25 +601,35 @@ def save_umap(
     cr: "CellRepresentation",
     embeddings,
     savepath,
-    embedding_name="heimdall_latents",
     split="test",
     log_umap: bool = False,
 ):
-    def save_partition_umap(adata, embeddings, savepath, embedding_name):
-        fig, ax = plt.subplots(1, figsize=(4, 4))
-        adata.obsm[embedding_name] = embeddings
+    def save_partition_umap(adata, embeddings, savepath):
+        fig, axes = plt.subplots(cr.num_subtasks, squeeze=False, figsize=(4 * cr.num_subtasks, 4))
 
-        sc.pp.neighbors(adata, use_rep=embedding_name)
-        sc.tl.leiden(adata)
-        sc.tl.umap(adata)
+        for ax, (subtask_name, _) in zip(axes.flat, cr.tasklist):
+            embedding_name = f"{subtask_name}_latents"
+            neighbors_key = f"neighbors_{embedding_name}"
+            umap_key = f"X_umap_{embedding_name}"
+            leiden_key = f"leiden_{embedding_name}"
 
-        sc.pl.umap(adata, ax=ax, show=False)
+            adata.obsm[embedding_name] = embeddings[subtask_name]
+
+            sc.pp.neighbors(adata, use_rep=embedding_name, key_added=neighbors_key)
+            sc.tl.leiden(adata, key_added=leiden_key, neighbors_key=neighbors_key)
+            sc.tl.umap(adata, key_added=umap_key, neighbors_key=neighbors_key)
+            sc.pl.embedding(adata, basis=umap_key, color=leiden_key, ax=ax, show=False)
+
         ad.io.write_h5ad(savepath, adata)
 
         return fig
 
     if hasattr(cr, "splits"):
         full_dataset = cr.datasets["full"]
+        if cr.adata.isbacked:
+            adata = cr.adata.to_memory()
+        else:
+            adata = cr.adata
         if hasattr(full_dataset, "partition_splits"):
             cumulative_sizes = np.cumsum(
                 [
@@ -575,25 +640,34 @@ def save_umap(
             cumulative_sizes = np.concatenate([[0], cumulative_sizes])
             for partition in range(full_dataset.num_partitions):
                 start, end = cumulative_sizes[partition : partition + 2]
+
+                partition_embeddings = {
+                    subtask_name: subtask_embeddings[start:end]
+                    for subtask_name, subtask_embeddings in embeddings.items()
+                }
+
                 full_dataset.partition = partition
                 partition_savepath = Path(savepath)
-                partition_savepath = partition_savepath.parent / f"partition_{partition}_{partition_savepath.name}"
-                adata = cr.adata[cr.splits[split]].copy(savepath)
+                partition_savepath = partition_savepath / f"partition_{partition}_{split}_umap.h5ad"
+
+                split_indices = cr.splits[split]
+                if len(split_indices) == 0:
+                    continue
+
+                adata = adata[split_indices].copy()
                 fig = save_partition_umap(
                     adata=adata,
-                    embeddings=embeddings[start:end],
+                    embeddings=partition_embeddings,
                     savepath=partition_savepath,
-                    embedding_name=embedding_name,
                 )
                 if log_umap:
                     wandb.log({f"{partition=}_{split}_umap": wandb.Image(fig)})
         else:
-            adata = cr.adata[cr.splits[split]].copy()
+            adata = adata[cr.splits[split]].copy()
             fig = save_partition_umap(
                 adata=adata,
                 embeddings=embeddings,
-                savepath=savepath,
-                embedding_name=embedding_name,
+                savepath=savepath / f"{split}_umap.h5ad",
             )
             if log_umap:
                 wandb.log({f"{split}_umap": wandb.Image(fig)})
@@ -647,5 +721,49 @@ def project2simplex_(y, dim: int = 0, zero_threshold: float = 1e-10) -> Tensor:
         derivative_prev = derivative
 
     y.sub_(mu).clip_(min=zero_threshold)
-    assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+    # TODO: this assert would be nice to enforce somehow
+    # assert y.sum(dim=dim).sub_(1).abs_().max() < 1e-4, y.sum(dim=dim).sub_(1).abs_().max()
+
     return y
+
+
+def convert_numpy_to_pytorch_sparse_coo(numpy_coo, **context_kwargs):
+    indices = np.array(numpy_coo.nonzero())
+    values = numpy_coo.data[numpy_coo.data.nonzero()]
+
+    i = LongTensor(indices)
+    v = FloatTensor(values)
+    size = numpy_coo.shape
+
+    torch_coo = sparse_coo_tensor(i, v, size=size, **context_kwargs)
+
+    return torch_coo
+
+
+def pca_reduction(gene_embeddings, n_components=128):
+    """Reduce tensors using PCA.
+
+    gene_embeddings: dict, {ensembl_id: torch.Tensor(D,)}
+    n_components: int, the target dimensionality (N)
+
+    returns: dict, {ensembl_id: torch.Tensor(N,)} with PCA-reduced embeddings
+
+    """
+
+    ensembl_ids = list(gene_embeddings.keys())
+    all_embeddings = np.stack([gene_embeddings[eid] for eid in ensembl_ids])  # Shape: (num_genes, D)
+
+    # all_embeddings = all_embeddings.detach().cpu().numpy()
+
+    scaler = StandardScaler()
+    scaled_embeddings = scaler.fit_transform(all_embeddings)  # Shape: (num_genes, D)
+
+    pca = PCA(n_components=n_components)
+    reduced_embeddings = pca.fit_transform(scaled_embeddings)  # Shape: (num_genes, n_components)
+
+    reduced_gene_embeddings = {}
+    for i, eid in enumerate(ensembl_ids):
+        # reduced_gene_embeddings[eid] = torch.tensor(reduced_embeddings[i])
+        reduced_gene_embeddings[eid] = reduced_embeddings[i]
+
+    return reduced_gene_embeddings

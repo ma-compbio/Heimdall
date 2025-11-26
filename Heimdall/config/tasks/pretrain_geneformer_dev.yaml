@@ -3,7 +3,7 @@ type: Heimdall.task.SeqMaskedMLMTask
 args:
   task_type: mlm
   label_obsm_name: mlm
-  metrics: [Accuracy, MatthewsCorrCoef]
+  metrics: []
   train_split: 0.95
   shuffle: true
   batchsize: 512

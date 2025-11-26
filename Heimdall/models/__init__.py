@@ -16,7 +16,7 @@ from Heimdall.models._models import (
     TransformerEncoder,
 )
 from Heimdall.models._reducers import AsymmetricConcatReducer, MeanReducer, SumReducer, SymmetricConcatReducer
-from Heimdall.models._setup import setup_accelerator, setup_experiment
+from Heimdall.models._setup import setup_model
 
 __all__ = [
     HeimdallModel.__name__,
@@ -36,6 +36,5 @@ __all__ = [
     MeanReducer.__name__,
     SymmetricConcatReducer.__name__,
     AsymmetricConcatReducer.__name__,
-    setup_experiment.__name__,
-    setup_accelerator.__name__,
+    setup_model.__name__,
 ]
