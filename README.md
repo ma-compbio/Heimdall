@@ -2,6 +2,7 @@
 
 [![Lint](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml/badge.svg)](https://github.com/gkrieg/Heimdall/actions/workflows/lint.yml)
 
+> :warning: **Demo notebooks for novel `Fg`, `Fe`, `Fc` construction, experiment pipeline, as well as data files will be available soon**
 
 # Installation
 
@@ -32,7 +33,7 @@ Make sure to edit the global file `config/global_vars.yaml` based on your set up
 
 # Sweeps
 
-`scripts/create_sweep.py`  has the arguments `--experiment-name` (the hydra experiment file name),  `--project-name` (W&B project name), `--fg` and `--fc` which are the names of the hydra configs. It is a short script that will load in `sweeps/base.yaml` and updates it appropriately, and creates a sweep argument and returns it. This can work in tandem with `deploy_sweep.sh` to submit multiple sweeps on SLURM systems.
+`scripts/create_sweep.py` has the arguments `--experiment-name` (the hydra experiment file name), `--project-name` (W&B project name), `--fg` and `--fc` which are the names of the hydra configs. It is a short script that will load in `sweeps/base.yaml` and updates it appropriately, and creates a sweep argument and returns it. This can work in tandem with `deploy_sweep.sh` to submit multiple sweeps on SLURM systems.
 
 ```
 python scripts/create_sweep.py --experiment-name cta_pancreas --project-name Pancreas-Celltype-Classification
@@ -142,7 +143,3 @@ line, e.g.,
 ```bash
 python train.py +experiments=cta_pancreas cache_preprocessed_dataset_dir=null
 ```
-
-## Distributed Pre-training
-
-When training on the oven cluster if you don't set `export NCCL_P2P_DISABLE=1` you can get the NCCL watchdog timeout errors.
